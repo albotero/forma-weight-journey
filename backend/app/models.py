@@ -1,0 +1,113 @@
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    profile: Mapped["UserProfile | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", uselist=False)
+    medications: Mapped[list["Medication"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan")
+    weights: Mapped[list["WeightMeasurement"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan")
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), unique=True)
+    birth_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    height_cm: Mapped[float] = mapped_column(Float, default=180)
+    initial_weight_kg: Mapped[float] = mapped_column(Float, default=106)
+    timezone: Mapped[str] = mapped_column(String(64), default="America/Bogota")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    user: Mapped[User] = relationship(back_populates="profile")
+
+
+class Medication(Base):
+    __tablename__ = "medications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(120), default="Tirzepatida")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    concentration_mg: Mapped[float] = mapped_column(Float, default=10)
+    concentration_volume_ml: Mapped[float] = mapped_column(Float, default=0.5)
+    units_per_ml: Mapped[float | None] = mapped_column(
+        Float, default=100, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    user: Mapped[User] = relationship(back_populates="medications")
+    doses: Mapped[list["Dose"]] = relationship(
+        back_populates="medication", cascade="all, delete-orphan")
+
+
+class Dose(Base):
+    __tablename__ = "doses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    medication_id: Mapped[int] = mapped_column(ForeignKey(
+        "medications.id", ondelete="CASCADE"), index=True)
+    administered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True)
+    dose_mg: Mapped[float] = mapped_column(Float)
+    calculated_volume_ml: Mapped[float] = mapped_column(Float)
+    calculated_u100_units: Mapped[float |
+                                  None] = mapped_column(Float, nullable=True)
+    injection_site: Mapped[str | None] = mapped_column(
+        String(80), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    medication: Mapped[Medication] = relationship(back_populates="doses")
+
+
+class WeightMeasurement(Base):
+    __tablename__ = "weight_measurements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), index=True)
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True)
+    weight_kg: Mapped[float] = mapped_column(Float)
+    source: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+    user: Mapped[User] = relationship(back_populates="weights")
+
+
+class BodyMeasurement(Base):
+    __tablename__ = "body_measurements"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), index=True)
+    measured_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True)
+    waist_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    neck_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    chest_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    abdomen_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hip_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    arm_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    thigh_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)

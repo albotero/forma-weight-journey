@@ -1,0 +1,15 @@
+.config-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.quick-option.coming-soon {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.quick-option.coming-soon small {
+  font-size: 9px;
+  color: var(--muted);
+}
