@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request
@@ -11,13 +12,32 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import engine
 from app.routers.api import limiter, router
+from app.telegram import configure_webhook, dispatch_due_reminders
+
+
+async def reminder_loop() -> None:
+    while True:
+        try:
+            await dispatch_due_reminders()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Reminder dispatch failed")
+        await asyncio.sleep(30)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     with engine.connect() as connection:
         connection.execute(text("SELECT 1"))
-    yield
+    await configure_webhook()
+    task = asyncio.create_task(reminder_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(

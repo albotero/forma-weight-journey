@@ -177,3 +177,19 @@ class RefreshSession(Base):
         DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
+
+
+class TelegramConnection(Base):
+    __tablename__ = "telegram_connections"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True)
+    chat_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True)
+    pairing_token_hash: Mapped[str | None] = mapped_column(
+        String(64), unique=True, nullable=True)
+    pairing_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    linked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)

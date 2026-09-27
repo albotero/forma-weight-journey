@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     storage_path: str = "./storage"
     timezone: str = "America/Bogota"
     cors_origins: str = "http://localhost:5173"
+    public_app_url: str = ""
+    telegram_bot_token: str = ""
+    telegram_bot_username: str = ""
+    telegram_webhook_secret: str = ""
 
 
 settings = Settings()

@@ -1,5 +1,6 @@
-from datetime import datetime
-from typing import Literal
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from typing import Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -10,12 +11,71 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=12, max_length=128)
 
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=12, max_length=128)
+
+
+class AccountOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    email: EmailStr
+    created_at: datetime
+
+
+class NumericPrecisionModel(BaseModel):
+    @model_validator(mode="before")
+    @classmethod
+    def at_most_two_decimal_places(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+
+        def validate_dynamic_numbers(item: object) -> None:
+            if isinstance(item, dict):
+                for nested in item.values():
+                    validate_dynamic_numbers(nested)
+            elif isinstance(item, (list, tuple)):
+                for nested in item:
+                    validate_dynamic_numbers(nested)
+            elif isinstance(item, (int, float)) and not isinstance(item, bool):
+                check_precision(item)
+
+        def check_precision(item: object) -> None:
+            try:
+                number = Decimal(str(item))
+            except (InvalidOperation, ValueError):
+                return
+            if number.is_finite() and max(0, -number.as_tuple().exponent) > 2:
+                raise ValueError(
+                    "Numeric values support at most two decimal places")
+
+        for name, item in value.items():
+            field = cls.model_fields.get(name)
+            if field is not None and (field.annotation is float or float in get_args(field.annotation)) and item is not None:
+                check_precision(item)
+            elif name == "data":
+                validate_dynamic_numbers(item)
+        return value
+
+    @model_validator(mode="after")
+    def past_measurements_only(self) -> "NumericPrecisionModel":
+        now = datetime.now(timezone.utc)
+        for name in ("measured_at", "administered_at"):
+            value = getattr(self, name, None)
+            if value is None:
+                continue
+            timestamp = value.replace(
+                tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+            if timestamp > now:
+                raise ValueError(f"{name} cannot be in the future")
+        return self
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
 
-class ProfileUpdate(BaseModel):
+class ProfileUpdate(NumericPrecisionModel):
     height_cm: float = Field(gt=0, le=260)
     initial_weight_kg: float = Field(gt=0, le=500)
     timezone: str = Field(default="America/Bogota", max_length=64)
@@ -30,13 +90,26 @@ class ProfileUpdate(BaseModel):
             raise ValueError("Unknown IANA timezone") from None
         return value
 
+    @field_validator("birth_date")
+    @classmethod
+    def valid_birth_date(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError:
+            raise ValueError("Birth date must use YYYY-MM-DD") from None
+        if parsed > date.today():
+            raise ValueError("Birth date cannot be in the future")
+        return parsed.isoformat()
+
 
 class ProfileOut(ProfileUpdate):
     model_config = ConfigDict(from_attributes=True)
     id: int
 
 
-class MedicationCreate(BaseModel):
+class MedicationCreate(NumericPrecisionModel):
     name: str = Field(default="Tirzepatida", min_length=1, max_length=120)
     active: bool = True
     concentration_mg: float = Field(gt=0, le=10000)
@@ -51,7 +124,7 @@ class MedicationOut(MedicationCreate):
     created_at: datetime
 
 
-class WeightCreate(BaseModel):
+class WeightCreate(NumericPrecisionModel):
     measured_at: datetime | None = None
     weight_kg: float = Field(gt=0, le=500)
     body_fat_percent: float | None = Field(default=None, ge=0, le=100)
@@ -76,7 +149,7 @@ class WeightOut(WeightCreate):
     created_at: datetime
 
 
-class DoseCreate(BaseModel):
+class DoseCreate(NumericPrecisionModel):
     medication_id: int
     administered_at: datetime | None = None
     dose_mg: float = Field(gt=0, le=1000)
@@ -97,7 +170,7 @@ class DoseOut(BaseModel):
     created_at: datetime
 
 
-class BodyMeasurementCreate(BaseModel):
+class BodyMeasurementCreate(NumericPrecisionModel):
     measured_at: datetime | None = None
     waist_cm: float | None = Field(default=None, gt=0, le=300)
     neck_cm: float | None = Field(default=None, gt=0, le=150)
@@ -125,7 +198,7 @@ JournalModule = Literal["symptoms", "activity",
                         "labs", "goals", "reviews", "reminders"]
 
 
-class JournalEntryCreate(BaseModel):
+class JournalEntryCreate(NumericPrecisionModel):
     module: JournalModule
     occurred_at: datetime | None = None
     title: str = Field(min_length=1, max_length=160)
@@ -151,3 +224,11 @@ class PhotoRecordOut(BaseModel):
 class PhotoUpdate(BaseModel):
     caption: str | None = Field(default=None, max_length=300)
     taken_at: datetime
+
+    @model_validator(mode="after")
+    def taken_at_is_not_future(self) -> "PhotoUpdate":
+        timestamp = self.taken_at.replace(
+            tzinfo=timezone.utc) if self.taken_at.tzinfo is None else self.taken_at.astimezone(timezone.utc)
+        if timestamp > datetime.now(timezone.utc):
+            raise ValueError("Photo date cannot be in the future")
+        return self

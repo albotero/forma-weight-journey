@@ -60,7 +60,16 @@ export type DoseEntry = {
   injection_site?: string | null
   notes?: string | null
 }
-export type Profile = { id: number; height_cm: number; initial_weight_kg: number; timezone: string }
+export type Profile = {
+  id: number
+  height_cm: number
+  initial_weight_kg: number
+  timezone: string
+  birth_date: string | null
+}
+export type Account = { email: string; created_at: string }
+export type TelegramConnection = { configured: boolean; linked: boolean; bot_username: string }
+export type TelegramPairing = { start_url: string; expires_at: string }
 
 export class ApiError extends Error {
   constructor(
@@ -134,12 +143,13 @@ export async function uploadPhoto(token: string, file: File, caption: string, ta
   form.set("file", file)
   form.set("caption", caption)
   form.set("taken_at", new Date(takenAt).toISOString())
-  const request = (accessToken: string) => fetch(`${API_URL}/photos`, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { Authorization: `Bearer ${accessToken}` },
-    body: form,
-  })
+  const request = (accessToken: string) =>
+    fetch(`${API_URL}/photos`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    })
   let response = await request(currentAccessToken ?? token)
   if (response.status === 401) {
     const refreshed = await refreshSession()
@@ -153,10 +163,11 @@ export async function uploadPhoto(token: string, file: File, caption: string, ta
 }
 
 export async function loadPhoto(token: string, photoId: number): Promise<string> {
-  const request = (accessToken: string) => fetch(`${API_URL}/photos/${photoId}/image`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-    credentials: "same-origin",
-  })
+  const request = (accessToken: string) =>
+    fetch(`${API_URL}/photos/${photoId}/image`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentials: "same-origin",
+    })
   let response = await request(currentAccessToken ?? token)
   if (response.status === 401) {
     const refreshed = await refreshSession()

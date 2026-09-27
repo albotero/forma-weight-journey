@@ -22,16 +22,20 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tracker}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       TIMEZONE: ${TIMEZONE:-America/Bogota}
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://forma.albotero.com}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://${APP_DOMAIN:-forma.albotero.com}}
       STORAGE_PATH: /data/storage
       COOKIE_DOMAIN: ${APP_DOMAIN:-forma.albotero.com}
       COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://${APP_DOMAIN:-forma.albotero.com}}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
     volumes:
       - ./storage:/data/storage
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [private]
+    networks: [private, egress]
 
   frontend:
     build:
@@ -68,4 +72,6 @@ volumes:
 networks:
   private:
     internal: true
+  egress:
+    driver: bridge
   edge:

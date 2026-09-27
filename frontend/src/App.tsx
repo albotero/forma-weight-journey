@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
   Activity,
+  UserRoundCog,
   ArrowDownRight,
   ArrowRight,
   Bell,
@@ -15,8 +16,10 @@ import {
   Gauge,
   HeartPulse,
   Home,
+  KeyRound,
   LineChart,
   LogOut,
+  Mail,
   Menu,
   Moon,
   MoreHorizontal,
@@ -39,12 +42,15 @@ import {
   refreshSession,
   uploadPhoto,
   type BodyMeasurementEntry,
+  type Account,
   type DoseEntry,
   type JournalEntry,
   type JournalModule,
   type Medication,
   type PhotoEntry,
   type Profile,
+  type TelegramConnection,
+  type TelegramPairing,
   type WeightEntry,
 } from "./api"
 
@@ -63,6 +69,7 @@ type Section =
   | "Recordatorios"
   | "Análisis"
   | "Historial"
+  | "Perfil y ajustes"
 type AuthMode = "login" | "register"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
@@ -81,16 +88,65 @@ const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Recordatorios", icon: Bell },
   { label: "Análisis", icon: LineChart },
   { label: "Historial", icon: Clock3 },
+  { label: "Perfil y ajustes", icon: UserRoundCog },
 ]
 const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
-const currentLocalDateTime = () => {
-  const now = new Date()
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
-}
-const dateTimeInputValue = (value: string) => {
+const formatDecimal = (value: number) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
+const formatDateTime = (value: string, timeZone = "America/Bogota") =>
+  new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value))
+const dateTimeInputValue = (value: string, timeZone = "America/Bogota") => {
   const date = new Date(value)
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date)
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`
+}
+const localDateTimeToIso = (value: string, timeZone = "America/Bogota") => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
+  if (!match) throw new Error("Selecciona una fecha y hora válidas.")
+  const [, year, month, day, hour, minute] = match.map(Number)
+  const desiredUtc = Date.UTC(year, month - 1, day, hour, minute)
+  let guess = desiredUtc
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(guess))
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]))
+    const representedUtc = Date.UTC(values.year, values.month - 1, values.day, values.hour, values.minute)
+    const correction = desiredUtc - representedUtc
+    guess += correction
+    if (correction === 0) break
+  }
+  const result = new Date(guess)
+  if (dateTimeInputValue(result.toISOString(), timeZone) !== value) {
+    throw new Error("La hora local no existe por un cambio de horario. Elige otra hora.")
+  }
+  return result.toISOString()
+}
+async function loadAllRecords<T>(path: string, token: string, pageSize = 500): Promise<T[]> {
+  const records: T[] = []
+  let offset = 0
+  while (true) {
+    const separator = path.includes("?") ? "&" : "?"
+    const page = await api<T[]>(`${path}${separator}limit=${pageSize}&offset=${offset}`, token)
+    records.push(...page)
+    if (page.length < pageSize) return records
+    offset += pageSize
+  }
 }
 const compositionFields = [
   ["body_fat_percent", "Grasa corporal", "%", 100, 0.1],
@@ -102,7 +158,7 @@ const compositionFields = [
   ["muscle_mass_kg", "Masa muscular", "kg", 500, 0.1],
   ["bone_mass_kg", "Masa ósea", "kg", 100, 0.1],
   ["protein_percent", "Proteína", "%", 100, 0.1],
-  ["bmr_kcal", "Metabolismo basal", "kcal", 20000, 1],
+  ["bmr_kcal", "Metabolismo basal", "kcal", 20000, 0.01],
   ["metabolic_age", "Edad metabólica", "años", 150, 1],
 ] as const
 
@@ -134,13 +190,13 @@ export default function App() {
       const [profileData, weightData, medicationData, doseData, measurementData, photoData, ...moduleEntries] =
         await Promise.all([
           api<Profile>("/profile", authToken),
-          api<WeightEntry[]>("/weights?limit=300", authToken),
+          loadAllRecords<WeightEntry>("/weights", authToken),
           api<Medication[]>("/medications", authToken),
-          api<DoseEntry[]>("/doses?limit=100", authToken),
-          api<BodyMeasurementEntry[]>("/body-measurements?limit=100", authToken),
+          loadAllRecords<DoseEntry>("/doses", authToken),
+          loadAllRecords<BodyMeasurementEntry>("/body-measurements", authToken),
           api<PhotoEntry[]>("/photos", authToken),
           ...(["symptoms", "activity", "labs", "goals", "reviews", "reminders"] as const).map((module) =>
-            api<JournalEntry[]>(`/entries/${module}`, authToken),
+            loadAllRecords<JournalEntry>(`/entries/${module}`, authToken),
           ),
         ])
       setProfile(profileData)
@@ -182,7 +238,10 @@ export default function App() {
     () => [...weights].sort((a, b) => a.measured_at.localeCompare(b.measured_at)),
     [weights],
   )
-  const currentWeight = sortedWeights.at(-1)?.weight_kg
+  const latestWeightEntry = [...sortedWeights]
+    .filter((item) => new Date(item.measured_at).getTime() <= Date.now())
+    .at(-1)
+  const currentWeight = latestWeightEntry?.weight_kg
   const startingWeight = profile?.initial_weight_kg ?? 106
   const loss = currentWeight === undefined ? 0 : startingWeight - currentWeight
   const lossPercent = currentWeight === undefined ? 0 : (loss / startingWeight) * 100
@@ -195,11 +254,17 @@ export default function App() {
       range === "30 días" ? 30 : range === "90 días" ? 90 : range === "6 meses" ? 183 : range === "1 año" ? 365 : 10000
     const cutoff = Date.now() - days * 86400000
     return sortedWeights
-      .filter((item) => new Date(item.measured_at).getTime() >= cutoff)
+      .filter((item) => {
+        const timestamp = new Date(item.measured_at).getTime()
+        return timestamp >= cutoff && timestamp <= Date.now()
+      })
       .map((item) => ({ date: formatDate(item.measured_at, userTimezone), peso: item.weight_kg }))
   }, [sortedWeights, range, userTimezone])
   const average7 = useMemo(() => {
-    const recent = sortedWeights.filter((item) => Date.now() - new Date(item.measured_at).getTime() <= 7 * 86400000)
+    const recent = sortedWeights.filter((item) => {
+      const elapsed = Date.now() - new Date(item.measured_at).getTime()
+      return elapsed >= 0 && elapsed <= 7 * 86400000
+    })
     return recent.length ? recent.reduce((sum, item) => sum + item.weight_kg, 0) / recent.length : null
   }, [sortedWeights])
   const goals = [5, 10, 15, 20].map((percent) => ({ percent, weight: startingWeight * (1 - percent / 100) }))
@@ -226,7 +291,7 @@ export default function App() {
       method: id ? "PUT" : "POST",
       body: JSON.stringify({
         weight_kg: weight,
-        measured_at: new Date(dateTime).toISOString(),
+        measured_at: localDateTimeToIso(dateTime, userTimezone),
         source: "Web",
         notes: notes || null,
         ...composition,
@@ -244,7 +309,7 @@ export default function App() {
       body: JSON.stringify({
         medication_id: targetMedicationId,
         dose_mg: mg,
-        administered_at: new Date(dateTime).toISOString(),
+        administered_at: localDateTimeToIso(dateTime, userTimezone),
         injection_site: injectionSite || null,
       }),
     })
@@ -379,7 +444,7 @@ export default function App() {
               <button onClick={() => token && void refresh(token)}>Reintentar</button>
             </div>
           )}
-          {section === "Inicio" || section === "Peso" || section === "Análisis" ? (
+          {section === "Inicio" || section === "Peso" ? (
             <>
               <section className="welcome-row">
                 <div>
@@ -410,11 +475,11 @@ export default function App() {
                 <MetricCard
                   label="PESO ACTUAL"
                   icon={<Scale size={18} />}
-                  value={currentWeight ? currentWeight.toFixed(1) : "—"}
+                  value={currentWeight ? formatDecimal(currentWeight) : "—"}
                   unit="kg"
                   foot={
                     currentWeight
-                      ? `Último registro · ${formatDate(sortedWeights.at(-1)!.measured_at, userTimezone)}`
+                      ? `Último registro · ${formatDate(latestWeightEntry!.measured_at, userTimezone)}`
                       : "Aún no hay registros"
                   }
                   accent="green"
@@ -422,7 +487,7 @@ export default function App() {
                 <MetricCard
                   label="CAMBIO TOTAL"
                   icon={<TrendingDown size={18} />}
-                  value={currentWeight ? `${loss > 0 ? "−" : "+"}${Math.abs(loss).toFixed(1)}` : "—"}
+                  value={currentWeight ? `${loss > 0 ? "−" : "+"}${formatDecimal(Math.abs(loss))}` : "—"}
                   unit="kg"
                   foot={
                     currentWeight
@@ -434,7 +499,7 @@ export default function App() {
                 <MetricCard
                   label="PROMEDIO · 7 DÍAS"
                   icon={<LineChart size={18} />}
-                  value={average7 ? average7.toFixed(1) : "—"}
+                  value={average7 ? formatDecimal(average7) : "—"}
                   unit={average7 ? "kg" : ""}
                   foot={average7 ? "Promedio de tus registros recientes" : "Registra tu peso para ver la tendencia"}
                   accent="purple"
@@ -501,7 +566,7 @@ export default function App() {
                               background: "var(--panel)",
                               color: "var(--text)",
                             }}
-                            formatter={(value) => [`${Number(value).toFixed(1)} kg`, "Peso"]}
+                            formatter={(value) => [`${formatDecimal(Number(value))} kg`, "Peso"]}
                             labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
                           />
                           <Area
@@ -606,7 +671,7 @@ export default function App() {
                         </div>
                         <div className="goal-info">
                           <div className="goal-line">
-                            <strong>{weight.toFixed(1)} kg</strong>
+                            <strong>{formatDecimal(weight)} kg</strong>
                             <span>{currentWeight ? `${Math.round(progress(weight))}%` : "Por comenzar"}</span>
                           </div>
                           <div className="progress-track">
@@ -640,7 +705,7 @@ export default function App() {
                           id: `w${item.id}`,
                           kind: "weight" as const,
                           date: item.measured_at,
-                          text: `${item.weight_kg.toFixed(1)} kg`,
+                          text: `${formatDecimal(item.weight_kg)} kg`,
                           sub: "Peso registrado",
                         })),
                         ...doses.map((item) => ({
@@ -687,6 +752,14 @@ export default function App() {
                 </button>
               </div>
             </>
+          ) : section === "Perfil y ajustes" ? (
+            <AccountSettings
+              token={token}
+              onRefresh={() => refresh(token)}
+              onProfileUpdated={setProfile}
+              onPasswordChanged={logout}
+              onError={setError}
+            />
           ) : (
             <ModuleWorkspace
               section={section}
@@ -698,6 +771,7 @@ export default function App() {
               entries={journalEntries}
               photos={photos}
               profile={profile}
+              onNavigate={(target) => setSection(target)}
               onRefresh={() => refresh(token)}
               onError={setError}
               onNewWeight={() => setModal("weight")}
@@ -760,6 +834,7 @@ export default function App() {
         <WeightModal
           key={editingWeight?.id ?? "new-weight"}
           entry={editingWeight ?? undefined}
+          timezone={userTimezone}
           onClose={() => {
             setModal(null)
             setEditingWeight(null)
@@ -771,6 +846,7 @@ export default function App() {
         <DoseModal
           key={editingDose?.id ?? "new-dose"}
           entry={editingDose ?? undefined}
+          timezone={userTimezone}
           onClose={() => {
             setModal(null)
             setEditingDose(null)
@@ -830,6 +906,330 @@ function MetricCard({
         {foot}
       </div>
     </article>
+  )
+}
+
+function AccountSettings({
+  token,
+  onRefresh,
+  onProfileUpdated,
+  onPasswordChanged,
+  onError,
+}: {
+  token: string
+  onRefresh: () => Promise<void>
+  onProfileUpdated: (profile: Profile) => void
+  onPasswordChanged: () => void
+  onError: (message: string) => void
+}) {
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [account, setAccount] = useState<Account | null>(null)
+  const [telegram, setTelegram] = useState<TelegramConnection | null>(null)
+  const [pairingUrl, setPairingUrl] = useState("")
+  const [loading, setLoading] = useState(true)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [savingPassword, setSavingPassword] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([
+      api<Profile>("/profile", token),
+      api<Account>("/account", token),
+      api<TelegramConnection>("/telegram/connection", token),
+    ])
+      .then(([profileData, accountData, telegramData]) => {
+        if (!active) return
+        setProfile(profileData)
+        setAccount(accountData)
+        setTelegram(telegramData)
+      })
+      .catch((reason: Error) => onError(reason.message))
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [token, onError])
+
+  useEffect(() => {
+    if (!pairingUrl || telegram?.linked) return
+    const timer = window.setInterval(() => {
+      void api<TelegramConnection>("/telegram/connection", token)
+        .then(setTelegram)
+        .catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [pairingUrl, telegram?.linked, token])
+
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const values = new FormData(event.currentTarget)
+    setSavingProfile(true)
+    setError("")
+    setSuccess("")
+    try {
+      const updated = await api<Profile>("/profile", token, {
+        method: "PUT",
+        body: JSON.stringify({
+          height_cm: Number(values.get("height_cm")),
+          initial_weight_kg: Number(values.get("initial_weight_kg")),
+          timezone: String(values.get("timezone")),
+          birth_date: values.get("birth_date") ? String(values.get("birth_date")) : null,
+        }),
+      })
+      setProfile(updated)
+      onProfileUpdated(updated)
+      await onRefresh()
+      setSuccess("Perfil actualizado.")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el perfil.")
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  async function changePassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    const currentPassword = String(values.get("current_password"))
+    const newPassword = String(values.get("new_password"))
+    if (newPassword !== String(values.get("confirm_password"))) {
+      setError("La confirmación no coincide con la nueva contraseña.")
+      return
+    }
+    setSavingPassword(true)
+    setError("")
+    setSuccess("")
+    try {
+      await api<void>("/auth/password", token, {
+        method: "PUT",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      })
+      setSuccess(
+        "Contraseña actualizada. Se revocaron las sesiones persistentes; inicia sesión de nuevo. Los tokens de acceso ya emitidos pueden seguir vigentes hasta 30 minutos.",
+      )
+      window.setTimeout(onPasswordChanged, 1200)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo cambiar la contraseña.")
+      setSavingPassword(false)
+    }
+  }
+
+  async function linkTelegram() {
+    setError("")
+    try {
+      const pairing = await api<TelegramPairing>("/telegram/connection", token, { method: "POST" })
+      setPairingUrl(pairing.start_url)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo generar el enlace Telegram.")
+    }
+  }
+
+  async function unlinkTelegram() {
+    if (!window.confirm("¿Desvincular Telegram de esta cuenta? Dejarás de recibir avisos por ese chat.")) return
+    try {
+      await api<void>("/telegram/connection", token, { method: "DELETE" })
+      setPairingUrl("")
+      setTelegram((current) => (current ? { ...current, linked: false } : current))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo desvincular Telegram.")
+    }
+  }
+
+  const timezones = [
+    "America/Bogota",
+    "America/Lima",
+    "America/Mexico_City",
+    "America/Santiago",
+    "America/Buenos_Aires",
+    "America/New_York",
+    "Europe/Madrid",
+    "UTC",
+  ]
+
+  return (
+    <section className="module-page account-page">
+      <div className="module-heading">
+        <div>
+          <div className="eyebrow">CUENTA PRIVADA</div>
+          <h1>Perfil y ajustes</h1>
+        </div>
+      </div>
+      {loading ? (
+        <div className="loading-screen" role="status">
+          Cargando ajustes…
+        </div>
+      ) : (
+        <>
+          <div className="account-card account-identity">
+            <div className="account-card-icon">
+              <Mail size={18} />
+            </div>
+            <div>
+              <span>Correo de acceso</span>
+              <strong>{account?.email ?? "No disponible"}</strong>
+              {account && <small>Cuenta creada el {formatDate(account.created_at)}</small>}
+            </div>
+          </div>
+
+          <div className="account-settings-grid">
+            <section className="account-card">
+              <div className="account-card-heading">
+                <div>
+                  <h2>Datos de perfil</h2>
+                  <p>Se usan para contextualizar tus registros y mostrar fechas locales.</p>
+                </div>
+              </div>
+              {profile && (
+                <form className="entry-form account-form" onSubmit={saveProfile}>
+                  <div className="form-two-columns">
+                    <label>
+                      Altura (cm)
+                      <input
+                        name="height_cm"
+                        type="number"
+                        min="1"
+                        max="260"
+                        step="0.01"
+                        defaultValue={profile.height_cm}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Peso inicial (kg)
+                      <input
+                        name="initial_weight_kg"
+                        type="number"
+                        min="1"
+                        max="500"
+                        step="0.01"
+                        defaultValue={profile.initial_weight_kg}
+                        required
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Fecha de nacimiento <span className="optional">opcional</span>
+                    <input name="birth_date" type="date" defaultValue={profile.birth_date ?? ""} />
+                  </label>
+                  <label>
+                    Zona horaria
+                    <select name="timezone" defaultValue={profile.timezone}>
+                      {!timezones.includes(profile.timezone) && (
+                        <option value={profile.timezone}>{profile.timezone}</option>
+                      )}
+                      {timezones.map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="form-actions">
+                    <button className="primary-button" disabled={savingProfile}>
+                      {savingProfile ? "Guardando…" : "Guardar perfil"}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </section>
+
+            <section className="account-card">
+              <div className="account-card-heading">
+                <div>
+                  <h2>Seguridad</h2>
+                  <p>Elige una contraseña única de al menos 12 caracteres.</p>
+                </div>
+                <KeyRound size={19} />
+              </div>
+              <form className="entry-form account-form" onSubmit={changePassword}>
+                <label>
+                  Contraseña actual
+                  <input name="current_password" type="password" autoComplete="current-password" required />
+                </label>
+                <label>
+                  Nueva contraseña
+                  <input
+                    name="new_password"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                  />
+                </label>
+                <label>
+                  Confirmar nueva contraseña
+                  <input
+                    name="confirm_password"
+                    type="password"
+                    autoComplete="new-password"
+                    minLength={12}
+                    maxLength={128}
+                    required
+                  />
+                </label>
+                <div className="form-actions">
+                  <button className="primary-button" disabled={savingPassword}>
+                    {savingPassword ? "Actualizando…" : "Cambiar contraseña"}
+                  </button>
+                </div>
+              </form>
+            </section>
+
+            <section className="account-card account-telegram-card">
+              <div className="account-card-heading">
+                <div>
+                  <h2>Telegram para recordatorios</h2>
+                  <p>El vínculo se hace con tu chat privado, no necesitas compartir tu número telefónico.</p>
+                </div>
+                <Bell size={19} />
+              </div>
+              <div className="telegram-account-status">
+                <span className={`record-status ${telegram?.linked ? "active" : ""}`}>
+                  {telegram?.linked ? "Telegram conectado" : "Telegram no conectado"}
+                </span>
+                {telegram?.bot_username && <span>Bot: @{telegram.bot_username}</span>}
+              </div>
+              <p className="module-hint">
+                Para vincularlo, abre Telegram desde el enlace temporal y pulsa Iniciar. El bot no solicita ni almacena
+                tu número telefónico.
+              </p>
+              {telegram?.linked ? (
+                <button className="small-action danger" onClick={() => void unlinkTelegram()}>
+                  Desvincular Telegram
+                </button>
+              ) : (
+                <button className="outline-button" disabled={!telegram?.configured} onClick={() => void linkTelegram()}>
+                  {telegram?.configured
+                    ? "Vincular cuenta de Telegram"
+                    : "Telegram no configurado por el administrador"}
+                </button>
+              )}
+              {pairingUrl && (
+                <a className="telegram-link" href={pairingUrl} target="_blank" rel="noreferrer">
+                  Abrir Telegram para confirmar el vínculo
+                </a>
+              )}
+            </section>
+          </div>
+        </>
+      )}
+      {error && (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="success-banner" role="status">
+          {success}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -947,6 +1347,431 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
   )
 }
 
+function AnalysisWorkspace({
+  weights,
+  profile,
+  doses,
+  measurements,
+  medications,
+  entries,
+  photos,
+  onNavigate,
+}: {
+  weights: WeightEntry[]
+  profile: Profile | null
+  doses: DoseEntry[]
+  measurements: BodyMeasurementEntry[]
+  medications: Medication[]
+  entries: JournalEntry[]
+  photos: PhotoEntry[]
+  onNavigate: (target: Section) => void
+}) {
+  const now = Date.now()
+  const isWithinDays = (date: string, days: number) => {
+    const elapsed = now - new Date(date).getTime()
+    return elapsed >= 0 && elapsed <= days * 86400000
+  }
+  const pastMeasurements = measurements.filter((item) => new Date(item.measured_at).getTime() <= now)
+  const pastDoses = doses.filter((item) => new Date(item.administered_at).getTime() <= now)
+  const pastPhotos = photos.filter((item) => new Date(item.taken_at).getTime() <= now)
+  const pastEntries = entries.filter((item) => new Date(item.occurred_at).getTime() <= now)
+  const pastWeights = weights.filter((item) => new Date(item.measured_at).getTime() <= now)
+  const latest = pastWeights.at(-1)
+  const previous = pastWeights.at(-2)
+  const recent = pastWeights.filter((item) => isWithinDays(item.measured_at, 7))
+  const average = recent.length ? recent.reduce((sum, item) => sum + item.weight_kg, 0) / recent.length : null
+  const elapsedDays =
+    latest && previous
+      ? (new Date(latest.measured_at).getTime() - new Date(previous.measured_at).getTime()) / 86400000
+      : 0
+  const weeklyChange =
+    latest && previous && elapsedDays > 0 ? ((latest.weight_kg - previous.weight_kg) / elapsedDays) * 7 : null
+  const monthlyWeights = pastWeights.filter((item) => isWithinDays(item.measured_at, 28))
+  const monthlyTrend =
+    monthlyWeights.length >= 2 ? monthlyWeights.at(-1)!.weight_kg - monthlyWeights[0].weight_kg : null
+  const monthlyTrendSummary =
+    monthlyTrend == null
+      ? "No hay al menos dos registros de peso en las últimas 4 semanas para estimar una tendencia."
+      : `La tendencia de peso durante las últimas 4 semanas es de ${monthlyTrend < 0 ? "−" : monthlyTrend > 0 ? "+" : ""}${formatDecimal(Math.abs(monthlyTrend))} kg.`
+  const recentDoses = [...pastDoses].sort((a, b) => b.administered_at.localeCompare(a.administered_at))
+  const currentDose = recentDoses[0]
+  const doseSequence = currentDose
+    ? recentDoses.slice(
+        0,
+        recentDoses.findIndex(
+          (item) => item.medication_id !== currentDose.medication_id || item.dose_mg !== currentDose.dose_mg,
+        ) < 0
+          ? recentDoses.length
+          : recentDoses.findIndex(
+              (item) => item.medication_id !== currentDose.medication_id || item.dose_mg !== currentDose.dose_mg,
+            ),
+      )
+    : []
+  const doseStartedAt = doseSequence.at(-1)?.administered_at
+  const doseDays = doseStartedAt ? Math.max(0, (now - new Date(doseStartedAt).getTime()) / 86400000) : 0
+  const symptoms = pastEntries.filter((entry) => entry.module === "symptoms")
+  const doseSymptoms = symptoms.filter(
+    (entry) =>
+      currentDose &&
+      new Date(entry.occurred_at).getTime() >= new Date(doseStartedAt ?? currentDose.administered_at).getTime(),
+  )
+  const concerningSymptoms = doseSymptoms.filter((entry) => {
+    const intensity = Number(entry.data.severity ?? 0)
+    const tolerance = String(entry.data.tolerance ?? "")
+    return intensity >= 5 || tolerance === "Con molestias moderadas" || tolerance === "Con molestias importantes"
+  })
+  const hasGastrointestinalSymptoms = concerningSymptoms.some(
+    (entry) => entry.data.symptom_category === "Gastrointestinal",
+  )
+  const goodToleranceRecorded = doseSymptoms.some((entry) => entry.data.tolerance === "Buena")
+  const doseMedication = currentDose && medications.find((item) => item.id === currentDose.medication_id)
+  const compositionChanges =
+    previous && latest
+      ? compositionFields.flatMap(([key, label, unit]) => {
+          const current = latest[key]
+          const before = previous[key]
+          return current == null || before == null ? [] : [{ label, unit, current, change: current - before }]
+        })
+      : []
+  const chart = pastWeights.map((item) => ({
+    date: formatDate(item.measured_at, profile?.timezone),
+    peso: item.weight_kg,
+  }))
+  const labEntries = pastEntries.filter((entry) => entry.module === "labs")
+  const reviewEntries = pastEntries.filter((entry) => entry.module === "reviews")
+  const recentSymptoms = symptoms.filter((entry) => isWithinDays(entry.occurred_at, 7))
+  const weeklyCheckIn = recentSymptoms.find((entry) => entry.data.appetite != null && entry.data.satiety != null)
+  const currentWaist = pastMeasurements.some((item) => item.waist_cm != null)
+  const recentWaist = pastMeasurements.some((item) => item.waist_cm != null && isWithinDays(item.measured_at, 28))
+  const hasBaselineLabs = labEntries.some((entry) => entry.data.phase === "Basal")
+  const hasPeriodicLabs = labEntries.some((entry) => entry.data.phase === "Seguimiento")
+  const hasRelevantHistory = reviewEntries.some((entry) => String(entry.data.relevant_history ?? "").trim())
+  const hasRecentTreatmentReview = reviewEntries.some(
+    (entry) => entry.data.review_type === "Tratamiento" && isWithinDays(entry.occurred_at, 90),
+  )
+  const checklistGroups = [
+    {
+      title: "Antes de iniciar",
+      subtitle:
+        "Punto de partida para conversar con tu equipo; tener datos guardados no valida si están vigentes o si es clínicamente adecuado iniciar.",
+      tasks: [
+        { label: "Peso inicial", done: pastWeights.length > 0, target: "Peso" as Section },
+        { label: "Cintura", done: currentWaist, target: "Medidas" as Section },
+        {
+          label: "Presión arterial",
+          done: labEntries.some(
+            (entry) => entry.data.systolic_pressure != null && entry.data.diastolic_pressure != null,
+          ),
+          target: "Laboratorios" as Section,
+        },
+        {
+          label: "Revisar y confirmar medicamentos actuales",
+          done: false,
+          target: "Medicación" as Section,
+        },
+        { label: "Antecedentes relevantes", done: hasRelevantHistory, target: "Revisiones" as Section },
+        {
+          label: "Laboratorio basal según indicación clínica",
+          done: hasBaselineLabs,
+          target: "Laboratorios" as Section,
+        },
+      ],
+    },
+    {
+      title: "Cada semana",
+      subtitle: "Seguimiento de los últimos 7 días.",
+      tasks: [
+        {
+          label: "Peso",
+          done: pastWeights.some((item) => isWithinDays(item.measured_at, 7)),
+          target: "Peso" as Section,
+        },
+        {
+          label: "Dosis registrada",
+          done: pastDoses.some((item) => isWithinDays(item.administered_at, 7)),
+          target: "Medicación" as Section,
+        },
+        { label: "Apetito y saciedad", done: Boolean(weeklyCheckIn), target: "Síntomas" as Section },
+        {
+          label: "Síntomas y tolerancia",
+          done: recentSymptoms.some((entry) => entry.data.severity != null || entry.data.tolerance != null),
+          target: "Síntomas" as Section,
+        },
+        {
+          label: "Hidratación",
+          done: recentSymptoms.some((entry) => entry.data.hydration_l != null),
+          target: "Síntomas" as Section,
+        },
+        {
+          label: "Actividad",
+          done: pastEntries.some((entry) => entry.module === "activity" && isWithinDays(entry.occurred_at, 7)),
+          target: "Actividad" as Section,
+        },
+      ],
+    },
+    {
+      title: "Cada 4 semanas",
+      subtitle: "Revisa cambios y contexto del último periodo de 28 días.",
+      tasks: [
+        {
+          label: "Peso y tendencia",
+          done: monthlyTrend != null,
+          detail:
+            monthlyTrend == null
+              ? undefined
+              : `${monthlyTrend > 0 ? "+" : ""}${formatDecimal(monthlyTrend)} kg en 28 días`,
+          target: "Peso" as Section,
+        },
+        { label: "Cintura", done: recentWaist, target: "Medidas" as Section },
+        {
+          label: "Fotografías",
+          done: pastPhotos.some((item) => isWithinDays(item.taken_at, 28)),
+          target: "Fotos" as Section,
+        },
+        {
+          label: "Composición corporal",
+          done: monthlyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
+          target: "Composición" as Section,
+        },
+        {
+          label: "Síntomas y tolerancia",
+          done: symptoms.some(
+            (entry) =>
+              isWithinDays(entry.occurred_at, 28) && (entry.data.severity != null || entry.data.tolerance != null),
+          ),
+          target: "Síntomas" as Section,
+        },
+        {
+          label: "Dosis actual y tiempo desde el primer registro",
+          done: Boolean(currentDose),
+          detail: currentDose && doseStartedAt ? `${formatDecimal(doseDays / 7)} semanas según registros` : undefined,
+          target: "Medicación" as Section,
+        },
+        {
+          label: "Revisión de objetivos",
+          done: pastEntries.some((entry) => entry.module === "goals" && isWithinDays(entry.occurred_at, 28)),
+          target: "Objetivos" as Section,
+        },
+      ],
+    },
+    {
+      title: "Periódicamente, según indicación clínica",
+      subtitle: "La frecuencia y las pruebas se acuerdan con tu profesional de salud.",
+      tasks: [
+        { label: "Laboratorios según situación clínica", done: hasPeriodicLabs, target: "Laboratorios" as Section },
+        { label: "Revisión reciente del tratamiento (3 meses)", done: hasRecentTreatmentReview, target: "Revisiones" as Section },
+      ],
+    },
+  ]
+  const recommendation = !currentDose
+    ? {
+        title: "Seguimiento de dosis",
+        message:
+          "Aún no hay dosis registradas. Añade tus registros para mostrar un resumen descriptivo de tiempo y tolerancia.",
+        caution: false,
+      }
+    : concerningSymptoms.length
+      ? {
+          title: "Precaución",
+          message: `${hasGastrointestinalSymptoms ? "Se registraron síntomas gastrointestinales" : `Hay ${concerningSymptoms.length === 1 ? "un registro" : `${concerningSymptoms.length} registros`} de síntomas`} durante el periodo de la dosis actual con intensidad de 5/10 o más, o tolerancia percibida con molestias moderadas/importantes. ${monthlyTrendSummary} Conviene revisar tolerancia, hidratación y evolución con un profesional de salud antes de considerar cualquier cambio.`,
+          caution: true,
+        }
+      : doseDays >= 28 && goodToleranceRecorded
+        ? {
+            title: "Revisión de dosis",
+            message: `La misma dosis aparece registrada desde hace ${formatDecimal(doseDays / 7)} semanas. Se registró tolerancia percibida como buena y no aparecen síntomas de intensidad 5/10 o más en este periodo. ${monthlyTrendSummary} Considera revisar la respuesta y la tolerancia con tu profesional de salud antes de realizar cualquier cambio de dosis.`,
+            caution: false,
+          }
+        : doseDays >= 28
+          ? {
+              title: "Revisión de seguimiento",
+              message: `La misma dosis aparece en los registros desde hace ${formatDecimal(doseDays / 7)} semanas. La tolerancia no está documentada como buena; la ausencia de síntomas registrados no confirma que no los haya. ${monthlyTrendSummary} Considera revisar respuesta y tolerancia con tu profesional de salud antes de cualquier cambio.`,
+              caution: false,
+            }
+          : {
+              title: "Seguimiento de dosis",
+              message: `Hay ${formatDecimal(doseDays / 7)} semanas entre el primer registro disponible de esta dosis y hoy. Estos datos son descriptivos y no indican cuándo cambiarla; revisa cualquier decisión con tu profesional de salud.`,
+              caution: false,
+            }
+
+  return (
+    <section className="module-page">
+      <div className="module-heading">
+        <div>
+          <div className="eyebrow">RESUMEN DESCRIPTIVO</div>
+          <h1>Análisis</h1>
+        </div>
+      </div>
+      <p className="module-hint">
+        Comparaciones basadas en tus registros. El checklist orienta qué datos podrías revisar con tu equipo de salud;
+        no determina si estás listo para iniciar o cambiar un tratamiento.
+      </p>
+      <div className="metric-grid analysis-metrics">
+        <MetricCard
+          label="REGISTROS DE PESO"
+          icon={<Scale size={18} />}
+          value={String(pastWeights.length)}
+          unit=""
+          foot="Lecturas guardadas"
+          accent="green"
+        />
+        <MetricCard
+          label="PROMEDIO · 7 DÍAS"
+          icon={<LineChart size={18} />}
+          value={average == null ? "—" : formatDecimal(average)}
+          unit={average == null ? "" : "kg"}
+          foot={`${recent.length} ${recent.length === 1 ? "registro" : "registros"} recientes`}
+          accent="blue"
+        />
+        <MetricCard
+          label="CAMBIO SEMANAL ESTIMADO"
+          icon={<TrendingDown size={18} />}
+          value={weeklyChange == null ? "—" : `${weeklyChange > 0 ? "+" : ""}${formatDecimal(weeklyChange)}`}
+          unit={weeklyChange == null ? "" : "kg/sem"}
+          foot="Entre las dos lecturas más recientes"
+          accent="purple"
+        />
+        <MetricCard
+          label="ÚLTIMO PESO"
+          icon={<Activity size={18} />}
+          value={latest ? formatDecimal(latest.weight_kg) : "—"}
+          unit={latest ? "kg" : ""}
+          foot={latest ? formatDate(latest.measured_at, profile?.timezone) : "Aún no hay datos"}
+          accent="amber"
+        />
+      </div>
+      <section className="followup-section" aria-labelledby="followup-title">
+        <div className="followup-heading">
+          <div>
+            <div className="eyebrow">ORGANIZA TU SEGUIMIENTO</div>
+            <h2 id="followup-title">Checklist contextual</h2>
+          </div>
+          <span>El estado se actualiza con tus registros</span>
+        </div>
+        <div className="followup-grid">
+          {checklistGroups.map((group) => (
+            <article className="followup-card" key={group.title}>
+              <div className="followup-card-heading">
+                <div>
+                  <h3>{group.title}</h3>
+                  <p>{group.subtitle}</p>
+                </div>
+                <span className="followup-count">
+                  {group.tasks.filter((task) => task.done).length}/{group.tasks.length}
+                </span>
+              </div>
+              <ul className="followup-list">
+                {group.tasks.map((task) => (
+                  <li key={task.label} className={task.done ? "complete" : "pending"}>
+                    <span className="followup-status" aria-label={task.done ? "Registrado" : "Pendiente"}>
+                      {task.done ? <Check size={14} /> : <span />}
+                    </span>
+                    <div className="followup-task-copy">
+                      <strong>{task.label}</strong>
+                      {task.detail && <small>{task.detail}</small>}
+                    </div>
+                    {!task.done && (
+                      <button type="button" className="followup-action" onClick={() => onNavigate(task.target)}>
+                        Registrar
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+      </section>
+      <aside className={`recommendation-card ${recommendation.caution ? "caution" : ""}`} aria-live="polite">
+        <div className="recommendation-icon">
+          {recommendation.caution ? <HeartPulse size={19} /> : <ShieldCheck size={19} />}
+        </div>
+        <div>
+          <div className="eyebrow">SEGUIMIENTO INFORMATIVO</div>
+          <h2>{recommendation.title}</h2>
+          {currentDose && (
+            <div className="recommendation-context">
+              {doseMedication?.name ?? "Dosis registrada"} · {formatDecimal(currentDose.dose_mg)} mg · último registro{" "}
+              {formatDate(currentDose.administered_at, profile?.timezone)}
+            </div>
+          )}
+          <p>{recommendation.message}</p>
+          <small>
+            Resumen automático de los datos registrados; no diagnostica ni recomienda iniciar, suspender o cambiar
+            dosis.
+          </small>
+        </div>
+      </aside>
+      <div className="panel analysis-chart-panel">
+        <div className="panel-heading">
+          <div>
+            <div className="eyebrow">SERIE TEMPORAL</div>
+            <h2>Peso registrado</h2>
+          </div>
+          <span className="goal-caption">{pastWeights.length} lecturas</span>
+        </div>
+        {chart.length ? (
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chart} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="analysisWeightFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6fb99c" stopOpacity={0.22} />
+                    <stop offset="100%" stopColor="#6fb99c" stopOpacity={0.01} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  minTickGap={30}
+                />
+                <YAxis
+                  domain={["dataMin - 2", "dataMax + 2"]}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11 }}
+                />
+                <Tooltip formatter={(value) => [`${formatDecimal(Number(value))} kg`, "Peso"]} />
+                <Area
+                  type="monotone"
+                  dataKey="peso"
+                  stroke="#398766"
+                  strokeWidth={2.7}
+                  fill="url(#analysisWeightFill)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <EmptyModule text="Registra al menos un peso para ver su evolución." />
+        )}
+      </div>
+      <h2 className="module-subheading">Cambio de composición entre las dos últimas lecturas</h2>
+      {compositionChanges.length ? (
+        <div className="composition-results">
+          {compositionChanges.map(({ label, unit, current, change }) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>
+                {formatDecimal(current)} {unit}
+              </strong>
+              <small className="analysis-delta">
+                {change > 0 ? "+" : ""}
+                {formatDecimal(change)} {unit}
+              </small>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyModule text="Se necesitan dos lecturas con datos de composición para compararlas." />
+      )}
+    </section>
+  )
+}
+
 function EmptyInline({ label, action, onClick }: { label: string; action?: string; onClick?: () => void }) {
   return (
     <div className="empty-inline">
@@ -986,9 +1811,19 @@ const journalDefinitions: Record<
   { title: string; fields: { key: string; label: string; type?: string; options?: string[] }[] }
 > = {
   symptoms: {
-    title: "síntoma",
+    title: "síntoma o check-in",
     fields: [
+      { key: "record_type", label: "Tipo de registro", options: ["Síntoma", "Check-in semanal"] },
+      { key: "symptom_category", label: "Categoría del síntoma", options: ["Gastrointestinal", "Otro"] },
       { key: "severity", label: "Intensidad (0–10)", type: "number" },
+      {
+        key: "tolerance",
+        label: "Tolerancia percibida",
+        options: ["Buena", "Con molestias leves", "Con molestias moderadas", "Con molestias importantes"],
+      },
+      { key: "appetite", label: "Apetito", options: ["Menor", "Sin cambios", "Mayor"] },
+      { key: "satiety", label: "Saciedad", options: ["Menor", "Sin cambios", "Mayor"] },
+      { key: "hydration_l", label: "Hidratación aproximada (L)", type: "number" },
       { key: "duration", label: "Duración" },
       { key: "triggers", label: "Posibles factores" },
     ],
@@ -1004,8 +1839,11 @@ const journalDefinitions: Record<
   labs: {
     title: "resultado",
     fields: [
+      { key: "phase", label: "Contexto", options: ["Basal", "Seguimiento"] },
       { key: "value", label: "Resultado" },
       { key: "unit", label: "Unidad" },
+      { key: "systolic_pressure", label: "Presión sistólica (mmHg)", type: "number" },
+      { key: "diastolic_pressure", label: "Presión diastólica (mmHg)", type: "number" },
       { key: "reference_range", label: "Rango de referencia" },
       { key: "laboratory", label: "Laboratorio" },
     ],
@@ -1022,7 +1860,9 @@ const journalDefinitions: Record<
   reviews: {
     title: "revisión",
     fields: [
+      { key: "review_type", label: "Tipo de revisión", options: ["Tratamiento", "Seguimiento general"] },
       { key: "provider", label: "Profesional / centro" },
+      { key: "relevant_history", label: "Antecedentes relevantes", type: "text" },
       { key: "follow_up_date", label: "Seguimiento", type: "date" },
       { key: "topics", label: "Temas tratados" },
     ],
@@ -1055,6 +1895,7 @@ function ModuleWorkspace(props: {
   entries: JournalEntry[]
   photos: PhotoEntry[]
   profile: Profile | null
+  onNavigate: (target: Section) => void
   onRefresh: () => Promise<void>
   onError: (message: string) => void
   onNewWeight: () => void
@@ -1065,17 +1906,66 @@ function ModuleWorkspace(props: {
   onDelete: (path: string) => Promise<void>
 }) {
   const { section, token, weights, doses, measurements, medications, entries, photos } = props
+  const userTimezone = props.profile?.timezone ?? "America/Bogota"
   const module = journalModuleBySection[section]
+  const compositionWeights = [...weights]
+    .sort((a, b) => b.measured_at.localeCompare(a.measured_at))
+    .filter((item) => compositionFields.some(([key]) => item[key] != null))
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingMeasurement, setEditingMeasurement] = useState<BodyMeasurementEntry | null>(null)
   const [showMeasurementForm, setShowMeasurementForm] = useState(false)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoCaption, setPhotoCaption] = useState("")
-  const [photoDate, setPhotoDate] = useState(currentLocalDateTime)
+  const [photoDate, setPhotoDate] = useState(() => dateTimeInputValue(new Date().toISOString(), userTimezone))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [showNewMedication, setShowNewMedication] = useState(false)
+  const [telegram, setTelegram] = useState<TelegramConnection | null>(null)
+  const [pairingUrl, setPairingUrl] = useState("")
+
+  useEffect(() => {
+    if (section !== "Recordatorios") return
+    let active = true
+    void api<TelegramConnection>("/telegram/connection", token)
+      .then((status) => {
+        if (active) setTelegram(status)
+      })
+      .catch((reason: Error) => props.onError(reason.message))
+    return () => {
+      active = false
+    }
+  }, [section, token, props.onError])
+
+  useEffect(() => {
+    if (!pairingUrl || telegram?.linked) return
+    const timer = window.setInterval(() => {
+      void api<TelegramConnection>("/telegram/connection", token)
+        .then(setTelegram)
+        .catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [pairingUrl, telegram?.linked, token])
+
+  async function linkTelegram() {
+    try {
+      const pairing = await api<TelegramPairing>("/telegram/connection", token, { method: "POST" })
+      setPairingUrl(pairing.start_url)
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo generar el enlace de Telegram")
+    }
+  }
+
+  async function unlinkTelegram() {
+    if (!window.confirm("¿Desvincular Telegram de esta cuenta? Dejarás de recibir avisos por ese chat.")) return
+    try {
+      await api<void>("/telegram/connection", token, { method: "DELETE" })
+      setPairingUrl("")
+      setTelegram((current) => (current ? { ...current, linked: false } : current))
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo desconectar Telegram")
+    }
+  }
 
   async function saveJournal(payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) {
     await api(editingEntry ? `/entries/${editingEntry.id}` : "/entries", token, {
@@ -1101,10 +1991,10 @@ function ModuleWorkspace(props: {
     setBusy(true)
     setError("")
     try {
-      await uploadPhoto(token, photoFile, photoCaption, photoDate)
+      await uploadPhoto(token, photoFile, photoCaption, localDateTimeToIso(photoDate, userTimezone))
       setPhotoFile(null)
       setPhotoCaption("")
-      setPhotoDate(currentLocalDateTime())
+      setPhotoDate(dateTimeInputValue(new Date().toISOString(), userTimezone))
       await props.onRefresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo cargar la foto")
@@ -1190,38 +2080,51 @@ function ModuleWorkspace(props: {
             composición son opcionales.
           </p>
           <div className="record-list">
-            {weights
-              .filter((item) => compositionFields.some(([key]) => item[key] != null))
-              .map((item) => (
-                <article className="record-card" key={item.id}>
-                  <div className="record-card-heading">
-                    <div>
-                      <strong>{item.weight_kg.toFixed(1)} kg</strong>
-                      <time>{formatDateTime(item.measured_at)}</time>
-                    </div>
-                    <RecordActions
-                      onEdit={() => props.onEditWeight(item)}
-                      onDelete={() => void props.onDelete(`/weights/${item.id}`)}
-                    />
+            {compositionWeights.map((item) => (
+              <article className="record-card" key={item.id}>
+                <div className="record-card-heading">
+                  <div>
+                    <strong>{formatDecimal(item.weight_kg)} kg</strong>
+                    <time>{formatDateTime(item.measured_at, userTimezone)}</time>
                   </div>
-                  <div className="composition-results">
-                    {compositionFields
-                      .filter(([key]) => item[key] != null)
-                      .map(([key, label, unit]) => (
-                        <div key={key}>
-                          <span>{label}</span>
-                          <strong>
-                            {item[key]} {unit}
-                          </strong>
-                        </div>
-                      ))}
-                  </div>
-                  {item.notes && <p>{item.notes}</p>}
-                </article>
-              ))}
-            {!weights.length && <EmptyModule text="Registra una lectura de tu báscula para empezar." />}
+                  <RecordActions
+                    onEdit={() => props.onEditWeight(item)}
+                    onDelete={() => void props.onDelete(`/weights/${item.id}`)}
+                  />
+                </div>
+                <div className="composition-results">
+                  {compositionFields
+                    .filter(([key]) => item[key] != null)
+                    .map(([key, label, unit]) => (
+                      <div key={key}>
+                        <span>{label}</span>
+                        <strong>
+                          {formatDecimal(Number(item[key]))} {unit}
+                        </strong>
+                      </div>
+                    ))}
+                </div>
+                {item.notes && <p>{item.notes}</p>}
+              </article>
+            ))}
+            {!compositionWeights.length && (
+              <EmptyModule text="Registra una lectura con datos de composición para empezar." />
+            )}
           </div>
         </>
+      )}
+
+      {section === "Análisis" && (
+        <AnalysisWorkspace
+          weights={weights}
+          profile={props.profile}
+          doses={doses}
+          measurements={measurements}
+          medications={medications}
+          entries={entries}
+          photos={photos}
+          onNavigate={props.onNavigate}
+        />
       )}
 
       {section === "Peso" && (
@@ -1230,8 +2133,8 @@ function ModuleWorkspace(props: {
             <article className="record-card" key={item.id}>
               <div className="record-card-heading">
                 <div>
-                  <strong>{item.weight_kg.toFixed(1)} kg</strong>
-                  <time>{formatDateTime(item.measured_at)}</time>
+                  <strong>{formatDecimal(item.weight_kg)} kg</strong>
+                  <time>{formatDateTime(item.measured_at, userTimezone)}</time>
                 </div>
                 <RecordActions
                   onEdit={() => props.onEditWeight(item)}
@@ -1250,7 +2153,7 @@ function ModuleWorkspace(props: {
           {measurements.map((item) => (
             <article className="record-card" key={item.id}>
               <div className="record-card-heading">
-                <strong>{formatDateTime(item.measured_at)}</strong>
+                <strong>{formatDateTime(item.measured_at, userTimezone)}</strong>
                 <RecordActions
                   onEdit={() => {
                     setEditingMeasurement(item)
@@ -1266,7 +2169,7 @@ function ModuleWorkspace(props: {
                     <div key={key}>
                       <span>{label}</span>
                       <strong>
-                        {item[key]} {unit}
+                        {formatDecimal(Number(item[key]))} {unit}
                       </strong>
                     </div>
                   ))}
@@ -1344,7 +2247,7 @@ function ModuleWorkspace(props: {
                     <strong>
                       {item.dose_mg} mg · {item.calculated_volume_ml} mL
                     </strong>
-                    <time>{formatDateTime(item.administered_at)}</time>
+                    <time>{formatDateTime(item.administered_at, userTimezone)}</time>
                   </div>
                   <RecordActions
                     onEdit={() => props.onEditDose(item)}
@@ -1361,10 +2264,35 @@ function ModuleWorkspace(props: {
       {module && (
         <>
           {module === "reminders" && (
-            <p className="module-hint">
-              Los recordatorios quedan guardados aquí. Las notificaciones automáticas fuera de la aplicación requieren
-              configurar un canal y todavía no se envían.
-            </p>
+            <div className="telegram-panel">
+              <div>
+                <strong>{telegram?.linked ? "Telegram conectado" : "Recibe recordatorios por Telegram"}</strong>
+                <p className="module-hint">
+                  {telegram?.configured
+                    ? "Vincula tu chat privado con un enlace de un solo uso que vence en 15 minutos."
+                    : "Telegram aún no está configurado por el administrador de esta instalación."}
+                </p>
+                {telegram && !telegram.configured && (
+                  <code className="telegram-config-hint">
+                    TELEGRAM_BOT_TOKEN · TELEGRAM_BOT_USERNAME · TELEGRAM_WEBHOOK_SECRET
+                  </code>
+                )}
+              </div>
+              {telegram?.linked ? (
+                <button className="small-action danger" onClick={() => void unlinkTelegram()}>
+                  Desconectar
+                </button>
+              ) : (
+                <button className="outline-button" disabled={!telegram?.configured} onClick={() => void linkTelegram()}>
+                  Vincular Telegram
+                </button>
+              )}
+              {pairingUrl && (
+                <a className="telegram-link" href={pairingUrl} target="_blank" rel="noreferrer">
+                  Abrir Telegram para confirmar la vinculación
+                </a>
+              )}
+            </div>
           )}
           <div className="record-list">
             {entries
@@ -1374,7 +2302,16 @@ function ModuleWorkspace(props: {
                   <div className="record-card-heading">
                     <div>
                       <strong>{entry.title}</strong>
-                      <time>{formatDateTime(entry.occurred_at)}</time>
+                      <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                      {module === "reminders" && typeof entry.data.last_sent_epoch === "number" && (
+                        <span
+                          className={`record-status ${entry.data.completed_reminder_epoch === entry.data.last_sent_epoch ? "active" : ""}`}
+                        >
+                          {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
+                            ? "Cumplido desde Telegram"
+                            : "Enviado · pendiente de confirmación"}
+                        </span>
+                      )}
                     </div>
                     <RecordActions
                       onEdit={() => {
@@ -1442,6 +2379,7 @@ function ModuleWorkspace(props: {
                 key={photo.id}
                 photo={photo}
                 token={token}
+                timezone={userTimezone}
                 onRefresh={props.onRefresh}
                 onDelete={() => void props.onDelete(`/photos/${photo.id}`)}
               />
@@ -1499,7 +2437,7 @@ function ModuleWorkspace(props: {
                 <div>
                   <strong>{item.title}</strong>
                   <span>
-                    {item.label} · {formatDateTime(item.date)}
+                    {item.label} · {formatDateTime(item.date, userTimezone)}
                   </span>
                 </div>
                 <RecordActions onEdit={item.edit} onDelete={() => void item.remove()} />
@@ -1512,6 +2450,7 @@ function ModuleWorkspace(props: {
         <JournalEntryEditor
           module={module}
           entry={editingEntry ?? undefined}
+          timezone={userTimezone}
           onClose={() => {
             setShowEntryForm(false)
             setEditingEntry(null)
@@ -1522,6 +2461,7 @@ function ModuleWorkspace(props: {
       {showMeasurementForm && (
         <BodyMeasurementEditor
           entry={editingMeasurement ?? undefined}
+          timezone={userTimezone}
           onClose={() => {
             setShowMeasurementForm(false)
             setEditingMeasurement(null)
@@ -1585,10 +2525,6 @@ const bodyFields = [
   ["thigh_cm", "Muslo", "cm"],
 ] as const
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
-}
-
 function RecordActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   return (
     <div className="record-actions">
@@ -1614,22 +2550,30 @@ function EmptyModule({ text }: { text: string }) {
 function JournalEntryEditor({
   module,
   entry,
+  timezone,
   onClose,
   onSave,
 }: {
   module: JournalModule
   entry?: JournalEntry
+  timezone: string
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
 }) {
   const [title, setTitle] = useState(entry?.title ?? "")
-  const [occurredAt, setOccurredAt] = useState(entry ? dateTimeInputValue(entry.occurred_at) : currentLocalDateTime)
+  const [occurredAt, setOccurredAt] = useState(() =>
+    dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
+  )
   const [notes, setNotes] = useState(entry?.notes ?? "")
   const [data, setData] = useState<Record<string, string>>(() =>
     Object.fromEntries(
       journalDefinitions[module].fields.map(({ key }) => [
         key,
-        entry?.data[key] == null ? "" : String(entry.data[key]),
+        entry?.data[key] == null
+          ? ""
+          : key === "reminder_at"
+            ? dateTimeInputValue(String(entry.data[key]), timezone)
+            : String(entry.data[key]),
       ]),
     ),
   )
@@ -1642,14 +2586,23 @@ function JournalEntryEditor({
     const parsed = Object.fromEntries(
       journalDefinitions[module].fields.map(({ key, type }) => [
         key,
-        data[key] === "" ? null : type === "number" ? Number(data[key]) : data[key],
+        data[key] === ""
+          ? null
+          : type === "number"
+            ? Number(data[key])
+            : key === "reminder_at"
+              ? localDateTimeToIso(data[key], timezone)
+              : data[key],
       ]),
     )
     try {
       await onSave({
         module,
         title,
-        occurred_at: new Date(occurredAt).toISOString(),
+        occurred_at:
+          module === "reminders" && data.reminder_at
+            ? localDateTimeToIso(data.reminder_at, timezone)
+            : localDateTimeToIso(occurredAt, timezone),
         notes: notes || null,
         data: parsed,
       })
@@ -1668,8 +2621,22 @@ function JournalEntryEditor({
     >
       <form className="entry-form" onSubmit={submit}>
         <label>
-          {module === "labs" ? "Prueba" : module === "symptoms" ? "Síntoma" : journalDefinitions[module].title}
-          <input required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
+          {module === "labs"
+            ? "Prueba"
+            : module === "symptoms"
+              ? data.record_type === "Check-in semanal"
+                ? "Nombre del check-in"
+                : "Síntoma"
+              : journalDefinitions[module].title}
+          <input
+            required
+            maxLength={160}
+            value={title}
+            placeholder={
+              module === "symptoms" && data.record_type === "Check-in semanal" ? "Seguimiento semanal" : undefined
+            }
+            onChange={(event) => setTitle(event.target.value)}
+          />
         </label>
         <label>
           Fecha y hora
@@ -1680,30 +2647,38 @@ function JournalEntryEditor({
             onChange={(event) => setOccurredAt(event.target.value)}
           />
         </label>
-        {journalDefinitions[module].fields.map(({ key, label, type, options }) => (
-          <label key={key}>
-            {label}
-            {options ? (
-              <select
-                value={data[key] ?? ""}
-                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
-              >
-                <option value="">Seleccionar…</option>
-                {options.map((option) => (
-                  <option key={option}>{option}</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type={type ?? "text"}
-                min={type === "number" ? "0" : undefined}
-                step={type === "number" ? "any" : undefined}
-                value={data[key] ?? ""}
-                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
-              />
-            )}
-          </label>
-        ))}
+        {journalDefinitions[module].fields
+          .filter(({ key }) => {
+            if (module !== "symptoms") return true
+            if (data.record_type === "Check-in semanal") {
+              return ["record_type", "appetite", "satiety", "hydration_l", "tolerance"].includes(key)
+            }
+            return !["appetite", "satiety", "hydration_l"].includes(key)
+          })
+          .map(({ key, label, type, options }) => (
+            <label key={key}>
+              {label}
+              {options ? (
+                <select
+                  value={data[key] ?? ""}
+                  onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+                >
+                  <option value="">Seleccionar…</option>
+                  {options.map((option) => (
+                    <option key={option}>{option}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type={type ?? "text"}
+                  min={type === "number" ? "0" : undefined}
+                  step={type === "number" ? "0.01" : undefined}
+                  value={data[key] ?? ""}
+                  onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+                />
+              )}
+            </label>
+          ))}
         <label>
           Notas <span className="optional">opcional</span>
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -1724,14 +2699,16 @@ function JournalEntryEditor({
 
 function BodyMeasurementEditor({
   entry,
+  timezone,
   onClose,
   onSave,
 }: {
   entry?: BodyMeasurementEntry
+  timezone: string
   onClose: () => void
   onSave: (payload: Record<string, unknown>) => Promise<void>
 }) {
-  const [date, setDate] = useState(entry ? dateTimeInputValue(entry.measured_at) : currentLocalDateTime)
+  const [date, setDate] = useState(() => dateTimeInputValue(entry?.measured_at ?? new Date().toISOString(), timezone))
   const [notes, setNotes] = useState(entry?.notes ?? "")
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(bodyFields.map(([key]) => [key, entry?.[key] == null ? "" : String(entry[key])])),
@@ -1744,7 +2721,7 @@ function BodyMeasurementEditor({
     setError("")
     try {
       await onSave({
-        measured_at: new Date(date).toISOString(),
+        measured_at: localDateTimeToIso(date, timezone),
         notes: notes || null,
         ...Object.fromEntries(bodyFields.map(([key]) => [key, values[key] ? Number(values[key]) : null])),
       })
@@ -1775,7 +2752,7 @@ function BodyMeasurementEditor({
                 type="number"
                 min="0.1"
                 max="300"
-                step="0.1"
+                step="0.01"
                 value={values[key]}
                 onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))}
               />
@@ -1803,11 +2780,13 @@ function BodyMeasurementEditor({
 function PhotoCard({
   photo,
   token,
+  timezone,
   onRefresh,
   onDelete,
 }: {
   photo: PhotoEntry
   token: string
+  timezone: string
   onRefresh: () => Promise<void>
   onDelete: () => void
 }) {
@@ -1835,7 +2814,7 @@ function PhotoCard({
         )}
         <div>
           <strong>{photo.caption || "Registro fotográfico"}</strong>
-          <time>{formatDateTime(photo.taken_at)}</time>
+          <time>{formatDateTime(photo.taken_at, timezone)}</time>
           <button className="small-action" onClick={() => setEditing(true)}>
             Editar
           </button>
@@ -1848,6 +2827,7 @@ function PhotoCard({
         <PhotoEditor
           photo={photo}
           token={token}
+          timezone={timezone}
           onClose={() => setEditing(false)}
           onSave={async () => {
             await onRefresh()
@@ -1862,16 +2842,18 @@ function PhotoCard({
 function PhotoEditor({
   photo,
   token,
+  timezone,
   onClose,
   onSave,
 }: {
   photo: PhotoEntry
   token: string
+  timezone: string
   onClose: () => void
   onSave: () => Promise<void>
 }) {
   const [caption, setCaption] = useState(photo.caption ?? "")
-  const [takenAt, setTakenAt] = useState(dateTimeInputValue(photo.taken_at))
+  const [takenAt, setTakenAt] = useState(dateTimeInputValue(photo.taken_at, timezone))
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   async function submit(event: FormEvent) {
@@ -1881,7 +2863,7 @@ function PhotoEditor({
     try {
       await api(`/photos/${photo.id}`, token, {
         method: "PUT",
-        body: JSON.stringify({ caption: caption || null, taken_at: new Date(takenAt).toISOString() }),
+        body: JSON.stringify({ caption: caption || null, taken_at: localDateTimeToIso(takenAt, timezone) }),
       })
       await onSave()
     } catch (reason) {
@@ -1956,9 +2938,9 @@ function WeightModal({
   onClose,
   onSubmit,
   entry,
+  timezone,
 }: {
   onClose: () => void
-  entry?: WeightEntry
   onSubmit: (
     weight: number,
     notes: string,
@@ -1966,10 +2948,14 @@ function WeightModal({
     composition: CompositionValues,
     id?: number,
   ) => Promise<void>
+  entry?: WeightEntry
+  timezone: string
 }) {
   const [weight, setWeight] = useState(entry ? String(entry.weight_kg) : "")
   const [notes, setNotes] = useState(entry?.notes ?? "")
-  const [dateTime, setDateTime] = useState(entry ? dateTimeInputValue(entry.measured_at) : currentLocalDateTime)
+  const [dateTime, setDateTime] = useState(() =>
+    dateTimeInputValue(entry?.measured_at ?? new Date().toISOString(), timezone),
+  )
   const [composition, setComposition] = useState<Record<string, string>>(() =>
     Object.fromEntries(compositionFields.map(([key]) => [key, entry?.[key] == null ? "" : String(entry[key])])),
   )
@@ -1983,7 +2969,7 @@ function WeightModal({
       const metrics = Object.fromEntries(
         compositionFields.map(([key]) => [key, composition[key] === "" ? null : Number(composition[key])]),
       ) as CompositionValues
-      await onSubmit(Number(weight), notes, dateTime, metrics, entry?.id)
+      await onSubmit(Number(weight), notes, localDateTimeToIso(dateTime, timezone), metrics, entry?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -2006,7 +2992,7 @@ function WeightModal({
               type="number"
               min="1"
               max="500"
-              step="0.1"
+              step="0.01"
               value={weight}
               onChange={(e) => setWeight(e.target.value)}
               placeholder="0.0"
@@ -2065,15 +3051,19 @@ function DoseModal({
   medication,
   onSubmit,
   entry,
+  timezone,
 }: {
   onClose: () => void
+  onSubmit: (mg: number, site: string, dateTime: string, id?: number, medicationId?: number) => Promise<void>
   entry?: DoseEntry
   medication: Medication | undefined
-  onSubmit: (mg: number, site: string, dateTime: string, id?: number, medicationId?: number) => Promise<void>
+  timezone: string
 }) {
   const [dose, setDose] = useState(entry ? String(entry.dose_mg) : "")
   const [site, setSite] = useState(entry?.injection_site ?? "")
-  const [dateTime, setDateTime] = useState(entry ? dateTimeInputValue(entry.administered_at) : currentLocalDateTime)
+  const [dateTime, setDateTime] = useState(() =>
+    dateTimeInputValue(entry?.administered_at ?? new Date().toISOString(), timezone),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const mg = Number(dose)
@@ -2084,7 +3074,7 @@ function DoseModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(mg, site, dateTime, entry?.id, medication?.id)
+      await onSubmit(mg, site, localDateTimeToIso(dateTime, timezone), entry?.id, medication?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -2224,7 +3214,7 @@ function MedicationModal({
                 required
                 type="number"
                 min="0.001"
-                step="any"
+                step="0.01"
                 value={concentrationMg}
                 onChange={(event) => setConcentrationMg(event.target.value)}
               />
@@ -2238,7 +3228,7 @@ function MedicationModal({
                 required
                 type="number"
                 min="0.001"
-                step="any"
+                step="0.01"
                 value={volumeMl}
                 onChange={(event) => setVolumeMl(event.target.value)}
               />
@@ -2252,7 +3242,7 @@ function MedicationModal({
             <input
               type="number"
               min="0.001"
-              step="any"
+              step="0.01"
               value={unitsPerMl}
               onChange={(event) => setUnitsPerMl(event.target.value)}
               placeholder="Dejar vacío para desactivar"

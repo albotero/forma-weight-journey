@@ -21,6 +21,335 @@
   color: #638071;
   font-size: 14px;
 }
+.analysis-metrics {
+  margin: 20px 0;
+}
+.followup-section {
+  margin: 26px 0;
+}
+.followup-heading,
+.followup-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.followup-heading {
+  align-items: end;
+  margin-bottom: 14px;
+}
+.followup-heading h2,
+.recommendation-card h2 {
+  margin: 6px 0 0;
+  font:
+    700 19px/1.3 Manrope,
+    sans-serif;
+}
+.followup-heading > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+.followup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.followup-card {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.followup-card-heading h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.followup-card-heading p {
+  margin: 5px 0 0;
+  color: var(--sub);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.followup-count {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border-radius: 20px;
+  background: var(--canvas);
+  color: var(--sub);
+  font-size: 10px;
+  font-weight: 700;
+}
+.followup-list {
+  display: grid;
+  gap: 8px;
+  margin: 13px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.followup-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.followup-status {
+  display: grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid #ccd5ce;
+  border-radius: 50%;
+  color: white;
+}
+.followup-status > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c4ccc6;
+}
+.followup-list .complete .followup-status {
+  border-color: var(--green);
+  background: var(--green);
+}
+.followup-task-copy {
+  flex: 1;
+  min-width: 0;
+}
+.followup-task-copy strong {
+  display: block;
+  font-size: 11px;
+  font-weight: 550;
+}
+.followup-task-copy small {
+  display: block;
+  margin-top: 3px;
+  color: var(--sub);
+  font-size: 9px;
+}
+.followup-action {
+  flex: 0 0 auto;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 650;
+}
+.recommendation-card {
+  display: flex;
+  gap: 13px;
+  margin: 20px 0;
+  padding: 17px;
+  border: 1px solid #dcebe1;
+  border-radius: 12px;
+  background: #f1f7f3;
+}
+.dark .recommendation-card {
+  border-color: #33483b;
+  background: #202e25;
+}
+.recommendation-card.caution {
+  border-color: #eed8b8;
+  background: #fff8ee;
+}
+.dark .recommendation-card.caution {
+  border-color: #614b31;
+  background: #342b20;
+}
+.recommendation-icon {
+  display: grid;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 9px;
+  background: #e2efe6;
+  color: var(--green);
+}
+.caution .recommendation-icon {
+  background: #f6e9d5;
+  color: #9a6532;
+}
+.recommendation-card h2 {
+  font-size: 15px;
+}
+.recommendation-context {
+  margin-top: 6px;
+  color: var(--sub);
+  font-size: 10px;
+  font-weight: 650;
+}
+.recommendation-card p {
+  margin: 7px 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.recommendation-card small {
+  color: var(--sub);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.analysis-chart-panel {
+  padding: 20px;
+}
+.analysis-delta {
+  display: block;
+  margin-top: 5px;
+  color: var(--sub);
+  font-size: 10px;
+}
+.telegram-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.telegram-panel > div {
+  flex: 1 1 280px;
+}
+.telegram-panel strong {
+  font-size: 13px;
+}
+.telegram-panel .module-hint {
+  margin: 5px 0 0;
+}
+.telegram-link,
+.telegram-config-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+.telegram-link {
+  color: var(--green);
+}
+.telegram-config-hint {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.account-page {
+  max-width: 920px;
+}
+.account-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+.account-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 13px;
+}
+.account-card-icon {
+  display: grid;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--green-soft);
+  color: var(--green);
+}
+.account-identity span,
+.account-identity strong,
+.account-identity small {
+  display: block;
+}
+.account-identity span,
+.account-identity small {
+  color: var(--sub);
+  font-size: 10px;
+}
+.account-identity strong {
+  margin: 3px 0;
+  font-size: 13px;
+}
+.account-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 13px;
+}
+.account-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 15px;
+  color: var(--green);
+}
+.account-card-heading h2 {
+  margin: 0;
+  color: var(--text);
+  font:
+    700 16px/1.3 Manrope,
+    sans-serif;
+}
+.account-card-heading p,
+.account-telegram-card > .module-hint {
+  margin: 5px 0 0;
+  color: var(--sub);
+  font-size: 11px;
+  line-height: 1.55;
+}
+.account-form {
+  gap: 12px;
+}
+.account-form .form-two-columns {
+  align-items: start;
+}
+.account-form .form-actions {
+  margin-top: 1px;
+}
+.account-telegram-card {
+  grid-column: 1 / -1;
+}
+.telegram-account-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.telegram-account-status > span:not(.record-status) {
+  color: var(--sub);
+  font-size: 10px;
+}
+.account-telegram-card .telegram-link {
+  display: block;
+  margin-top: 12px;
+}
+.account-page .error-banner,
+.account-page .success-banner {
+  margin-top: 12px;
+}
+.success-banner {
+  padding: 11px 13px;
+  border: 1px solid #cce3d4;
+  border-radius: 9px;
+  background: #edf7f0;
+  color: #347a5b;
+  font-size: 12px;
+}
+.dark .success-banner {
+  border-color: #355543;
+  background: #203328;
+  color: #9ed1ad;
+}
 .module-page {
   max-width: 980px;
   margin: 0 auto;
@@ -250,6 +579,19 @@
   color: #8ac8a5;
 }
 @media (max-width: 760px) {
+  .account-settings-grid {
+    grid-template-columns: 1fr;
+  }
+  .account-telegram-card {
+    grid-column: auto;
+  }
+  .followup-grid {
+    grid-template-columns: 1fr;
+  }
+  .followup-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
   .composition-input-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

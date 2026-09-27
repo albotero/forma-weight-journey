@@ -1,13 +1,18 @@
+import asyncio
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
+from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.config import settings
 from app.main import app
+from app.models import JournalEntry, RefreshSession, TelegramConnection, User
 
 engine = create_engine(
     "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -59,18 +64,20 @@ def test_dose_requires_medication_owned_by_user() -> None:
     assert response.status_code == 404
 
 
-def test_registration_seeds_default_medication_and_dose_is_calculated() -> None:
+def test_registration_starts_without_assuming_medication_and_dose_is_calculated() -> None:
     created = client.post("/api/auth/register", json={
                           "email": "dose-owner@example.com", "password": "dose-owner-password-123"})
     token = created.json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     medications = client.get("/api/medications", headers=headers).json()
-    assert len(medications) == 1
-    assert medications[0]["concentration_mg"] == 10
-    assert medications[0]["concentration_volume_ml"] == 0.5
+    assert medications == []
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
 
     recorded = client.post("/api/doses", headers=headers,
-                           json={"medication_id": medications[0]["id"], "dose_mg": 5})
+                           json={"medication_id": medication["id"], "dose_mg": 5})
     assert recorded.status_code == 201
     assert recorded.json()["calculated_volume_ml"] == 0.25
     assert recorded.json()["calculated_u100_units"] == 25
@@ -83,8 +90,10 @@ def test_medication_concentration_can_be_changed_and_is_user_scoped() -> None:
                         "email": "concentration-other@example.com", "password": "concentration-other-123"})
     owner_headers = {"Authorization": f"Bearer {owner.json()['access_token']}"}
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
-    medication = client.get(
-        "/api/medications", headers=owner_headers).json()[0]
+    medication = client.post("/api/medications", headers=owner_headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
     changed = client.put(f"/api/medications/{medication['id']}", headers=owner_headers, json={
         "name": "Tirzepatida", "active": True, "concentration_mg": 10, "concentration_volume_ml": 0.4, "units_per_ml": 100})
     assert changed.status_code == 200
@@ -112,6 +121,59 @@ def test_profile_rejects_unknown_timezone() -> None:
     assert response.status_code == 422
 
 
+def test_profile_and_measurements_reject_invalid_future_dates() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "future-dates@example.com", "password": "future-dates-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    future = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    assert client.post("/api/weights", headers=headers, json={
+        "weight_kg": 80, "measured_at": future}).status_code == 422
+    assert client.put("/api/profile", headers=headers, json={
+        "height_cm": 180, "initial_weight_kg": 106, "timezone": "UTC",
+        "birth_date": "2099-01-01",
+    }).status_code == 422
+    assert client.put("/api/profile", headers=headers, json={
+        "height_cm": 180, "initial_weight_kg": 106, "timezone": "UTC",
+        "birth_date": "not-a-date",
+    }).status_code == 422
+
+
+def test_account_settings_and_password_change_revoke_refresh_sessions() -> None:
+    old_password = "account-settings-old-password-123"
+    new_password = "account-settings-new-password-456"
+    registered = client.post("/api/auth/register", json={
+        "email": "account-settings@example.com", "password": old_password})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    account = client.get("/api/account", headers=headers)
+    assert account.status_code == 200
+    assert account.json()["email"] == "account-settings@example.com"
+
+    wrong_current = client.put("/api/auth/password", headers=headers, json={
+        "current_password": "wrong-current-password", "new_password": new_password})
+    assert wrong_current.status_code == 400
+    unchanged = client.put("/api/auth/password", headers=headers, json={
+        "current_password": old_password, "new_password": old_password})
+    assert unchanged.status_code == 422
+    changed = client.put("/api/auth/password", headers=headers, json={
+        "current_password": old_password, "new_password": new_password})
+    assert changed.status_code == 204
+
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "account-settings@example.com"))
+        assert user is not None
+        sessions = db.scalars(select(RefreshSession).where(
+            RefreshSession.user_id == user.id)).all()
+        assert sessions and all(
+            session.revoked_at is not None for session in sessions)
+    old_login = client.post(
+        "/api/auth/login", data={"username": "account-settings@example.com", "password": old_password})
+    new_login = client.post(
+        "/api/auth/login", data={"username": "account-settings@example.com", "password": new_password})
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200
+
+
 def test_scale_composition_fields_round_trip_and_validate() -> None:
     registered = client.post(
         "/api/auth/register", json={"email": "scale@example.com", "password": "scale-password-123"})
@@ -128,6 +190,186 @@ def test_scale_composition_fields_round_trip_and_validate() -> None:
     assert {key: created.json()[key] for key in values} == values
     assert client.post("/api/weights", headers=headers,
                        json={"weight_kg": 80, "body_fat_percent": 101}).status_code == 422
+
+
+def test_numeric_inputs_allow_two_decimals_and_reject_more() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "precision@example.com", "password": "precision-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    accepted = client.post("/api/weights", headers=headers, json={
+        "weight_kg": 80.25, "body_fat_percent": 24.12})
+    assert accepted.status_code == 201
+    assert accepted.json()["weight_kg"] == 80.25
+    assert client.post("/api/weights", headers=headers, json={
+        "weight_kg": 80.253}).status_code == 422
+    assert client.post("/api/body-measurements", headers=headers, json={
+        "waist_cm": 80.25}).status_code == 201
+    assert client.post("/api/body-measurements", headers=headers, json={
+        "waist_cm": 80.253}).status_code == 422
+    entry = client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Caminata", "data": {"distance_km": 2.25}})
+    assert entry.status_code == 201
+    assert client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Caminata", "data": {"distance_km": 2.253}}).status_code == 422
+
+
+def test_composition_readings_are_returned_newest_first() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "composition-order@example.com", "password": "composition-order-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    client.post("/api/weights", headers=headers, json={
+        "weight_kg": 90, "measured_at": "2025-01-01T12:00:00Z", "body_fat_percent": 30})
+    client.post("/api/weights", headers=headers, json={
+        "weight_kg": 89, "measured_at": "2025-02-01T12:00:00Z", "body_fat_percent": 29})
+    readings = client.get("/api/weights", headers=headers).json()
+    assert [record["weight_kg"] for record in readings] == [89, 90]
+
+
+def test_telegram_connection_requires_a_valid_webhook_secret(monkeypatch) -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-security@example.com", "password": "telegram-security-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    monkeypatch.setattr(
+        settings, "telegram_webhook_secret", "secret-for-tests")
+    assert client.post("/api/telegram/webhook", json={"message": {
+                       "text": "/start invalid", "chat": {"id": 42}}}).status_code == 403
+    response = client.post("/api/telegram/webhook", headers={
+        "X-Telegram-Bot-Api-Secret-Token": "secret-for-tests"},
+        json={"message": {"text": "/start invalid", "chat": {"id": 42}}})
+    assert response.status_code == 200
+    assert client.get("/api/telegram/connection",
+                      headers=headers).json()["linked"] is False
+
+
+def test_telegram_pairing_links_private_chat_once(monkeypatch) -> None:
+    async def fake_send(_chat_id: str, _text: str) -> bool:
+        return True
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
+    monkeypatch.setattr(settings, "telegram_bot_username", "forma_test_bot")
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "pairing-secret")
+    monkeypatch.setattr("app.routers.api.send_telegram_message", fake_send)
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-pairing@example.com", "password": "telegram-pairing-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    pairing = client.post("/api/telegram/connection", headers=headers)
+    assert pairing.status_code == 200
+    code = parse_qs(urlparse(pairing.json()["start_url"]).query)["start"][0]
+    webhook_headers = {"X-Telegram-Bot-Api-Secret-Token": "pairing-secret"}
+    payload = {"message": {"text": f"/start {code}",
+                           "chat": {"id": 24680, "type": "private"}}}
+    assert client.post("/api/telegram/webhook",
+                       headers=webhook_headers, json=payload).status_code == 200
+    assert client.get("/api/telegram/connection",
+                      headers=headers).json()["linked"] is True
+    assert client.post("/api/telegram/webhook",
+                       headers=webhook_headers, json=payload).status_code == 200
+    status_response = client.get("/api/telegram/connection", headers=headers)
+    assert status_response.json()["linked"] is True
+
+
+def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
+    sent: list[tuple[str, str, int, datetime]] = []
+
+    async def fake_send(chat_id: str, text: str, entry_id: int, scheduled_at: datetime) -> bool:
+        sent.append((chat_id, text, entry_id, scheduled_at))
+        return True
+
+    async def fake_answer(_callback_id: str, _text: str) -> bool:
+        return True
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "due-secret")
+    monkeypatch.setattr("app.telegram.SessionLocal", TestingSession)
+    monkeypatch.setattr("app.telegram.send_reminder_message", fake_send)
+    monkeypatch.setattr("app.routers.api.answer_callback_query", fake_answer)
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-due@example.com", "password": "telegram-due-password-123"})
+    token = registered.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    due_time = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    reminder = client.post("/api/entries", headers=headers, json={
+        "module": "reminders", "title": "Recordar cita", "occurred_at": due_time,
+        "data": {"reminder_at": due_time, "repeat": "No repetir", "enabled": "Sí"},
+    })
+    assert reminder.status_code == 201
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "telegram-due@example.com"))
+        assert user is not None
+        db.add(TelegramConnection(user_id=user.id, chat_id="13579"))
+        db.commit()
+
+    from app.telegram import dispatch_due_reminders
+
+    asyncio.run(dispatch_due_reminders())
+    assert sent and sent[0][0] == "13579"
+    assert "Recordatorio: Recordar cita" in sent[0][1]
+    occurrence = int(sent[0][3].timestamp())
+    callback = {"callback_query": {
+        "id": "callback-123",
+        "data": f"done:{sent[0][2]}:{occurrence}",
+        "message": {"chat": {"id": 13579, "type": "private"}},
+    }}
+    response = client.post("/api/telegram/webhook", headers={
+        "X-Telegram-Bot-Api-Secret-Token": "due-secret"}, json=callback)
+    assert response.status_code == 200
+    with TestingSession() as db:
+        saved = db.get(JournalEntry, reminder.json()["id"])
+        assert saved is not None and saved.data["enabled"] == "No"
+        assert saved.data["completed_reminder_epoch"] == occurrence
+        assert saved.data["completed_at"]
+
+
+def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None:
+    async def fake_send(_chat_id: str, _text: str) -> bool:
+        return True
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "command-secret")
+    monkeypatch.setattr("app.routers.api.send_telegram_message", fake_send)
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-commands@example.com", "password": "telegram-commands-password-123"})
+    token = registered.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post("/api/medications", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    })
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "telegram-commands@example.com"))
+        assert user is not None
+        db.add(TelegramConnection(user_id=user.id, chat_id="86420"))
+        db.commit()
+
+    webhook_headers = {"X-Telegram-Bot-Api-Secret-Token": "command-secret"}
+
+    def send_command(text: str) -> None:
+        result = client.post("/api/telegram/webhook", headers=webhook_headers, json={
+            "message": {"text": text, "chat": {"id": 86420, "type": "private"}}})
+        assert result.status_code == 200
+
+    send_command("/peso 82.35")
+    send_command("/sintoma 5 náuseas")
+    send_command("/dosis 2.5")
+    send_command("/cintura 90")
+    send_command("/presion 120/80")
+    next_day = (datetime.now(ZoneInfo("America/Bogota")) +
+                timedelta(days=1)).replace(second=0, microsecond=0)
+    send_command(
+        f"/recordatorio {next_day:%Y-%m-%d %H:%M} Cita de seguimiento")
+    weights = client.get("/api/weights", headers=headers).json()
+    assert weights[0]["weight_kg"] == 82.35 and weights[0]["source"] == "Telegram"
+    doses = client.get("/api/doses", headers=headers).json()
+    assert doses[0]["dose_mg"] == 2.5
+    measurements = client.get("/api/body-measurements", headers=headers).json()
+    assert measurements[0]["waist_cm"] == 90
+    symptoms = client.get("/api/entries/symptoms", headers=headers).json()
+    assert symptoms[0]["title"] == "náuseas" and symptoms[0]["data"]["severity"] == 5
+    labs = client.get("/api/entries/labs", headers=headers).json()
+    assert labs[0]["data"]["systolic_pressure"] == 120
+    reminders = client.get("/api/entries/reminders", headers=headers).json()
+    assert reminders[0]["title"] == "Cita de seguimiento"
 
 
 def test_weight_records_can_be_edited_and_deleted_only_by_owner() -> None:
@@ -165,8 +407,10 @@ def test_body_measurement_and_dose_crud_and_medication_archival() -> None:
     assert changed.status_code == 200 and changed.json()["waist_cm"] == 80
     assert client.delete(
         f"/api/body-measurements/{measurement['id']}", headers=other_headers).status_code == 404
-    meds = client.get("/api/medications", headers=headers).json()
-    medication = meds[0]
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
     dose = client.post("/api/doses", headers=headers,
                        json={"medication_id": medication["id"], "dose_mg": 5}).json()
     updated_dose = client.put(f"/api/doses/{dose['id']}", headers=headers, json={
