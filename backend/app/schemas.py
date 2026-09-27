@@ -214,6 +214,10 @@ class JournalEntryOut(JournalEntryCreate):
     updated_at: datetime
 
 
+class ReminderToggle(BaseModel):
+    enabled: bool
+
+
 class PhotoRecordOut(BaseModel):
     id: int
     caption: str | None

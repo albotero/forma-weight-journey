@@ -178,16 +178,28 @@ button {
 }
 .profile-chip {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: 10px;
   padding: 14px 6px 2px;
   margin-top: 8px;
+  border: 0;
   border-top: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.profile-chip:hover {
+  background: var(--canvas);
+  border-radius: 8px;
 }
 .avatar,
 .top-avatar {
   width: 31px;
   height: 31px;
+  padding: 0;
+  border: 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -195,6 +207,13 @@ button {
   color: #468064;
   font-size: 12px;
   font-weight: 700;
+  cursor: pointer;
+}
+.top-avatar:focus-visible,
+.profile-chip:focus-visible,
+.account-context-menu button:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
 }
 .profile-chip strong {
   font-size: 11px;
@@ -202,6 +221,37 @@ button {
 .profile-more {
   margin-left: auto;
   color: var(--muted);
+}
+.account-context-menu {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 88px;
+  z-index: 12;
+  display: grid;
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  box-shadow: 0 12px 32px #15231b24;
+}
+.account-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sub);
+  text-align: left;
+  font-size: 12px;
+}
+.account-context-menu button:hover {
+  background: var(--canvas);
+  color: var(--text);
 }
 .main-area {
   margin-left: 246px;

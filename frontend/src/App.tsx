@@ -53,6 +53,7 @@ import {
   type TelegramPairing,
   type WeightEntry,
 } from "./api"
+import { dateTimeInputValue, localDateTimeToIso } from "./dateTime.js"
 
 type Section =
   | "Inicio"
@@ -95,48 +96,6 @@ const formatDate = (date: string, timeZone = "America/Bogota") =>
 const formatDecimal = (value: number) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
 const formatDateTime = (value: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value))
-const dateTimeInputValue = (value: string, timeZone = "America/Bogota") => {
-  const date = new Date(value)
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date)
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]))
-  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`
-}
-const localDateTimeToIso = (value: string, timeZone = "America/Bogota") => {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value)
-  if (!match) throw new Error("Selecciona una fecha y hora válidas.")
-  const [, year, month, day, hour, minute] = match.map(Number)
-  const desiredUtc = Date.UTC(year, month - 1, day, hour, minute)
-  let guess = desiredUtc
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(new Date(guess))
-    const values = Object.fromEntries(parts.map(({ type, value }) => [type, Number(value)]))
-    const representedUtc = Date.UTC(values.year, values.month - 1, values.day, values.hour, values.minute)
-    const correction = desiredUtc - representedUtc
-    guess += correction
-    if (correction === 0) break
-  }
-  const result = new Date(guess)
-  if (dateTimeInputValue(result.toISOString(), timeZone) !== value) {
-    throw new Error("La hora local no existe por un cambio de horario. Elige otra hora.")
-  }
-  return result.toISOString()
-}
 async function loadAllRecords<T>(path: string, token: string, pageSize = 500): Promise<T[]> {
   const records: T[] = []
   let offset = 0
@@ -167,6 +126,7 @@ export default function App() {
   const [restoringSession, setRestoringSession] = useState(true)
   const [section, setSection] = useState<Section>("Inicio")
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [account, setAccount] = useState<Account | null>(null)
   const [weights, setWeights] = useState<WeightEntry[]>([])
   const [medications, setMedications] = useState<Medication[]>([])
   const [doses, setDoses] = useState<DoseEntry[]>([])
@@ -181,25 +141,36 @@ export default function App() {
   const [modal, setModal] = useState<ModalType>(null)
   const [dark, setDark] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [range, setRange] = useState("90 días")
 
   const refresh = useCallback(async (authToken: string) => {
     setLoading(true)
     setError("")
     try {
-      const [profileData, weightData, medicationData, doseData, measurementData, photoData, ...moduleEntries] =
-        await Promise.all([
-          api<Profile>("/profile", authToken),
-          loadAllRecords<WeightEntry>("/weights", authToken),
-          api<Medication[]>("/medications", authToken),
-          loadAllRecords<DoseEntry>("/doses", authToken),
-          loadAllRecords<BodyMeasurementEntry>("/body-measurements", authToken),
-          api<PhotoEntry[]>("/photos", authToken),
-          ...(["symptoms", "activity", "labs", "goals", "reviews", "reminders"] as const).map((module) =>
-            loadAllRecords<JournalEntry>(`/entries/${module}`, authToken),
-          ),
-        ])
+      const [
+        profileData,
+        accountData,
+        weightData,
+        medicationData,
+        doseData,
+        measurementData,
+        photoData,
+        ...moduleEntries
+      ] = await Promise.all([
+        api<Profile>("/profile", authToken),
+        api<Account>("/account", authToken),
+        loadAllRecords<WeightEntry>("/weights", authToken),
+        api<Medication[]>("/medications", authToken),
+        loadAllRecords<DoseEntry>("/doses", authToken),
+        loadAllRecords<BodyMeasurementEntry>("/body-measurements", authToken),
+        api<PhotoEntry[]>("/photos", authToken),
+        ...(["symptoms", "activity", "labs", "goals", "reviews", "reminders"] as const).map((module) =>
+          loadAllRecords<JournalEntry>(`/entries/${module}`, authToken),
+        ),
+      ])
       setProfile(profileData)
+      setAccount(accountData)
       setWeights(weightData)
       setMedications(medicationData)
       setDoses(doseData)
@@ -248,6 +219,7 @@ export default function App() {
   const bmiNow = currentWeight && profile ? currentWeight / (profile.height_cm / 100) ** 2 : null
   const currentDose = doses[0]
   const userTimezone = profile?.timezone ?? "America/Bogota"
+  const accountInitial = account?.email.trim().charAt(0).toLocaleUpperCase("es-CO") || "?"
   const activeMedication = medications.find((item) => item.active)
   const chartData = useMemo(() => {
     const days =
@@ -350,6 +322,7 @@ export default function App() {
     void logoutSession()
     setToken(null)
     setProfile(null)
+    setAccount(null)
     setWeights([])
     setDoses([])
     setMedications([])
@@ -374,20 +347,22 @@ export default function App() {
         </div>
         <div className="workspace-label">TU ESPACIO</div>
         <nav className="side-nav" aria-label="Navegación principal">
-          {navigation.map(({ label, icon: Icon }) => (
-            <button
-              key={label}
-              onClick={() => {
-                setSection(label)
-                setMobileOpen(false)
-              }}
-              className={`nav-item ${section === label ? "active" : ""}`}
-            >
-              <Icon size={18} strokeWidth={1.8} />
-              <span>{label}</span>
-              {label === "Inicio" && <span className="nav-live" />}
-            </button>
-          ))}
+          {navigation
+            .filter(({ label }) => label !== "Perfil y ajustes")
+            .map(({ label, icon: Icon }) => (
+              <button
+                key={label}
+                onClick={() => {
+                  setSection(label)
+                  setMobileOpen(false)
+                }}
+                className={`nav-item ${section === label ? "active" : ""}`}
+              >
+                <Icon size={18} strokeWidth={1.8} />
+                <span>{label}</span>
+                {label === "Inicio" && <span className="nav-live" />}
+              </button>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="privacy-card">
@@ -407,14 +382,53 @@ export default function App() {
             <LogOut size={18} />
             <span>Cerrar sesión</span>
           </button>
-          <div className="profile-chip">
-            <div className="avatar">T</div>
+          <button
+            className="profile-chip"
+            aria-label="Abrir menú de cuenta"
+            aria-expanded={accountMenuOpen}
+            onClick={() => setAccountMenuOpen((open) => !open)}
+          >
+            <div className="avatar">{accountInitial}</div>
             <div>
               <strong>Tu seguimiento</strong>
               <p>Espacio personal</p>
             </div>
             <MoreHorizontal size={20} className="profile-more" />
-          </div>
+          </button>
+          {accountMenuOpen && (
+            <div className="account-context-menu" role="menu">
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setSection("Perfil y ajustes")
+                  setAccountMenuOpen(false)
+                }}
+              >
+                <UserRoundCog size={16} /> Perfil y ajustes
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setSection("Recordatorios")
+                  setAccountMenuOpen(false)
+                }}
+              >
+                <Bell size={16} /> Recordatorios
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setDark((value) => !value)
+                  setAccountMenuOpen(false)
+                }}
+              >
+                <Moon size={16} /> {dark ? "Modo claro" : "Modo oscuro"}
+              </button>
+              <button role="menuitem" onClick={logout}>
+                <LogOut size={16} /> Cerrar sesión
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
@@ -434,7 +448,17 @@ export default function App() {
               <Bell size={19} />
               <i />
             </button>
-            <div className="top-avatar">T</div>
+            <button
+              className="top-avatar"
+              aria-label="Abrir Perfil y ajustes"
+              title={account?.email ?? "Perfil y ajustes"}
+              onClick={() => {
+                setSection("Perfil y ajustes")
+                setMobileOpen(false)
+              }}
+            >
+              {accountInitial}
+            </button>
           </div>
         </header>
         <div className="page-content">
@@ -1559,7 +1583,11 @@ function AnalysisWorkspace({
       subtitle: "La frecuencia y las pruebas se acuerdan con tu profesional de salud.",
       tasks: [
         { label: "Laboratorios según situación clínica", done: hasPeriodicLabs, target: "Laboratorios" as Section },
-        { label: "Revisión reciente del tratamiento (3 meses)", done: hasRecentTreatmentReview, target: "Revisiones" as Section },
+        {
+          label: "Revisión reciente del tratamiento (3 meses)",
+          done: hasRecentTreatmentReview,
+          target: "Revisiones" as Section,
+        },
       ],
     },
   ]
@@ -1976,6 +2004,17 @@ function ModuleWorkspace(props: {
     setShowEntryForm(false)
     setEditingEntry(null)
   }
+  async function setReminderEnabled(entry: JournalEntry, enabled: boolean) {
+    try {
+      await api<JournalEntry>(`/entries/${entry.id}/enabled`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled }),
+      })
+      await props.onRefresh()
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo actualizar el recordatorio")
+    }
+  }
   async function saveMeasurement(payload: Record<string, unknown>) {
     await api(editingMeasurement ? `/body-measurements/${editingMeasurement.id}` : "/body-measurements", token, {
       method: editingMeasurement ? "PUT" : "POST",
@@ -2303,6 +2342,9 @@ function ModuleWorkspace(props: {
                     <div>
                       <strong>{entry.title}</strong>
                       <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                      {module === "reminders" && entry.data.auto_generated === true && (
+                        <span className="record-status">Automático · basado en tu último registro</span>
+                      )}
                       {module === "reminders" && typeof entry.data.last_sent_epoch === "number" && (
                         <span
                           className={`record-status ${entry.data.completed_reminder_epoch === entry.data.last_sent_epoch ? "active" : ""}`}
@@ -2313,13 +2355,36 @@ function ModuleWorkspace(props: {
                         </span>
                       )}
                     </div>
-                    <RecordActions
-                      onEdit={() => {
-                        setEditingEntry(entry)
-                        setShowEntryForm(true)
-                      }}
-                      onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
-                    />
+                    {module === "reminders" && entry.data.auto_generated === true ? (
+                      typeof entry.data.last_sent_epoch === "number" ? (
+                        <span className="record-status active">
+                          {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
+                            ? "Cumplido desde Telegram"
+                            : "Aviso enviado por Telegram"}
+                        </span>
+                      ) : (
+                        <button
+                          className={`small-action ${entry.data.enabled === "Sí" || entry.data.enabled === true ? "danger" : ""}`}
+                          aria-pressed={entry.data.enabled === "Sí" || entry.data.enabled === true}
+                          onClick={() =>
+                            void setReminderEnabled(
+                              entry,
+                              !(entry.data.enabled === "Sí" || entry.data.enabled === true),
+                            )
+                          }
+                        >
+                          {entry.data.enabled === "Sí" || entry.data.enabled === true ? "Desactivar" : "Activar"}
+                        </button>
+                      )
+                    ) : (
+                      <RecordActions
+                        onEdit={() => {
+                          setEditingEntry(entry)
+                          setShowEntryForm(true)
+                        }}
+                        onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
+                      />
+                    )}
                   </div>
                   <div className="composition-results">
                     {journalDefinitions[module].fields

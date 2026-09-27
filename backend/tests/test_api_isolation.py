@@ -321,6 +321,65 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
         assert saved.data["completed_at"]
 
 
+def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "automatic-reminders@example.com", "password": "automatic-reminders-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    forged_auto = client.post("/api/entries", headers=headers, json={
+        "module": "reminders", "title": "Manual", "data": {"auto_generated": True},
+    })
+    assert forged_auto.status_code == 422
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
+    dose = client.post("/api/doses", headers=headers, json={
+        "medication_id": medication["id"], "dose_mg": 2.5,
+    })
+    assert dose.status_code == 201
+    weight = client.post("/api/weights", headers=headers, json={
+        "weight_kg": 80, "body_fat_percent": 25,
+    })
+    assert weight.status_code == 201
+    measurements = client.post("/api/body-measurements", headers=headers, json={
+        "waist_cm": 85,
+    })
+    assert measurements.status_code == 201
+
+    listed = client.get("/api/entries/reminders", headers=headers)
+    assert listed.status_code == 200
+    automatic = {entry["data"]["auto_key"]: entry for entry in listed.json(
+    ) if entry["data"].get("auto_generated")}
+    assert set(automatic) == {"dose", "weight", "composition", "measurements"}
+    assert automatic["dose"]["data"]["source_record_id"] == dose.json()["id"]
+    assert automatic["weight"]["data"]["source_record_id"] == weight.json()[
+        "id"]
+    assert automatic["composition"]["data"]["source_record_id"] == weight.json()[
+        "id"]
+    assert automatic["measurements"]["data"]["source_record_id"] == measurements.json()[
+        "id"]
+    original_reminder_id = automatic["weight"]["id"]
+    original_date = automatic["weight"]["data"]["reminder_at"]
+
+    disabled = client.patch(
+        f"/api/entries/{original_reminder_id}/enabled", headers=headers, json={"enabled": False})
+    assert disabled.status_code == 200
+    assert disabled.json()["data"]["enabled"] == "No"
+    assert client.put(f"/api/entries/{original_reminder_id}", headers=headers, json={
+        "module": "reminders", "title": "Renombrar automático", "data": disabled.json()["data"],
+    }).status_code == 409
+    assert client.delete(
+        f"/api/entries/{original_reminder_id}", headers=headers).status_code == 409
+
+    client.post("/api/weights", headers=headers, json={"weight_kg": 79.5})
+    refreshed = client.get("/api/entries/reminders", headers=headers).json()
+    weight_reminder = next(
+        entry for entry in refreshed if entry["data"].get("auto_key") == "weight")
+    assert weight_reminder["id"] == original_reminder_id
+    assert weight_reminder["data"]["enabled"] == "Sí"
+    assert weight_reminder["data"]["reminder_at"] != original_date
+
+
 def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None:
     async def fake_send(_chat_id: str, _text: str) -> bool:
         return True
@@ -369,7 +428,7 @@ def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None
     labs = client.get("/api/entries/labs", headers=headers).json()
     assert labs[0]["data"]["systolic_pressure"] == 120
     reminders = client.get("/api/entries/reminders", headers=headers).json()
-    assert reminders[0]["title"] == "Cita de seguimiento"
+    assert any(entry["title"] == "Cita de seguimiento" for entry in reminders)
 
 
 def test_weight_records_can_be_edited_and_deleted_only_by_owner() -> None:

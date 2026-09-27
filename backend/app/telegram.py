@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.calculations import dose_volume_ml, u100_units
+from app.automatic_reminders import sync_all_automatic_reminders
 from app.config import settings
 from app.database import SessionLocal
 from app.models import (
@@ -230,6 +231,7 @@ async def dispatch_due_reminders() -> None:
     max_lateness = timedelta(minutes=2)
     due: list[tuple[int, str, str, str, str]] = []
     with SessionLocal() as db:
+        sync_all_automatic_reminders(db)
         entries = db.scalars(select(JournalEntry).where(
             JournalEntry.module == "reminders")).all()
         for entry in entries:
