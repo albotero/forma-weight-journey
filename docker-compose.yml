@@ -22,7 +22,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-tracker}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tracker}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       TIMEZONE: ${TIMEZONE:-America/Bogota}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://forma.albotero.com}
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,11 +36,28 @@ services:
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-8080}:80"
+      - "${HTTPS_PORT:-443}:443"
     depends_on: [backend]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-forma.albotero.com}
+      NGINX_ENVSUBST_FILTER: APP_DOMAIN
+    volumes:
+      - letsencrypt:/etc/letsencrypt:ro
     networks: [private, edge]
+
+  certbot:
+    image: certbot/dns-cloudflare:latest
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: "while :; do certbot renew --quiet; sleep 12h; done"
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - ./secrets/cloudflare.ini:/run/secrets/cloudflare.ini:ro
+    networks: [edge]
 
 volumes:
   postgres_data:
+  letsencrypt:
 
 networks:
   private:

@@ -22,12 +22,24 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 
 ## Docker
 
-1. Copia `.env.example` como `.env`.
+1. Copia `.env.example` como `.env` y ajusta `APP_DOMAIN` al hostname LAN que quieras usar. Configura el DNS de tu LAN para que ese nombre resuelva a la IP LAN de este servidor.
 2. Sustituye `POSTGRES_PASSWORD` y `SECRET_KEY` por valores aleatorios únicos. No publiques `.env`.
-3. Ejecuta `docker compose up --build` desde la raíz.
-4. Abre `http://localhost:8080`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `http://localhost:8080/docs`.
+3. Crea en Cloudflare un API Token limitado a la zona `albotero.com` con permiso **Zone / DNS / Edit**. En el servidor, ejecuta `mkdir -p secrets && chmod 700 secrets`, guarda `dns_cloudflare_api_token = TU_TOKEN` en `secrets/cloudflare.ini`, ejecuta `chmod 600 secrets/cloudflare.ini` y no lo guardes en Git ni lo compartas.
+4. Ejecuta una vez desde la raíz para emitir el certificado Let's Encrypt por DNS-01 (no requiere abrir la app a Internet):
 
-Solo el frontend publica un puerto al host. Nginx reenvía `/api` al backend por la red privada de Compose; ni la API ni la base de datos publican puertos directamente. En despliegue público utiliza HTTPS detrás de un reverse proxy, secretos dedicados y almacenamiento/backup cifrado.
+   ```sh
+   docker compose run --rm --entrypoint certbot certbot certonly \\
+       --dns-cloudflare \\
+       --dns-cloudflare-credentials /run/secrets/cloudflare.ini \\
+       --dns-cloudflare-propagation-seconds 60 \\
+       --agree-tos --register-unsafely-without-email --non-interactive \\
+       -d forma.albotero.com
+   ```
+
+5. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS; Certbot renueva el certificado automáticamente.
+6. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
+
+Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por la red privada de Compose; ni la API ni la base de datos publican puertos directamente. Limita TCP 443 (y opcionalmente TCP 80 para la redirección) a la LAN en el firewall del host/router. La validación DNS-01 usa el token de Cloudflare; no publiques `.env` ni `secrets/cloudflare.ini`.
 
 ## Desarrollo local
 
