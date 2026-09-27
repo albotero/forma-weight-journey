@@ -14,7 +14,7 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 - **Frontend:** React, TypeScript estricto, Vite, Tailwind, React Router, Recharts y Lucide.
 - **Backend:** FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, JWT de corta duración y contraseñas con Argon2.
 - **Persistencia:** PostgreSQL. El navegador mantiene el token de acceso únicamente en memoria; no persiste registros médicos en localStorage.
-- **Aislamiento:** las consultas de registros siempre se limitan al usuario autenticado. Fechas se normalizan a UTC; el perfil parte de `America/Bogota`.
+- **Aislamiento:** las consultas de registros siempre se limitan al usuario autenticado. Fechas se normalizan a UTC; el perfil parte de `America/Bogota`. Los formularios de peso y dosis proponen la fecha/hora actual y permiten editarla antes de guardar.
 
 ## Requisitos
 

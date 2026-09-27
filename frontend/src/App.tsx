@@ -69,6 +69,10 @@ const navigation: { label: Section; icon: typeof Home }[] = [
 ]
 const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
+const currentLocalDateTime = () => {
+  const now = new Date()
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null)
@@ -139,13 +143,13 @@ export default function App() {
 
   if (!token) return <AuthScreen onAuthenticated={setToken} />
 
-  async function submitWeight(weight: number, notes: string) {
+  async function submitWeight(weight: number, notes: string, dateTime: string) {
     if (!token) return
     await api("/weights", token, {
       method: "POST",
       body: JSON.stringify({
         weight_kg: weight,
-        measured_at: new Date().toISOString(),
+        measured_at: new Date(dateTime).toISOString(),
         source: "Web",
         notes: notes || null,
       }),
@@ -154,14 +158,14 @@ export default function App() {
     setModal(null)
   }
 
-  async function submitDose(mg: number, injectionSite: string) {
+  async function submitDose(mg: number, injectionSite: string, dateTime: string) {
     if (!token || !activeMedication) return
     await api("/doses", token, {
       method: "POST",
       body: JSON.stringify({
         medication_id: activeMedication.id,
         dose_mg: mg,
-        administered_at: new Date().toISOString(),
+        administered_at: new Date(dateTime).toISOString(),
         injection_site: injectionSite || null,
       }),
     })
@@ -871,10 +875,11 @@ function WeightModal({
   onSubmit,
 }: {
   onClose: () => void
-  onSubmit: (weight: number, notes: string) => Promise<void>
+  onSubmit: (weight: number, notes: string, dateTime: string) => Promise<void>
 }) {
   const [weight, setWeight] = useState("")
   const [notes, setNotes] = useState("")
+  const [dateTime, setDateTime] = useState(currentLocalDateTime)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   async function submit(event: FormEvent) {
@@ -882,7 +887,7 @@ function WeightModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(Number(weight), notes)
+      await onSubmit(Number(weight), notes, dateTime)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -890,7 +895,7 @@ function WeightModal({
     }
   }
   return (
-    <Modal title="Registrar peso" subtitle="La hora y fecha se guardan automáticamente." onClose={onClose}>
+    <Modal title="Registrar peso" subtitle="Se completa con la hora actual; puedes cambiarla." onClose={onClose}>
       <form className="entry-form" onSubmit={submit}>
         <label>
           Peso actual{" "}
@@ -908,6 +913,15 @@ function WeightModal({
             />
             <span>kg</span>
           </div>
+        </label>
+        <label>
+          Fecha y hora
+          <input
+            required
+            type="datetime-local"
+            value={dateTime}
+            onChange={(event) => setDateTime(event.target.value)}
+          />
         </label>
         <label>
           Nota <span className="optional">opcional</span>
@@ -933,10 +947,11 @@ function DoseModal({
 }: {
   onClose: () => void
   medication: Medication | undefined
-  onSubmit: (mg: number, site: string) => Promise<void>
+  onSubmit: (mg: number, site: string, dateTime: string) => Promise<void>
 }) {
   const [dose, setDose] = useState("")
   const [site, setSite] = useState("")
+  const [dateTime, setDateTime] = useState(currentLocalDateTime)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const mg = Number(dose)
@@ -947,7 +962,7 @@ function DoseModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(mg, site)
+      await onSubmit(mg, site, dateTime)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -996,6 +1011,15 @@ function DoseModal({
             )}
           </div>
         )}
+        <label>
+          Fecha y hora
+          <input
+            required
+            type="datetime-local"
+            value={dateTime}
+            onChange={(event) => setDateTime(event.target.value)}
+          />
+        </label>
         <label>
           Lugar de inyección <span className="optional">opcional</span>
           <select value={site} onChange={(e) => setSite(e.target.value)}>
