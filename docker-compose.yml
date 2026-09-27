@@ -49,7 +49,8 @@ services:
     image: certbot/dns-cloudflare:latest
     restart: unless-stopped
     entrypoint: ["/bin/sh", "-c"]
-    command: "while :; do certbot renew --quiet; sleep 12h; done"
+    command:
+      - "while true; do certbot renew --quiet --deploy-hook 'chgrp 101 /etc/letsencrypt/archive && chmod 710 /etc/letsencrypt/archive && chgrp 101 /etc/letsencrypt/live && chmod 710 /etc/letsencrypt/live && chgrp 101 $$RENEWED_LINEAGE/privkey.pem && chmod 640 $$RENEWED_LINEAGE/privkey.pem'; sleep 12h; done"
     volumes:
       - letsencrypt:/etc/letsencrypt
       - ./secrets/cloudflare.ini:/run/secrets/cloudflare.ini:ro

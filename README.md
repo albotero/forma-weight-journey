@@ -36,8 +36,14 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
        -d forma.albotero.com
    ```
 
-5. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS; Certbot renueva el certificado automáticamente.
-6. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
+5. Permite al grupo de Nginx leer la clave privada (el worker no corre como root) y restringe su modo:
+
+   ```sh
+   docker compose run --rm --entrypoint sh certbot -c 'chgrp 101 /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/live/forma.albotero.com/privkey.pem && chmod 710 /etc/letsencrypt/live /etc/letsencrypt/archive && chmod 640 /etc/letsencrypt/live/forma.albotero.com/privkey.pem'
+   ```
+
+6. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS; Certbot renueva el certificado automáticamente y vuelve a aplicar permisos restringidos a la clave.
+7. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
 
 Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por la red privada de Compose; ni la API ni la base de datos publican puertos directamente. Limita TCP 443 (y opcionalmente TCP 80 para la redirección) a la LAN en el firewall del host/router. La validación DNS-01 usa el token de Cloudflare; no publiques `.env` ni `secrets/cloudflare.ini`.
 
