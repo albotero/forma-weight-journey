@@ -1760,6 +1760,7 @@ function BodyMeasurementEditor({
       title={entry ? "Editar medidas" : "Registrar medidas"}
       subtitle="Incluye una o más medidas corporales."
       onClose={onClose}
+      size="wide"
     >
       <form className="entry-form" onSubmit={submit}>
         <label>
@@ -2281,11 +2282,13 @@ function Modal({
   subtitle,
   onClose,
   children,
+  size = "default",
 }: {
   title: string
   subtitle: string
   onClose: () => void
   children: React.ReactNode
+  size?: "default" | "wide"
 }) {
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
@@ -2301,7 +2304,12 @@ function Modal({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <section
+        className={`modal-card ${size === "wide" ? "modal-card-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+      >
         <div className="modal-heading">
           <div>
             <h2 id="modal-title">{title}</h2>

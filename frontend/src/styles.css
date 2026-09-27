@@ -907,11 +907,18 @@ button {
 }
 .modal-card {
   width: min(100%, 430px);
+  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--panel);
   border-radius: 15px;
   padding: 22px;
   box-shadow: 0 24px 80px #06150c35;
   animation: modal-in 0.16s ease-out;
+}
+.modal-card-wide {
+  width: min(100%, 620px);
 }
 @keyframes modal-in {
   from {

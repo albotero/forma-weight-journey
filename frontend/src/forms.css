@@ -152,7 +152,7 @@
 }
 .composition-input-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
 }
@@ -250,6 +250,9 @@
   color: #8ac8a5;
 }
 @media (max-width: 760px) {
+  .composition-input-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .module-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -262,5 +265,18 @@
   }
   .record-actions {
     flex-wrap: wrap;
+  }
+}
+@media (max-width: 420px) {
+  .modal-backdrop {
+    padding: 8px;
+  }
+  .modal-card {
+    max-height: calc(100vh - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 16px;
+  }
+  .composition-input-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
