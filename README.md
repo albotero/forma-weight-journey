@@ -2,7 +2,7 @@
 
 Aplicación web privada y mobile-first para organizar registros personales de peso y tratamiento. **No diagnostica ni prescribe.** No cambia dosis y no sustituye el criterio de un profesional de salud.
 
-> Esta entrega inicial implementa el cimiento funcional (cuenta, perfil, peso, medicación, dosis, medidas corporales básicas y panel). Fotos privadas, laboratorios, síntomas, actividad, recordatorios y Telegram todavía no están conectados; se incorporarán incrementalmente. La interfaz los identifica como secciones en preparación para no insinuar funcionalidades que aún no existen.
+> La aplicación permite organizar registros personales. Incluye composición de báscula, peso, medidas, medicación/dosis, síntomas, actividad, laboratorios, fotos privadas, objetivos, revisiones, recordatorios guardados, análisis e historial. No diagnostica ni prescribe. Los recordatorios todavía no envían notificaciones externas; Telegram no está integrado.
 
 ## Arquitectura
 
@@ -13,7 +13,7 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 
 - **Frontend:** React, TypeScript estricto, Vite, Tailwind, React Router, Recharts y Lucide.
 - **Backend:** FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, JWT de corta duración y contraseñas con Argon2.
-- **Persistencia:** PostgreSQL. El navegador mantiene el token de acceso únicamente en memoria; no persiste registros médicos en localStorage.
+- **Persistencia:** PostgreSQL. El token de acceso vive en memoria; una cookie `Secure`, `HttpOnly`, `SameSite=Strict` mantiene una sesión revocable de 30 días y restaura la sesión al volver a abrir la app. Las fotos se guardan como archivos privados bajo `storage/`.
 - **Aislamiento:** las consultas de registros siempre se limitan al usuario autenticado. Fechas se normalizan a UTC; el perfil parte de `America/Bogota`. Los formularios de peso y dosis proponen la fecha/hora actual y permiten editarla antes de guardar.
 
 ## Requisitos
@@ -46,6 +46,16 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 7. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
 
 Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por la red privada de Compose; ni la API ni la base de datos publican puertos directamente. Limita TCP 443 (y opcionalmente TCP 80 para la redirección) a la LAN en el firewall del host/router. La validación DNS-01 usa el token de Cloudflare; no publiques `.env` ni `secrets/cloudflare.ini`.
+
+## Módulos de seguimiento
+
+- **Composición:** cada lectura de peso acepta opcionalmente grasa corporal, masa libre de grasa, grasa subcutánea, índice de grasa visceral, agua corporal, músculo esquelético, masa muscular, masa ósea, proteína, metabolismo basal y edad metabólica. Son estimaciones reportadas por la báscula; se guardan junto con el peso, la fecha/hora, y pueden editarse o borrarse.
+- **Medidas, síntomas, actividad, laboratorios, objetivos, revisiones y recordatorios:** registros con fecha/hora, campos relevantes, notas y operaciones de edición/eliminación.
+- **Fotos:** cargas privadas JPEG/PNG/WebP de hasta 10 MB, aisladas por usuario, con descripción y fecha editable.
+- **Medicación e historial:** permite añadir/editar concentraciones, archivar o reactivar medicamentos y editar/eliminar dosis; archivar conserva el historial relacionado.
+- Los recordatorios se almacenan y editan dentro de la app, pero no disparan notificaciones mientras está cerrada ni se envían por correo/Telegram.
+
+Las sesiones se restauran mediante un refresh token aleatorio almacenado como hash en la base de datos. El navegador solo recibe la cookie segura; los refresh tokens rotan y el cierre de sesión revoca la sesión del servidor.
 
 ## Desarrollo local
 

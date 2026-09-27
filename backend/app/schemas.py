@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -53,6 +54,17 @@ class MedicationOut(MedicationCreate):
 class WeightCreate(BaseModel):
     measured_at: datetime | None = None
     weight_kg: float = Field(gt=0, le=500)
+    body_fat_percent: float | None = Field(default=None, ge=0, le=100)
+    fat_free_mass_kg: float | None = Field(default=None, ge=0, le=500)
+    subcutaneous_fat_percent: float | None = Field(default=None, ge=0, le=100)
+    visceral_fat_index: float | None = Field(default=None, ge=0, le=1000)
+    body_water_percent: float | None = Field(default=None, ge=0, le=100)
+    skeletal_muscle_percent: float | None = Field(default=None, ge=0, le=100)
+    muscle_mass_kg: float | None = Field(default=None, ge=0, le=500)
+    bone_mass_kg: float | None = Field(default=None, ge=0, le=100)
+    protein_percent: float | None = Field(default=None, ge=0, le=100)
+    bmr_kcal: float | None = Field(default=None, ge=0, le=20000)
+    metabolic_age: int | None = Field(default=None, ge=0, le=150)
     source: str | None = Field(default=None, max_length=80)
     notes: str | None = None
 
@@ -107,3 +119,35 @@ class BodyMeasurementOut(BodyMeasurementCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
     measured_at: datetime
+
+
+JournalModule = Literal["symptoms", "activity",
+                        "labs", "goals", "reviews", "reminders"]
+
+
+class JournalEntryCreate(BaseModel):
+    module: JournalModule
+    occurred_at: datetime | None = None
+    title: str = Field(min_length=1, max_length=160)
+    data: dict[str, object] = Field(default_factory=dict)
+    notes: str | None = None
+
+
+class JournalEntryOut(JournalEntryCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    occurred_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class PhotoRecordOut(BaseModel):
+    id: int
+    caption: str | None
+    taken_at: datetime
+    created_at: datetime
+
+
+class PhotoUpdate(BaseModel):
+    caption: str | None = Field(default=None, max_length=300)
+    taken_at: datetime

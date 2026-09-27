@@ -13,3 +13,254 @@
   font-size: 9px;
   color: var(--muted);
 }
+
+.loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  color: #638071;
+  font-size: 14px;
+}
+.module-page {
+  max-width: 980px;
+  margin: 0 auto;
+}
+.module-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.module-heading h1 {
+  margin: 7px 0 0;
+  font:
+    700 29px/1.2 Manrope,
+    sans-serif;
+  letter-spacing: -1px;
+}
+.module-subheading {
+  margin: 30px 0 14px;
+  font:
+    700 18px Manrope,
+    sans-serif;
+}
+.module-hint {
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 1.6;
+  margin: -10px 0 18px;
+}
+.record-list {
+  display: grid;
+  gap: 12px;
+}
+.record-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.record-card p {
+  color: var(--sub);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.record-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.record-card-heading strong,
+.history-card strong {
+  display: block;
+  font-size: 14px;
+}
+.record-card time,
+.record-card-heading time,
+.photo-card time {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.record-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.small-action {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: var(--sub);
+  background: var(--panel);
+  font-size: 11px;
+}
+.small-action:hover {
+  color: var(--green);
+  border-color: #b8d5c5;
+}
+.small-action.danger:hover {
+  color: #b34646;
+  border-color: #e6baba;
+}
+.composition-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 8px;
+  margin-top: 15px;
+}
+.composition-results > div {
+  background: var(--canvas);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.composition-results span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 5px;
+}
+.composition-results strong {
+  display: block;
+  font-size: 13px;
+}
+.module-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 25px;
+  color: var(--sub);
+  font-size: 12px;
+}
+.composition-fields {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px;
+}
+.composition-fields summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+.composition-input-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.entry-form textarea {
+  min-height: 74px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--panel);
+  color: var(--text);
+}
+.form-two-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.record-status {
+  display: inline-block;
+  color: #98663f;
+  background: #f8f0e6;
+  border-radius: 20px;
+  padding: 4px 8px;
+  font-size: 10px;
+  margin: 7px 0 0;
+}
+.record-status.active {
+  color: #347a5b;
+  background: #eaf4ef;
+}
+.history-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.history-card span {
+  display: block;
+  color: var(--sub);
+  font-size: 11px;
+  margin-top: 5px;
+}
+.photo-upload-form {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  align-items: end;
+  gap: 12px;
+  background: var(--panel);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+.photo-upload-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--sub);
+  font-size: 11px;
+}
+.photo-upload-form input {
+  width: 100%;
+  min-width: 0;
+}
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 13px;
+}
+.photo-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.photo-card img,
+.photo-loading {
+  width: 100%;
+  height: 190px;
+  object-fit: cover;
+  background: var(--canvas);
+  display: grid;
+  place-items: center;
+}
+.photo-card > div:last-child {
+  padding: 12px;
+}
+.photo-card strong {
+  font-size: 12px;
+}
+.photo-card .small-action {
+  margin-top: 10px;
+}
+.dark .record-status.active {
+  background: #263d32;
+  color: #8ac8a5;
+}
+@media (max-width: 760px) {
+  .module-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .photo-upload-form {
+    grid-template-columns: 1fr;
+  }
+  .record-card-heading {
+    align-items: flex-start;
+  }
+  .record-actions {
+    flex-wrap: wrap;
+  }
+}

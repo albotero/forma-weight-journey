@@ -10,7 +10,6 @@ import {
   CircleHelp,
   Clock3,
   Dna,
-  Droplets,
   FileText,
   Footprints,
   Gauge,
@@ -32,7 +31,22 @@ import {
   UserRound,
   X,
 } from "lucide-react"
-import { api, authenticate, type DoseEntry, type Medication, type Profile, type WeightEntry } from "./api"
+import {
+  api,
+  authenticate,
+  loadPhoto,
+  logoutSession,
+  refreshSession,
+  uploadPhoto,
+  type BodyMeasurementEntry,
+  type DoseEntry,
+  type JournalEntry,
+  type JournalModule,
+  type Medication,
+  type PhotoEntry,
+  type Profile,
+  type WeightEntry,
+} from "./api"
 
 type Section =
   | "Inicio"
@@ -50,7 +64,8 @@ type Section =
   | "Análisis"
   | "Historial"
 type AuthMode = "login" | "register"
-type ModalType = "weight" | "dose" | "quick" | "medication" | null
+type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
+type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
 const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Inicio", icon: Home },
   { label: "Peso", icon: Scale },
@@ -73,14 +88,38 @@ const currentLocalDateTime = () => {
   const now = new Date()
   return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
+const dateTimeInputValue = (value: string) => {
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
+}
+const compositionFields = [
+  ["body_fat_percent", "Grasa corporal", "%", 100, 0.1],
+  ["fat_free_mass_kg", "Masa libre de grasa", "kg", 500, 0.1],
+  ["subcutaneous_fat_percent", "Grasa subcutánea", "%", 100, 0.1],
+  ["visceral_fat_index", "Grasa visceral (índice)", "índice", 1000, 0.1],
+  ["body_water_percent", "Agua corporal", "%", 100, 0.1],
+  ["skeletal_muscle_percent", "Músculo esquelético", "%", 100, 0.1],
+  ["muscle_mass_kg", "Masa muscular", "kg", 500, 0.1],
+  ["bone_mass_kg", "Masa ósea", "kg", 100, 0.1],
+  ["protein_percent", "Proteína", "%", 100, 0.1],
+  ["bmr_kcal", "Metabolismo basal", "kcal", 20000, 1],
+  ["metabolic_age", "Edad metabólica", "años", 150, 1],
+] as const
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null)
+  const [restoringSession, setRestoringSession] = useState(true)
   const [section, setSection] = useState<Section>("Inicio")
   const [profile, setProfile] = useState<Profile | null>(null)
   const [weights, setWeights] = useState<WeightEntry[]>([])
   const [medications, setMedications] = useState<Medication[]>([])
   const [doses, setDoses] = useState<DoseEntry[]>([])
+  const [bodyMeasurements, setBodyMeasurements] = useState<BodyMeasurementEntry[]>([])
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([])
+  const [photos, setPhotos] = useState<PhotoEntry[]>([])
+  const [editingWeight, setEditingWeight] = useState<WeightEntry | null>(null)
+  const [editingDose, setEditingDose] = useState<DoseEntry | null>(null)
+  const [editingMedication, setEditingMedication] = useState<Medication | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [modal, setModal] = useState<ModalType>(null)
@@ -92,20 +131,46 @@ export default function App() {
     setLoading(true)
     setError("")
     try {
-      const [profileData, weightData, medicationData, doseData] = await Promise.all([
-        api<Profile>("/profile", authToken),
-        api<WeightEntry[]>("/weights?limit=300", authToken),
-        api<Medication[]>("/medications", authToken),
-        api<DoseEntry[]>("/doses?limit=100", authToken),
-      ])
+      const [profileData, weightData, medicationData, doseData, measurementData, photoData, ...moduleEntries] =
+        await Promise.all([
+          api<Profile>("/profile", authToken),
+          api<WeightEntry[]>("/weights?limit=300", authToken),
+          api<Medication[]>("/medications", authToken),
+          api<DoseEntry[]>("/doses?limit=100", authToken),
+          api<BodyMeasurementEntry[]>("/body-measurements?limit=100", authToken),
+          api<PhotoEntry[]>("/photos", authToken),
+          ...(["symptoms", "activity", "labs", "goals", "reviews", "reminders"] as const).map((module) =>
+            api<JournalEntry[]>(`/entries/${module}`, authToken),
+          ),
+        ])
       setProfile(profileData)
       setWeights(weightData)
       setMedications(medicationData)
       setDoses(doseData)
+      setBodyMeasurements(measurementData)
+      setPhotos(photoData)
+      setJournalEntries(moduleEntries.flat())
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Error de conexión")
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void refreshSession()
+      .then((restoredToken) => {
+        if (active) {
+          setToken(restoredToken)
+          setRestoringSession(false)
+        }
+      })
+      .catch(() => {
+        if (active) setRestoringSession(false)
+      })
+    return () => {
+      active = false
     }
   }, [])
 
@@ -141,29 +206,43 @@ export default function App() {
   const progress = (goal: number) =>
     Math.max(0, Math.min(100, ((startingWeight - (currentWeight ?? startingWeight)) / (startingWeight - goal)) * 100))
 
+  if (restoringSession)
+    return (
+      <div className="loading-screen" role="status">
+        Restaurando sesión…
+      </div>
+    )
   if (!token) return <AuthScreen onAuthenticated={setToken} />
 
-  async function submitWeight(weight: number, notes: string, dateTime: string) {
+  async function submitWeight(
+    weight: number,
+    notes: string,
+    dateTime: string,
+    composition: CompositionValues,
+    id?: number,
+  ) {
     if (!token) return
-    await api("/weights", token, {
-      method: "POST",
+    await api(id ? `/weights/${id}` : "/weights", token, {
+      method: id ? "PUT" : "POST",
       body: JSON.stringify({
         weight_kg: weight,
         measured_at: new Date(dateTime).toISOString(),
         source: "Web",
         notes: notes || null,
+        ...composition,
       }),
     })
     await refresh(token)
     setModal(null)
   }
 
-  async function submitDose(mg: number, injectionSite: string, dateTime: string) {
-    if (!token || !activeMedication) return
-    await api("/doses", token, {
-      method: "POST",
+  async function submitDose(mg: number, injectionSite: string, dateTime: string, id?: number, medicationId?: number) {
+    const targetMedicationId = medicationId ?? activeMedication?.id
+    if (!token || !targetMedicationId) return
+    await api(id ? `/doses/${id}` : "/doses", token, {
+      method: id ? "PUT" : "POST",
       body: JSON.stringify({
-        medication_id: activeMedication.id,
+        medication_id: targetMedicationId,
         dose_mg: mg,
         administered_at: new Date(dateTime).toISOString(),
         injection_site: injectionSite || null,
@@ -173,13 +252,25 @@ export default function App() {
     setModal(null)
   }
 
-  async function updateMedication(name: string, concentrationMg: number, volumeMl: number, unitsPerMl: number | null) {
-    if (!token || !activeMedication) return
-    await api(`/medications/${activeMedication.id}`, token, {
+  async function removeRecord(path: string) {
+    if (!token || !window.confirm("¿Eliminar este registro? Esta acción no se puede deshacer.")) return
+    await api(path, token, { method: "DELETE" })
+    await refresh(token)
+  }
+
+  async function updateMedication(
+    medication: Medication,
+    name: string,
+    concentrationMg: number,
+    volumeMl: number,
+    unitsPerMl: number | null,
+  ) {
+    if (!token) return
+    await api(`/medications/${medication.id}`, token, {
       method: "PUT",
       body: JSON.stringify({
         name,
-        active: activeMedication.active,
+        active: medication.active,
         concentration_mg: concentrationMg,
         concentration_volume_ml: volumeMl,
         units_per_ml: unitsPerMl,
@@ -187,14 +278,19 @@ export default function App() {
     })
     await refresh(token)
     setModal(null)
+    setEditingMedication(null)
   }
 
   const logout = () => {
+    void logoutSession()
     setToken(null)
     setProfile(null)
     setWeights([])
     setDoses([])
     setMedications([])
+    setBodyMeasurements([])
+    setJournalEntries([])
+    setPhotos([])
   }
 
   return (
@@ -592,7 +688,34 @@ export default function App() {
               </div>
             </>
           ) : (
-            <SectionPlaceholder section={section} loading={loading} onBack={() => setSection("Inicio")} />
+            <ModuleWorkspace
+              section={section}
+              token={token}
+              weights={sortedWeights}
+              doses={doses}
+              measurements={bodyMeasurements}
+              medications={medications}
+              entries={journalEntries}
+              photos={photos}
+              profile={profile}
+              onRefresh={() => refresh(token)}
+              onError={setError}
+              onNewWeight={() => setModal("weight")}
+              onNewDose={() => setModal("dose")}
+              onEditWeight={(entry) => {
+                setEditingWeight(entry)
+                setModal("weight")
+              }}
+              onEditDose={(entry) => {
+                setEditingDose(entry)
+                setModal("dose")
+              }}
+              onEditMedication={(entry) => {
+                setEditingMedication(entry)
+                setModal("medication")
+              }}
+              onDelete={removeRecord}
+            />
           )}
           {loading && (
             <div className="loading-indicator" role="status">
@@ -621,13 +744,50 @@ export default function App() {
           </button>
         ))}
       </nav>
-      {modal === "quick" && <QuickModal onClose={() => setModal(null)} onChoose={setModal} />}
-      {modal === "weight" && <WeightModal onClose={() => setModal(null)} onSubmit={submitWeight} />}
-      {modal === "dose" && (
-        <DoseModal onClose={() => setModal(null)} medication={activeMedication} onSubmit={submitDose} />
+      {modal === "quick" && (
+        <QuickModal
+          onClose={() => setModal(null)}
+          onChoose={(target) => {
+            if (target.modal) setModal(target.modal)
+            else if (target.section) {
+              setModal(null)
+              setSection(target.section)
+            }
+          }}
+        />
       )}
-      {modal === "medication" && activeMedication && (
-        <MedicationModal onClose={() => setModal(null)} medication={activeMedication} onSubmit={updateMedication} />
+      {modal === "weight" && (
+        <WeightModal
+          key={editingWeight?.id ?? "new-weight"}
+          entry={editingWeight ?? undefined}
+          onClose={() => {
+            setModal(null)
+            setEditingWeight(null)
+          }}
+          onSubmit={submitWeight}
+        />
+      )}
+      {modal === "dose" && (
+        <DoseModal
+          key={editingDose?.id ?? "new-dose"}
+          entry={editingDose ?? undefined}
+          onClose={() => {
+            setModal(null)
+            setEditingDose(null)
+          }}
+          medication={medications.find((item) => item.id === editingDose?.medication_id) ?? activeMedication}
+          onSubmit={submitDose}
+        />
+      )}
+      {modal === "medication" && (editingMedication ?? activeMedication) && (
+        <MedicationModal
+          onClose={() => {
+            setModal(null)
+            setEditingMedication(null)
+          }}
+          medication={(editingMedication ?? activeMedication)!}
+          onSubmit={updateMedication}
+        />
       )}
       {mobileOpen && (
         <button className="mobile-backdrop" aria-label="Cerrar menú" onClick={() => setMobileOpen(false)} />
@@ -813,51 +973,972 @@ function EmptyChart({ onAdd }: { onAdd: () => void }) {
     </div>
   )
 }
-function SectionPlaceholder({ section, loading, onBack }: { section: Section; loading: boolean; onBack: () => void }) {
+const journalModuleBySection: Partial<Record<Section, JournalModule>> = {
+  Síntomas: "symptoms",
+  Actividad: "activity",
+  Laboratorios: "labs",
+  Objetivos: "goals",
+  Revisiones: "reviews",
+  Recordatorios: "reminders",
+}
+const journalDefinitions: Record<
+  JournalModule,
+  { title: string; fields: { key: string; label: string; type?: string; options?: string[] }[] }
+> = {
+  symptoms: {
+    title: "síntoma",
+    fields: [
+      { key: "severity", label: "Intensidad (0–10)", type: "number" },
+      { key: "duration", label: "Duración" },
+      { key: "triggers", label: "Posibles factores" },
+    ],
+  },
+  activity: {
+    title: "actividad",
+    fields: [
+      { key: "duration_min", label: "Duración (min)", type: "number" },
+      { key: "distance_km", label: "Distancia (km)", type: "number" },
+      { key: "intensity", label: "Intensidad", options: ["Suave", "Moderada", "Intensa"] },
+    ],
+  },
+  labs: {
+    title: "resultado",
+    fields: [
+      { key: "value", label: "Resultado" },
+      { key: "unit", label: "Unidad" },
+      { key: "reference_range", label: "Rango de referencia" },
+      { key: "laboratory", label: "Laboratorio" },
+    ],
+  },
+  goals: {
+    title: "objetivo",
+    fields: [
+      { key: "target_value", label: "Meta" },
+      { key: "unit", label: "Unidad" },
+      { key: "due_date", label: "Fecha objetivo", type: "date" },
+      { key: "status", label: "Estado", options: ["En progreso", "Completado", "En pausa"] },
+    ],
+  },
+  reviews: {
+    title: "revisión",
+    fields: [
+      { key: "provider", label: "Profesional / centro" },
+      { key: "follow_up_date", label: "Seguimiento", type: "date" },
+      { key: "topics", label: "Temas tratados" },
+    ],
+  },
+  reminders: {
+    title: "recordatorio",
+    fields: [
+      { key: "reminder_at", label: "Fecha y hora", type: "datetime-local" },
+      { key: "repeat", label: "Repetición", options: ["No repetir", "Diario", "Semanal", "Mensual"] },
+      { key: "enabled", label: "Activo", options: ["Sí", "No"] },
+    ],
+  },
+}
+const journalSectionLabels: Record<JournalModule, Section> = {
+  symptoms: "Síntomas",
+  activity: "Actividad",
+  labs: "Laboratorios",
+  goals: "Objetivos",
+  reviews: "Revisiones",
+  reminders: "Recordatorios",
+}
+
+function ModuleWorkspace(props: {
+  section: Section
+  token: string
+  weights: WeightEntry[]
+  doses: DoseEntry[]
+  measurements: BodyMeasurementEntry[]
+  medications: Medication[]
+  entries: JournalEntry[]
+  photos: PhotoEntry[]
+  profile: Profile | null
+  onRefresh: () => Promise<void>
+  onError: (message: string) => void
+  onNewWeight: () => void
+  onNewDose: () => void
+  onEditWeight: (entry: WeightEntry) => void
+  onEditDose: (entry: DoseEntry) => void
+  onEditMedication: (entry: Medication) => void
+  onDelete: (path: string) => Promise<void>
+}) {
+  const { section, token, weights, doses, measurements, medications, entries, photos } = props
+  const module = journalModuleBySection[section]
+  const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
+  const [showEntryForm, setShowEntryForm] = useState(false)
+  const [editingMeasurement, setEditingMeasurement] = useState<BodyMeasurementEntry | null>(null)
+  const [showMeasurementForm, setShowMeasurementForm] = useState(false)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoCaption, setPhotoCaption] = useState("")
+  const [photoDate, setPhotoDate] = useState(currentLocalDateTime)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [showNewMedication, setShowNewMedication] = useState(false)
+
+  async function saveJournal(payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) {
+    await api(editingEntry ? `/entries/${editingEntry.id}` : "/entries", token, {
+      method: editingEntry ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    })
+    await props.onRefresh()
+    setShowEntryForm(false)
+    setEditingEntry(null)
+  }
+  async function saveMeasurement(payload: Record<string, unknown>) {
+    await api(editingMeasurement ? `/body-measurements/${editingMeasurement.id}` : "/body-measurements", token, {
+      method: editingMeasurement ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    })
+    await props.onRefresh()
+    setShowMeasurementForm(false)
+    setEditingMeasurement(null)
+  }
+  async function submitPhoto(event: FormEvent) {
+    event.preventDefault()
+    if (!photoFile) return
+    setBusy(true)
+    setError("")
+    try {
+      await uploadPhoto(token, photoFile, photoCaption, photoDate)
+      setPhotoFile(null)
+      setPhotoCaption("")
+      setPhotoDate(currentLocalDateTime())
+      await props.onRefresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo cargar la foto")
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function createMedication(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setBusy(true)
+    setError("")
+    try {
+      await api("/medications", token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: String(form.get("name")),
+          active: true,
+          concentration_mg: Number(form.get("concentration_mg")),
+          concentration_volume_ml: Number(form.get("concentration_volume_ml")),
+          units_per_ml: form.get("units_per_ml") ? Number(form.get("units_per_ml")) : null,
+        }),
+      })
+      setShowNewMedication(false)
+      await props.onRefresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
-    <div className="placeholder-page">
-      <div className="eyebrow">TU ESPACIO PERSONAL</div>
-      <h1>{section}</h1>
-      <p>
-        {loading
-          ? "Cargando tus datos…"
-          : `La sección de ${section.toLowerCase()} forma parte de las siguientes etapas de implementación.`}
-      </p>
-      <div className="placeholder-card">
-        <div className="placeholder-icon">
-          <Activity size={22} />
+    <section className="module-page">
+      <div className="module-heading">
+        <div>
+          <div className="eyebrow">TU ESPACIO PERSONAL</div>
+          <h1>{section}</h1>
         </div>
-        <h2>Estamos preparando este espacio</h2>
-        <p>
-          La base de tu cuenta ya está lista. Esta primera etapa incluye autenticación segura, perfil, medicación, peso
-          y registro de dosis. Las demás secciones se incorporarán progresivamente.
-        </p>
-        <button className="outline-button" onClick={onBack}>
-          Volver al inicio <ArrowRight size={15} />
-        </button>
+        {section === "Peso" && (
+          <button className="primary-button" onClick={props.onNewWeight}>
+            <Plus size={16} /> Registrar peso
+          </button>
+        )}
+        {section === "Composición" && (
+          <button className="primary-button" onClick={props.onNewWeight}>
+            <Plus size={16} /> Registrar lectura
+          </button>
+        )}
+        {section === "Medicación" && (
+          <button className="primary-button" onClick={() => setShowNewMedication(true)}>
+            <Plus size={16} /> Añadir medicación
+          </button>
+        )}
+        {section === "Medidas" && (
+          <button
+            className="primary-button"
+            onClick={() => {
+              setEditingMeasurement(null)
+              setShowMeasurementForm(true)
+            }}
+          >
+            <Plus size={16} /> Registrar medidas
+          </button>
+        )}
+        {module && (
+          <button
+            className="primary-button"
+            onClick={() => {
+              setEditingEntry(null)
+              setShowEntryForm(true)
+            }}
+          >
+            <Plus size={16} /> Añadir {journalDefinitions[module].title}
+          </button>
+        )}
       </div>
+
+      {section === "Composición" && (
+        <>
+          <p className="module-hint">
+            Lecturas de báscula; son estimaciones del dispositivo, no mediciones diagnósticas. Todos los campos de
+            composición son opcionales.
+          </p>
+          <div className="record-list">
+            {weights
+              .filter((item) => compositionFields.some(([key]) => item[key] != null))
+              .map((item) => (
+                <article className="record-card" key={item.id}>
+                  <div className="record-card-heading">
+                    <div>
+                      <strong>{item.weight_kg.toFixed(1)} kg</strong>
+                      <time>{formatDateTime(item.measured_at)}</time>
+                    </div>
+                    <RecordActions
+                      onEdit={() => props.onEditWeight(item)}
+                      onDelete={() => void props.onDelete(`/weights/${item.id}`)}
+                    />
+                  </div>
+                  <div className="composition-results">
+                    {compositionFields
+                      .filter(([key]) => item[key] != null)
+                      .map(([key, label, unit]) => (
+                        <div key={key}>
+                          <span>{label}</span>
+                          <strong>
+                            {item[key]} {unit}
+                          </strong>
+                        </div>
+                      ))}
+                  </div>
+                  {item.notes && <p>{item.notes}</p>}
+                </article>
+              ))}
+            {!weights.length && <EmptyModule text="Registra una lectura de tu báscula para empezar." />}
+          </div>
+        </>
+      )}
+
+      {section === "Peso" && (
+        <div className="record-list">
+          {weights.map((item) => (
+            <article className="record-card" key={item.id}>
+              <div className="record-card-heading">
+                <div>
+                  <strong>{item.weight_kg.toFixed(1)} kg</strong>
+                  <time>{formatDateTime(item.measured_at)}</time>
+                </div>
+                <RecordActions
+                  onEdit={() => props.onEditWeight(item)}
+                  onDelete={() => void props.onDelete(`/weights/${item.id}`)}
+                />
+              </div>
+              {item.notes && <p>{item.notes}</p>}
+            </article>
+          ))}
+          {!weights.length && <EmptyModule text="Aún no hay registros de peso." />}
+        </div>
+      )}
+
+      {section === "Medidas" && (
+        <div className="record-list">
+          {measurements.map((item) => (
+            <article className="record-card" key={item.id}>
+              <div className="record-card-heading">
+                <strong>{formatDateTime(item.measured_at)}</strong>
+                <RecordActions
+                  onEdit={() => {
+                    setEditingMeasurement(item)
+                    setShowMeasurementForm(true)
+                  }}
+                  onDelete={() => void props.onDelete(`/body-measurements/${item.id}`)}
+                />
+              </div>
+              <div className="composition-results">
+                {bodyFields
+                  .filter(([key]) => item[key] != null)
+                  .map(([key, label, unit]) => (
+                    <div key={key}>
+                      <span>{label}</span>
+                      <strong>
+                        {item[key]} {unit}
+                      </strong>
+                    </div>
+                  ))}
+              </div>
+              {item.notes && <p>{item.notes}</p>}
+            </article>
+          ))}
+          {!measurements.length && <EmptyModule text="Registra medidas corporales para ver su evolución." />}
+        </div>
+      )}
+
+      {section === "Medicación" && (
+        <>
+          <div className="record-list">
+            {medications.map((item) => (
+              <article className="record-card" key={item.id}>
+                <div className="record-card-heading">
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span className={`record-status ${item.active ? "active" : ""}`}>
+                      {item.active ? "Activa" : "Archivada"}
+                    </span>
+                    <p>
+                      {item.concentration_mg} mg / {item.concentration_volume_ml} mL
+                      {item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}
+                    </p>
+                  </div>
+                  <div className="record-actions">
+                    <button
+                      className="small-action"
+                      onClick={() => {
+                        props.onEditMedication(item)
+                      }}
+                    >
+                      Editar
+                    </button>
+                    {item.active ? (
+                      <button
+                        className="small-action danger"
+                        onClick={() =>
+                          api(`/medications/${item.id}`, token, { method: "DELETE" })
+                            .then(props.onRefresh)
+                            .catch((e: Error) => props.onError(e.message))
+                        }
+                      >
+                        Archivar
+                      </button>
+                    ) : (
+                      <button
+                        className="small-action"
+                        onClick={() =>
+                          api(`/medications/${item.id}`, token, {
+                            method: "PUT",
+                            body: JSON.stringify({ ...item, active: true }),
+                          })
+                            .then(props.onRefresh)
+                            .catch((e: Error) => props.onError(e.message))
+                        }
+                      >
+                        Reactivar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            ))}
+            {!medications.length && <EmptyModule text="Añade una medicación para llevar su seguimiento." />}
+          </div>
+          <h2 className="module-subheading">Historial de dosis</h2>
+          <div className="record-list">
+            {doses.map((item) => (
+              <article className="record-card" key={item.id}>
+                <div className="record-card-heading">
+                  <div>
+                    <strong>
+                      {item.dose_mg} mg · {item.calculated_volume_ml} mL
+                    </strong>
+                    <time>{formatDateTime(item.administered_at)}</time>
+                  </div>
+                  <RecordActions
+                    onEdit={() => props.onEditDose(item)}
+                    onDelete={() => void props.onDelete(`/doses/${item.id}`)}
+                  />
+                </div>
+              </article>
+            ))}
+            {!doses.length && <EmptyModule text="Aún no hay dosis registradas." />}
+          </div>
+        </>
+      )}
+
+      {module && (
+        <>
+          {module === "reminders" && (
+            <p className="module-hint">
+              Los recordatorios quedan guardados aquí. Las notificaciones automáticas fuera de la aplicación requieren
+              configurar un canal y todavía no se envían.
+            </p>
+          )}
+          <div className="record-list">
+            {entries
+              .filter((entry) => entry.module === module)
+              .map((entry) => (
+                <article className="record-card" key={entry.id}>
+                  <div className="record-card-heading">
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <time>{formatDateTime(entry.occurred_at)}</time>
+                    </div>
+                    <RecordActions
+                      onEdit={() => {
+                        setEditingEntry(entry)
+                        setShowEntryForm(true)
+                      }}
+                      onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
+                    />
+                  </div>
+                  <div className="composition-results">
+                    {journalDefinitions[module].fields
+                      .filter(
+                        ({ key }) =>
+                          entry.data[key] !== undefined && entry.data[key] !== null && entry.data[key] !== "",
+                      )
+                      .map(({ key, label }) => (
+                        <div key={key}>
+                          <span>{label}</span>
+                          <strong>{String(entry.data[key])}</strong>
+                        </div>
+                      ))}
+                  </div>
+                  {entry.notes && <p>{entry.notes}</p>}
+                </article>
+              ))}
+            {!entries.some((entry) => entry.module === module) && (
+              <EmptyModule text={`Aún no hay registros de ${section.toLowerCase()}.`} />
+            )}
+          </div>
+        </>
+      )}
+
+      {section === "Fotos" && (
+        <>
+          <form className="photo-upload-form" onSubmit={submitPhoto}>
+            <label>
+              Foto (JPEG, PNG o WebP; máximo 10 MB)
+              <input
+                required
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <label>
+              Fecha y hora
+              <input
+                type="datetime-local"
+                required
+                value={photoDate}
+                onChange={(event) => setPhotoDate(event.target.value)}
+              />
+            </label>
+            <label>
+              Descripción <span className="optional">opcional</span>
+              <input value={photoCaption} onChange={(event) => setPhotoCaption(event.target.value)} />
+            </label>
+            <button className="primary-button" disabled={busy || !photoFile}>
+              {busy ? "Cargando…" : "Guardar foto privada"}
+            </button>
+          </form>
+          <div className="photo-grid">
+            {photos.map((photo) => (
+              <PhotoCard
+                key={photo.id}
+                photo={photo}
+                token={token}
+                onRefresh={props.onRefresh}
+                onDelete={() => void props.onDelete(`/photos/${photo.id}`)}
+              />
+            ))}
+          </div>
+          {!photos.length && <EmptyModule text="Las fotos se almacenan de forma privada en tu cuenta." />}
+        </>
+      )}
+
+      {section === "Historial" && (
+        <div className="record-list">
+          {[
+            ...weights.map((item) => ({
+              id: `w-${item.id}`,
+              date: item.measured_at,
+              title: `${item.weight_kg} kg`,
+              label: "Peso",
+              edit: () => props.onEditWeight(item),
+              remove: () => props.onDelete(`/weights/${item.id}`),
+            })),
+            ...doses.map((item) => ({
+              id: `d-${item.id}`,
+              date: item.administered_at,
+              title: `${item.dose_mg} mg`,
+              label: "Dosis",
+              edit: () => props.onEditDose(item),
+              remove: () => props.onDelete(`/doses/${item.id}`),
+            })),
+            ...measurements.map((item) => ({
+              id: `m-${item.id}`,
+              date: item.measured_at,
+              title: "Medidas corporales",
+              label: "Medidas",
+              edit: () => {
+                setEditingMeasurement(item)
+                setShowMeasurementForm(true)
+              },
+              remove: () => props.onDelete(`/body-measurements/${item.id}`),
+            })),
+            ...entries.map((item) => ({
+              id: `e-${item.id}`,
+              date: item.occurred_at,
+              title: item.title,
+              label: journalSectionLabels[item.module],
+              edit: () => {
+                setEditingEntry(item)
+                setShowEntryForm(true)
+              },
+              remove: () => props.onDelete(`/entries/${item.id}`),
+            })),
+          ]
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((item) => (
+              <article className="record-card history-card" key={item.id}>
+                <div>
+                  <strong>{item.title}</strong>
+                  <span>
+                    {item.label} · {formatDateTime(item.date)}
+                  </span>
+                </div>
+                <RecordActions onEdit={item.edit} onDelete={() => void item.remove()} />
+              </article>
+            ))}
+        </div>
+      )}
+
+      {showEntryForm && module && (
+        <JournalEntryEditor
+          module={module}
+          entry={editingEntry ?? undefined}
+          onClose={() => {
+            setShowEntryForm(false)
+            setEditingEntry(null)
+          }}
+          onSave={saveJournal}
+        />
+      )}
+      {showMeasurementForm && (
+        <BodyMeasurementEditor
+          entry={editingMeasurement ?? undefined}
+          onClose={() => {
+            setShowMeasurementForm(false)
+            setEditingMeasurement(null)
+          }}
+          onSave={saveMeasurement}
+        />
+      )}
+      {showNewMedication && (
+        <Modal
+          title="Añadir medicación"
+          subtitle="Configura concentración para conversiones informativas."
+          onClose={() => setShowNewMedication(false)}
+        >
+          <form className="entry-form" onSubmit={createMedication}>
+            <label>
+              Nombre
+              <input name="name" required maxLength={120} />
+            </label>
+            <div className="form-two-columns">
+              <label>
+                Concentración
+                <input name="concentration_mg" required type="number" min="0.01" step="0.01" />
+              </label>
+              <label>
+                Volumen (mL)
+                <input name="concentration_volume_ml" required type="number" min="0.01" step="0.01" />
+              </label>
+            </div>
+            <label>
+              Unidades/mL <span className="optional">opcional</span>
+              <input name="units_per_ml" type="number" min="0.01" step="0.01" />
+            </label>
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-actions">
+              <button type="button" className="cancel-button" onClick={() => setShowNewMedication(false)}>
+                Cancelar
+              </button>
+              <button className="primary-button" disabled={busy}>
+                {busy ? "Guardando…" : "Añadir"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {error && (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const bodyFields = [
+  ["waist_cm", "Cintura", "cm"],
+  ["neck_cm", "Cuello", "cm"],
+  ["chest_cm", "Pecho", "cm"],
+  ["abdomen_cm", "Abdomen", "cm"],
+  ["hip_cm", "Cadera", "cm"],
+  ["arm_cm", "Brazo", "cm"],
+  ["thigh_cm", "Muslo", "cm"],
+] as const
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+}
+
+function RecordActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="record-actions">
+      <button className="small-action" onClick={onEdit}>
+        Editar
+      </button>
+      <button className="small-action danger" onClick={onDelete}>
+        Eliminar
+      </button>
     </div>
   )
 }
 
-function QuickModal({ onClose, onChoose }: { onClose: () => void; onChoose: (modal: ModalType) => void }) {
+function EmptyModule({ text }: { text: string }) {
+  return (
+    <div className="module-empty">
+      <Activity size={20} />
+      <span>{text}</span>
+    </div>
+  )
+}
+
+function JournalEntryEditor({
+  module,
+  entry,
+  onClose,
+  onSave,
+}: {
+  module: JournalModule
+  entry?: JournalEntry
+  onClose: () => void
+  onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
+}) {
+  const [title, setTitle] = useState(entry?.title ?? "")
+  const [occurredAt, setOccurredAt] = useState(entry ? dateTimeInputValue(entry.occurred_at) : currentLocalDateTime)
+  const [notes, setNotes] = useState(entry?.notes ?? "")
+  const [data, setData] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      journalDefinitions[module].fields.map(({ key }) => [
+        key,
+        entry?.data[key] == null ? "" : String(entry.data[key]),
+      ]),
+    ),
+  )
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    const parsed = Object.fromEntries(
+      journalDefinitions[module].fields.map(({ key, type }) => [
+        key,
+        data[key] === "" ? null : type === "number" ? Number(data[key]) : data[key],
+      ]),
+    )
+    try {
+      await onSave({
+        module,
+        title,
+        occurred_at: new Date(occurredAt).toISOString(),
+        notes: notes || null,
+        data: parsed,
+      })
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title={`${entry ? "Editar" : "Añadir"} ${journalDefinitions[module].title}`}
+      subtitle="Se completa con la fecha y hora actuales; puedes cambiarlas."
+      onClose={onClose}
+    >
+      <form className="entry-form" onSubmit={submit}>
+        <label>
+          {module === "labs" ? "Prueba" : module === "symptoms" ? "Síntoma" : journalDefinitions[module].title}
+          <input required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
+        </label>
+        <label>
+          Fecha y hora
+          <input
+            required
+            type="datetime-local"
+            value={occurredAt}
+            onChange={(event) => setOccurredAt(event.target.value)}
+          />
+        </label>
+        {journalDefinitions[module].fields.map(({ key, label, type, options }) => (
+          <label key={key}>
+            {label}
+            {options ? (
+              <select
+                value={data[key] ?? ""}
+                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+              >
+                <option value="">Seleccionar…</option>
+                {options.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={type ?? "text"}
+                min={type === "number" ? "0" : undefined}
+                step={type === "number" ? "any" : undefined}
+                value={data[key] ?? ""}
+                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            )}
+          </label>
+        ))}
+        <label>
+          Notas <span className="optional">opcional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function BodyMeasurementEditor({
+  entry,
+  onClose,
+  onSave,
+}: {
+  entry?: BodyMeasurementEntry
+  onClose: () => void
+  onSave: (payload: Record<string, unknown>) => Promise<void>
+}) {
+  const [date, setDate] = useState(entry ? dateTimeInputValue(entry.measured_at) : currentLocalDateTime)
+  const [notes, setNotes] = useState(entry?.notes ?? "")
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(bodyFields.map(([key]) => [key, entry?.[key] == null ? "" : String(entry[key])])),
+  )
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    try {
+      await onSave({
+        measured_at: new Date(date).toISOString(),
+        notes: notes || null,
+        ...Object.fromEntries(bodyFields.map(([key]) => [key, values[key] ? Number(values[key]) : null])),
+      })
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal
+      title={entry ? "Editar medidas" : "Registrar medidas"}
+      subtitle="Incluye una o más medidas corporales."
+      onClose={onClose}
+    >
+      <form className="entry-form" onSubmit={submit}>
+        <label>
+          Fecha y hora
+          <input required type="datetime-local" value={date} onChange={(event) => setDate(event.target.value)} />
+        </label>
+        <div className="composition-input-grid">
+          {bodyFields.map(([key, label]) => (
+            <label key={key}>
+              {label} (cm)
+              <input
+                type="number"
+                min="0.1"
+                max="300"
+                step="0.1"
+                value={values[key]}
+                onChange={(event) => setValues((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            </label>
+          ))}
+        </div>
+        <label>
+          Notas <span className="optional">opcional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : "Guardar"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function PhotoCard({
+  photo,
+  token,
+  onRefresh,
+  onDelete,
+}: {
+  photo: PhotoEntry
+  token: string
+  onRefresh: () => Promise<void>
+  onDelete: () => void
+}) {
+  const [src, setSrc] = useState("")
+  const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    let url = ""
+    void loadPhoto(token, photo.id)
+      .then((value) => {
+        url = value
+        setSrc(value)
+      })
+      .catch(() => undefined)
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [token, photo.id])
+  return (
+    <>
+      <article className="photo-card">
+        {src ? (
+          <img src={src} alt={photo.caption ?? "Foto privada de seguimiento"} />
+        ) : (
+          <div className="photo-loading">Cargando foto…</div>
+        )}
+        <div>
+          <strong>{photo.caption || "Registro fotográfico"}</strong>
+          <time>{formatDateTime(photo.taken_at)}</time>
+          <button className="small-action" onClick={() => setEditing(true)}>
+            Editar
+          </button>
+          <button className="small-action danger" onClick={onDelete}>
+            Eliminar
+          </button>
+        </div>
+      </article>
+      {editing && (
+        <PhotoEditor
+          photo={photo}
+          token={token}
+          onClose={() => setEditing(false)}
+          onSave={async () => {
+            await onRefresh()
+            setEditing(false)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function PhotoEditor({
+  photo,
+  token,
+  onClose,
+  onSave,
+}: {
+  photo: PhotoEntry
+  token: string
+  onClose: () => void
+  onSave: () => Promise<void>
+}) {
+  const [caption, setCaption] = useState(photo.caption ?? "")
+  const [takenAt, setTakenAt] = useState(dateTimeInputValue(photo.taken_at))
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    try {
+      await api(`/photos/${photo.id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ caption: caption || null, taken_at: new Date(takenAt).toISOString() }),
+      })
+      await onSave()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar")
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal title="Editar foto" subtitle="La imagen queda privada en tu cuenta." onClose={onClose}>
+      <form className="entry-form" onSubmit={submit}>
+        <label>
+          Descripción
+          <input value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={300} />
+        </label>
+        <label>
+          Fecha y hora
+          <input required type="datetime-local" value={takenAt} onChange={(event) => setTakenAt(event.target.value)} />
+        </label>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : "Guardar cambios"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function QuickModal({
+  onClose,
+  onChoose,
+}: {
+  onClose: () => void
+  onChoose: (target: { modal?: ModalType; section?: Section }) => void
+}) {
   const options = [
     { label: "Peso", icon: Scale, modal: "weight" as const, color: "green", available: true },
+    { label: "Composición", icon: Activity, modal: "weight" as const, color: "blue", available: true },
     { label: "Dosis", icon: Syringe, modal: "dose" as const, color: "purple", available: true },
-    { label: "Medidas", icon: Ruler, modal: null, color: "blue", available: false },
-    { label: "Síntomas", icon: HeartPulse, modal: null, color: "rose", available: false },
-    { label: "Apetito", icon: Droplets, modal: null, color: "amber", available: false },
-    { label: "Presión", icon: Activity, modal: null, color: "blue", available: false },
+    { label: "Medidas", icon: Ruler, section: "Medidas" as const, color: "blue", available: true },
+    { label: "Síntomas", icon: HeartPulse, section: "Síntomas" as const, color: "rose", available: true },
+    { label: "Actividad", icon: Footprints, section: "Actividad" as const, color: "amber", available: true },
+    { label: "Laboratorios", icon: FileText, section: "Laboratorios" as const, color: "blue", available: true },
   ]
   return (
     <Modal title="¿Qué quieres registrar?" subtitle="Elige una opción para un registro rápido." onClose={onClose}>
       <div className="quick-grid">
-        {options.map(({ label, icon: Icon, modal, color, available }) => (
+        {options.map(({ label, icon: Icon, modal, section, color, available }) => (
           <button
             key={label}
             className={`quick-option ${available ? "" : "coming-soon"}`}
             disabled={!available}
-            onClick={() => modal && onChoose(modal)}
+            onClick={() => onChoose({ modal, section })}
           >
             <span className={`quick-option-icon ${color}`}>
               <Icon size={19} />
@@ -873,13 +1954,24 @@ function QuickModal({ onClose, onChoose }: { onClose: () => void; onChoose: (mod
 function WeightModal({
   onClose,
   onSubmit,
+  entry,
 }: {
   onClose: () => void
-  onSubmit: (weight: number, notes: string, dateTime: string) => Promise<void>
+  entry?: WeightEntry
+  onSubmit: (
+    weight: number,
+    notes: string,
+    dateTime: string,
+    composition: CompositionValues,
+    id?: number,
+  ) => Promise<void>
 }) {
-  const [weight, setWeight] = useState("")
-  const [notes, setNotes] = useState("")
-  const [dateTime, setDateTime] = useState(currentLocalDateTime)
+  const [weight, setWeight] = useState(entry ? String(entry.weight_kg) : "")
+  const [notes, setNotes] = useState(entry?.notes ?? "")
+  const [dateTime, setDateTime] = useState(entry ? dateTimeInputValue(entry.measured_at) : currentLocalDateTime)
+  const [composition, setComposition] = useState<Record<string, string>>(() =>
+    Object.fromEntries(compositionFields.map(([key]) => [key, entry?.[key] == null ? "" : String(entry[key])])),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   async function submit(event: FormEvent) {
@@ -887,7 +1979,10 @@ function WeightModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(Number(weight), notes, dateTime)
+      const metrics = Object.fromEntries(
+        compositionFields.map(([key]) => [key, composition[key] === "" ? null : Number(composition[key])]),
+      ) as CompositionValues
+      await onSubmit(Number(weight), notes, dateTime, metrics, entry?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -895,7 +1990,11 @@ function WeightModal({
     }
   }
   return (
-    <Modal title="Registrar peso" subtitle="Se completa con la hora actual; puedes cambiarla." onClose={onClose}>
+    <Modal
+      title={entry ? "Editar registro de peso" : "Registrar peso"}
+      subtitle="La fecha y hora se completan automáticamente; puedes cambiar todos los valores."
+      onClose={onClose}
+    >
       <form className="entry-form" onSubmit={submit}>
         <label>
           Peso actual{" "}
@@ -923,6 +2022,26 @@ function WeightModal({
             onChange={(event) => setDateTime(event.target.value)}
           />
         </label>
+        <details className="composition-fields">
+          <summary>
+            Composición corporal <span className="optional">opcional · datos de la báscula</span>
+          </summary>
+          <div className="composition-input-grid">
+            {compositionFields.map(([key, label, unit, max, step]) => (
+              <label key={key}>
+                {label} <span className="optional">{unit}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={max}
+                  step={step}
+                  value={composition[key]}
+                  onChange={(event) => setComposition((current) => ({ ...current, [key]: event.target.value }))}
+                />
+              </label>
+            ))}
+          </div>
+        </details>
         <label>
           Nota <span className="optional">opcional</span>
           <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Por ejemplo, por la mañana" />
@@ -933,7 +2052,7 @@ function WeightModal({
             Cancelar
           </button>
           <button disabled={busy} className="primary-button">
-            {busy ? "Guardando…" : "Guardar peso"}
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar peso"}
           </button>
         </div>
       </form>
@@ -944,14 +2063,16 @@ function DoseModal({
   onClose,
   medication,
   onSubmit,
+  entry,
 }: {
   onClose: () => void
+  entry?: DoseEntry
   medication: Medication | undefined
-  onSubmit: (mg: number, site: string, dateTime: string) => Promise<void>
+  onSubmit: (mg: number, site: string, dateTime: string, id?: number, medicationId?: number) => Promise<void>
 }) {
-  const [dose, setDose] = useState("")
-  const [site, setSite] = useState("")
-  const [dateTime, setDateTime] = useState(currentLocalDateTime)
+  const [dose, setDose] = useState(entry ? String(entry.dose_mg) : "")
+  const [site, setSite] = useState(entry?.injection_site ?? "")
+  const [dateTime, setDateTime] = useState(entry ? dateTimeInputValue(entry.administered_at) : currentLocalDateTime)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const mg = Number(dose)
@@ -962,7 +2083,7 @@ function DoseModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(mg, site, dateTime)
+      await onSubmit(mg, site, dateTime, entry?.id, medication?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -971,7 +2092,7 @@ function DoseModal({
   }
   return (
     <Modal
-      title="Registrar dosis"
+      title={entry ? "Editar registro de dosis" : "Registrar dosis"}
       subtitle="Las equivalencias se calculan desde tu concentración configurada."
       onClose={onClose}
     >
@@ -1040,7 +2161,7 @@ function DoseModal({
             Cancelar
           </button>
           <button disabled={busy || !medication} className="primary-button">
-            {busy ? "Guardando…" : "Guardar dosis"}
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar dosis"}
           </button>
         </div>
       </form>
@@ -1055,7 +2176,13 @@ function MedicationModal({
 }: {
   onClose: () => void
   medication: Medication
-  onSubmit: (name: string, concentrationMg: number, volumeMl: number, unitsPerMl: number | null) => Promise<void>
+  onSubmit: (
+    medication: Medication,
+    name: string,
+    concentrationMg: number,
+    volumeMl: number,
+    unitsPerMl: number | null,
+  ) => Promise<void>
 }) {
   const [name, setName] = useState(medication.name)
   const [concentrationMg, setConcentrationMg] = useState(String(medication.concentration_mg))
@@ -1068,7 +2195,13 @@ function MedicationModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(name, Number(concentrationMg), Number(volumeMl), unitsPerMl.trim() ? Number(unitsPerMl) : null)
+      await onSubmit(
+        medication,
+        name,
+        Number(concentrationMg),
+        Number(volumeMl),
+        unitsPerMl.trim() ? Number(unitsPerMl) : null,
+      )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar la concentración")
     } finally {

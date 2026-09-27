@@ -23,6 +23,11 @@ services:
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
       TIMEZONE: ${TIMEZONE:-America/Bogota}
       CORS_ORIGINS: ${CORS_ORIGINS:-https://forma.albotero.com}
+      STORAGE_PATH: /data/storage
+      COOKIE_DOMAIN: ${APP_DOMAIN:-forma.albotero.com}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+    volumes:
+      - ./storage:/data/storage
     depends_on:
       postgres:
         condition: service_healthy
