@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
+const API_URL = import.meta.env.VITE_API_URL ?? "/api"
 
 export type WeightEntry = {
   id: number
@@ -48,7 +48,7 @@ export async function api<T>(path: string, token: string, options: RequestInit =
 }
 
 export async function authenticate(email: string, password: string, createAccount: boolean): Promise<string> {
-  const response = await fetch(`${API_URL}/api/auth/${createAccount ? "register" : "login"}`, {
+  const response = await fetch(`${API_URL}/auth/${createAccount ? "register" : "login"}`, {
     method: "POST",
     headers: { "Content-Type": createAccount ? "application/json" : "application/x-www-form-urlencoded" },
     body: createAccount ? JSON.stringify({ email, password }) : new URLSearchParams({ username: email, password }),

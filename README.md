@@ -25,9 +25,9 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 1. Copia `.env.example` como `.env`.
 2. Sustituye `POSTGRES_PASSWORD` y `SECRET_KEY` por valores aleatorios únicos. No publiques `.env`.
 3. Ejecuta `docker compose up --build` desde la raíz.
-4. Abre `http://localhost:8080`; la API y OpenAPI están en `http://localhost:8000/docs`.
+4. Abre `http://localhost:8080`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `http://localhost:8080/docs`.
 
-La base de datos no publica su puerto al host. En despliegue público utiliza HTTPS detrás de un reverse proxy, un dominio/origen CORS explícito, secretos dedicados y almacenamiento/backup cifrado.
+Solo el frontend publica un puerto al host. Nginx reenvía `/api` al backend por la red privada de Compose; ni la API ni la base de datos publican puertos directamente. En despliegue público utiliza HTTPS detrás de un reverse proxy, secretos dedicados y almacenamiento/backup cifrado.
 
 ## Desarrollo local
 
@@ -51,7 +51,7 @@ cp .env.example .env
 npm run dev
 ```
 
-Vite arranca en `http://localhost:5173`. Para cuentas nuevas la contraseña debe tener al menos 12 caracteres. El perfil inicia con 180 cm, 106 kg y zona `America/Bogota`; la concentración predeterminada de tirzepatida es 10 mg / 0.5 mL y se crea al abrir por primera vez. Las equivalencias se calculan dinámicamente; U-100 es opcional.
+Vite arranca en `http://localhost:5173` y reenvía `/api` al backend local en `http://localhost:8000`. Para cuentas nuevas la contraseña debe tener al menos 12 caracteres. El perfil inicia con 180 cm, 106 kg y zona `America/Bogota`; la concentración predeterminada de tirzepatida es 10 mg / 0.5 mL y se crea al abrir por primera vez. Las equivalencias se calculan dinámicamente; U-100 es opcional.
 
 ## Migraciones
 

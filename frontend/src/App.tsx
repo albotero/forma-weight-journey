@@ -89,10 +89,10 @@ export default function App() {
     setError("")
     try {
       const [profileData, weightData, medicationData, doseData] = await Promise.all([
-        api<Profile>("/api/profile", authToken),
-        api<WeightEntry[]>("/api/weights?limit=300", authToken),
-        api<Medication[]>("/api/medications", authToken),
-        api<DoseEntry[]>("/api/doses?limit=100", authToken),
+        api<Profile>("/profile", authToken),
+        api<WeightEntry[]>("/weights?limit=300", authToken),
+        api<Medication[]>("/medications", authToken),
+        api<DoseEntry[]>("/doses?limit=100", authToken),
       ])
       setProfile(profileData)
       setWeights(weightData)
@@ -141,7 +141,7 @@ export default function App() {
 
   async function submitWeight(weight: number, notes: string) {
     if (!token) return
-    await api("/api/weights", token, {
+    await api("/weights", token, {
       method: "POST",
       body: JSON.stringify({
         weight_kg: weight,
@@ -156,7 +156,7 @@ export default function App() {
 
   async function submitDose(mg: number, injectionSite: string) {
     if (!token || !activeMedication) return
-    await api("/api/doses", token, {
+    await api("/doses", token, {
       method: "POST",
       body: JSON.stringify({
         medication_id: activeMedication.id,
@@ -171,7 +171,7 @@ export default function App() {
 
   async function updateMedication(name: string, concentrationMg: number, volumeMl: number, unitsPerMl: number | null) {
     if (!token || !activeMedication) return
-    await api(`/api/medications/${activeMedication.id}`, token, {
+    await api(`/medications/${activeMedication.id}`, token, {
       method: "PUT",
       body: JSON.stringify({
         name,
@@ -453,7 +453,15 @@ export default function App() {
                       </div>
                       <div className="dose-highlight">
                         <span>ÚLTIMO REGISTRO</span>
-                        <strong>{currentDose ? <><span>{currentDose.dose_mg}</span> <small>mg</small></> : "—"}</strong>
+                        <strong>
+                          {currentDose ? (
+                            <>
+                              <span>{currentDose.dose_mg}</span> <small>mg</small>
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </strong>
                         <p>
                           {currentDose
                             ? formatDate(currentDose.administered_at, userTimezone)
