@@ -468,7 +468,7 @@ export default function App() {
               <button onClick={() => token && void refresh(token)}>Reintentar</button>
             </div>
           )}
-          {section === "Inicio" || section === "Peso" ? (
+          {section === "Inicio" ? (
             <>
               <section className="welcome-row">
                 <div>
@@ -3034,7 +3034,7 @@ function WeightModal({
       const metrics = Object.fromEntries(
         compositionFields.map(([key]) => [key, composition[key] === "" ? null : Number(composition[key])]),
       ) as CompositionValues
-      await onSubmit(Number(weight), notes, localDateTimeToIso(dateTime, timezone), metrics, entry?.id)
+      await onSubmit(Number(weight), notes, dateTime, metrics, entry?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -3139,7 +3139,7 @@ function DoseModal({
     setBusy(true)
     setError("")
     try {
-      await onSubmit(mg, site, localDateTimeToIso(dateTime, timezone), entry?.id, medication?.id)
+      await onSubmit(mg, site, dateTime, entry?.id, medication?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
