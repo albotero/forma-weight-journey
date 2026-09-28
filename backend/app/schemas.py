@@ -11,6 +11,15 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=12, max_length=128)
 
 
+class EmailTokenConfirm(BaseModel):
+    token: str = Field(min_length=32, max_length=128)
+
+
+class EmailChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_email: EmailStr
+
+
 class PasswordChange(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=12, max_length=128)
@@ -28,6 +37,8 @@ class PasswordResetConfirm(BaseModel):
 class AccountOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     email: EmailStr
+    email_verified: bool
+    pending_email: EmailStr | None
     created_at: datetime
 
 

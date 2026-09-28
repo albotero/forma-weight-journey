@@ -51,13 +51,17 @@ import {
 import {
   api,
   authenticate,
+  confirmEmailVerification,
   completePasswordReset,
   downloadAccountExport,
   loadPhoto,
   logoutSession,
   previewAccountImport,
   refreshSession,
+  requestEmailChange,
   requestPasswordReset,
+  registerAccount,
+  requestEmailVerification,
   restoreAccountImport,
   uploadPhoto,
   type AccountImportPreview,
@@ -95,7 +99,7 @@ type Section =
   | "Análisis"
   | "Historial"
   | "Perfil y ajustes"
-type AuthMode = "login" | "register" | "forgot" | "reset"
+type AuthMode = "login" | "register" | "forgot" | "reset" | "verify-request"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
 const WEB_NOTIFICATIONS_ENABLED_KEY = "forma:web-notifications-enabled"
@@ -332,6 +336,10 @@ export default function App() {
     window.localStorage.setItem(NOTIFIED_REMINDERS_KEY, JSON.stringify(idsToStore))
   }, [notifications, setSection])
 
+  const verificationToken = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("token")
+  if (window.location.hash.startsWith("#verify?") && verificationToken) {
+    return <EmailVerificationScreen token={verificationToken} />
+  }
   if (restoringSession)
     return (
       <div className="loading-screen" role="status">
@@ -1089,6 +1097,7 @@ function AccountSettings({
   const [loading, setLoading] = useState(true)
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
+  const [savingEmail, setSavingEmail] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(() =>
@@ -1198,6 +1207,30 @@ function AccountSettings({
     }
   }
 
+  async function changeEmail(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const form = event.currentTarget
+    const values = new FormData(form)
+    const newEmail = String(values.get("new_email")).trim().toLowerCase()
+    setSavingEmail(true)
+    setError("")
+    setSuccess("")
+    try {
+      const message = await requestEmailChange(
+        token,
+        String(values.get("current_password")),
+        newEmail,
+      )
+      setAccount((current) => current ? { ...current, pending_email: newEmail } : current)
+      setSuccess(message)
+      form.reset()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo solicitar el cambio de correo.")
+    } finally {
+      setSavingEmail(false)
+    }
+  }
+
   async function linkTelegram() {
     setError("")
     try {
@@ -1251,11 +1284,38 @@ function AccountSettings({
             <div>
               <span>Correo de acceso</span>
               <strong>{account?.email ?? "No disponible"}</strong>
+              {account?.email_verified && <small>Correo verificado</small>}
+              {account?.pending_email && <small>Pendiente de confirmar: {account.pending_email}</small>}
               {account && <small>Cuenta creada el {formatDate(account.created_at)}</small>}
             </div>
           </div>
 
           <div className="account-settings-grid">
+            <section className="account-card">
+              <div className="account-card-heading">
+                <div>
+                  <h2>Cambiar correo de acceso</h2>
+                  <p>El correo actual seguirá activo hasta confirmar el enlace enviado al nuevo.</p>
+                </div>
+                <Mail size={19} />
+              </div>
+              <form className="entry-form account-form" onSubmit={changeEmail}>
+                <label>
+                  Nuevo correo electrónico
+                  <input name="new_email" type="email" autoComplete="email" required />
+                </label>
+                <label>
+                  Contraseña actual
+                  <input name="current_password" type="password" autoComplete="current-password" required />
+                </label>
+                <div className="form-actions">
+                  <button className="primary-button" disabled={savingEmail}>
+                    {savingEmail ? "Enviando…" : "Enviar confirmación"}
+                  </button>
+                </div>
+              </form>
+            </section>
+
             <section className="account-card">
               <div className="account-card-heading">
                 <div>
@@ -1601,6 +1661,8 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
     try {
       if (mode === "forgot") {
         setSuccess(await requestPasswordReset(email))
+      } else if (mode === "verify-request") {
+        setSuccess(await requestEmailVerification(email))
       } else if (mode === "reset") {
         if (!resetToken) throw new Error("El enlace de restablecimiento no es válido.")
         const values = new FormData(event.currentTarget as HTMLFormElement)
@@ -1611,8 +1673,11 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
         setSuccess(await completePasswordReset(resetToken, newPassword))
         setMode("login")
         window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+      } else if (mode === "register") {
+        setSuccess(await registerAccount(email, password))
+        setPassword("")
       } else {
-        onAuthenticated(await authenticate(email, password, mode === "register"))
+        onAuthenticated(await authenticate(email, password))
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Error de autenticación")
@@ -1660,7 +1725,9 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
                 ? "Crea tu espacio seguro."
                 : mode === "forgot"
                   ? "Recupera tu cuenta."
-                  : "Elige una contraseña nueva."}
+                  : mode === "verify-request"
+                    ? "Confirma tu correo."
+                    : "Elige una contraseña nueva."}
           </h2>
           <p>
             {mode === "login"
@@ -1669,7 +1736,9 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
                 ? "Tu cuenta es privada y solo tú puedes acceder."
                 : mode === "forgot"
                   ? "Te enviaremos un enlace de un solo uso si el correo corresponde a una cuenta."
-                  : "El enlace es temporal y solo se puede usar una vez."}
+                  : mode === "verify-request"
+                    ? "Te enviaremos un enlace si hay una cuenta pendiente con esa dirección."
+                    : "El enlace es temporal y solo se puede usar una vez."}
           </p>
           {error && (
             <div className="error-banner" role="alert">
@@ -1681,7 +1750,7 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
               {success}
             </div>
           )}
-          {(mode === "login" || mode === "register" || mode === "forgot") && (
+          {(mode === "login" || mode === "register" || mode === "forgot" || mode === "verify-request") && (
             <label>
               Correo electrónico
               <input
@@ -1748,20 +1817,33 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
                   ? "Crear cuenta"
                   : mode === "forgot"
                     ? "Enviar enlace"
-                    : "Actualizar contraseña"}{" "}
+                    : mode === "verify-request"
+                      ? "Reenviar verificación"
+                      : "Actualizar contraseña"}{" "}
             <ArrowRight size={17} />
           </button>
           {mode === "login" && (
+            <>
+              <div className="auth-switch">
+                <button type="button" onClick={() => { setMode("forgot"); setError(""); setSuccess("") }}>
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
+              <div className="auth-switch">
+                <button type="button" onClick={() => { setMode("verify-request"); setError(""); setSuccess("") }}>
+                  ¿No recibiste el correo de verificación?
+                </button>
+              </div>
+            </>
+          )}
+          {mode === "register" && success && (
             <div className="auth-switch">
               <button
                 type="button"
-                onClick={() => {
-                  setMode("forgot")
-                  setError("")
-                  setSuccess("")
-                }}
+                disabled={busy}
+                onClick={() => void requestEmailVerification(email).then(setSuccess).catch((reason: Error) => setError(reason.message))}
               >
-                ¿Olvidaste tu contraseña?
+                Reenviar correo de verificación
               </button>
             </div>
           )}
@@ -1802,6 +1884,56 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
             <ShieldCheck size={15} /> Contraseña con hash seguro · Sin anuncios ni rastreo
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+function EmailVerificationScreen({ token }: { token: string }) {
+  const [message, setMessage] = useState("Confirmando tu correo…")
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    let active = true
+    void confirmEmailVerification(token)
+      .then((result) => {
+        if (active) setMessage(result)
+      })
+      .catch((reason: Error) => {
+        if (active) setError(reason.message)
+      })
+    return () => {
+      active = false
+    }
+  }, [token])
+
+  return (
+    <div className="auth-layout">
+      <div className="auth-story">
+        <div className="brand auth-brand">
+          <div className="brand-mark"><Activity size={20} /></div>
+          <span>forma<span className="brand-period">.</span></span>
+        </div>
+        <div className="auth-story-copy">
+          <div className="eyebrow">CUENTA PRIVADA</div>
+          <h1>Un correo confirmado.</h1>
+        </div>
+      </div>
+      <div className="auth-form-side">
+        <div className="auth-form">
+          <div className="auth-kicker">VERIFICACIÓN DE CORREO</div>
+          <h2>{error ? "No se pudo confirmar." : "Revisando el enlace."}</h2>
+          <p role={error ? "alert" : "status"}>{error || message}</p>
+          <button
+            className="primary-button auth-submit"
+            onClick={() => {
+              window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+              window.location.reload()
+            }}
+          >
+            Ir a iniciar sesión <ArrowRight size={17} />
+          </button>
+        </div>
       </div>
     </div>
   )

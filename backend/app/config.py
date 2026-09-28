@@ -27,10 +27,15 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     smtp_use_ssl: bool = False
     password_reset_token_minutes: int = 30
+    email_verification_token_hours: int = 24
 
     @property
     def password_reset_email_configured(self) -> bool:
         return bool(self.smtp_host.strip() and self.smtp_from_email.strip() and self.public_app_url.strip())
+
+    @property
+    def smtp_configured(self) -> bool:
+        return self.password_reset_email_configured
 
 
 settings = Settings()

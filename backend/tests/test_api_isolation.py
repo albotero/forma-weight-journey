@@ -14,8 +14,9 @@ from app.database import Base, get_db
 from app.config import settings
 from app.main import app
 from app.models import JournalEntry, PasswordResetToken, RefreshSession, TelegramConnection, User
-from app.password_reset_email import send_password_reset_email
+from app.password_reset_email import send_email_verification_email, send_password_reset_email
 from app.security import hash_password_reset_token
+from app.routers import api as api_routes
 
 engine = create_engine(
     "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -33,7 +34,40 @@ def override_get_db() -> Generator[Session, None, None]:
 
 
 app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app, base_url="https://testserver")
+settings.smtp_host = "smtp.test.example"
+settings.smtp_from_email = "noreply@example.com"
+settings.public_app_url = "https://forma.example.com"
+verification_emails: dict[str, tuple[str, str]] = {}
+
+
+def capture_verification_email(email: str, token: str, purpose: str) -> None:
+    verification_emails[email] = (token, purpose)
+
+
+api_routes.send_email_verification_email = capture_verification_email
+
+
+class VerificationAwareTestClient(TestClient):
+    def raw_post(self, url: str, *args, **kwargs):
+        return super().post(url, *args, **kwargs)
+
+    def post(self, url: str, *args, **kwargs):
+        response = super().post(url, *args, **kwargs)
+        if url != "/api/auth/register" or response.status_code != 202:
+            return response
+        account = kwargs["json"]
+        email = account["email"].lower()
+        token, purpose = verification_emails.pop(email)
+        assert purpose == "signup"
+        confirmed = super().post(
+            "/api/auth/email-verification/confirm", json={"token": token})
+        assert confirmed.status_code == 200
+        return super().post("/api/auth/login", data={
+            "username": email, "password": account["password"],
+        })
+
+
+client = VerificationAwareTestClient(app, base_url="https://testserver")
 app.state.limiter.enabled = False
 
 
@@ -42,8 +76,8 @@ def test_weight_records_are_isolated_per_account() -> None:
         "/api/auth/register", json={"email": "first@example.com", "password": "a-safe-password-123"})
     second = client.post("/api/auth/register", json={
                          "email": "second@example.com", "password": "another-safe-password-456"})
-    assert first.status_code == 201
-    assert second.status_code == 201
+    assert first.status_code == 200
+    assert second.status_code == 200
     first_token = first.json()["access_token"]
     second_token = second.json()["access_token"]
 
@@ -65,6 +99,95 @@ def test_dose_requires_medication_owned_by_user() -> None:
     response = client.post(
         "/api/doses", headers={"Authorization": f"Bearer {token}"}, json={"medication_id": 99999, "dose_mg": 5})
     assert response.status_code == 404
+
+
+def test_signup_requires_email_verification_and_tokens_are_single_use() -> None:
+    email = "verify-signup@example.com"
+    password = "verify-signup-password-123"
+    registration = client.raw_post("/api/auth/register", json={
+        "email": email, "password": password,
+    })
+    assert registration.status_code == 202
+    assert "access_token" not in registration.json()
+    assert client.post("/api/auth/login", data={
+        "username": email, "password": password,
+    }).status_code == 403
+    recovery = client.raw_post("/api/auth/password-reset/request", json={
+        "email": email,
+    })
+    assert recovery.status_code == 202
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(User.email == email))
+        assert user is not None
+        assert db.scalar(select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id)) is None
+
+    first_token, _ = verification_emails[email]
+    resent = client.raw_post("/api/auth/email-verification/request", json={
+        "email": email,
+    })
+    assert resent.status_code == 202
+    second_token, _ = verification_emails[email]
+    assert first_token != second_token
+    assert client.raw_post("/api/auth/email-verification/confirm", json={
+        "token": first_token,
+    }).status_code == 400
+    verified = client.raw_post("/api/auth/email-verification/confirm", json={
+        "token": second_token,
+    })
+    assert verified.status_code == 200
+    assert client.raw_post("/api/auth/email-verification/confirm", json={
+        "token": second_token,
+    }).status_code == 400
+    assert client.post("/api/auth/login", data={
+        "username": email, "password": password,
+    }).status_code == 200
+    unknown = client.raw_post("/api/auth/email-verification/request", json={
+        "email": "unknown-verify@example.com",
+    })
+    assert unknown.status_code == 202
+    assert unknown.json() == resent.json()
+
+
+def test_email_change_requires_password_and_confirmation_and_revokes_sessions() -> None:
+    old_email = "email-change-old@example.com"
+    new_email = "email-change-new@example.com"
+    password = "email-change-password-123"
+    registered = client.post("/api/auth/register", json={
+        "email": old_email, "password": password,
+    })
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    invalid = client.post("/api/auth/email-change/request", headers=headers, json={
+        "current_password": "wrong-current-password", "new_email": new_email,
+    })
+    assert invalid.status_code == 400
+
+    requested = client.post("/api/auth/email-change/request", headers=headers, json={
+        "current_password": password, "new_email": new_email,
+    })
+    assert requested.status_code == 202
+    account = client.get("/api/account", headers=headers).json()
+    assert account["email"] == old_email
+    assert account["pending_email"] == new_email
+    verification_token, purpose = verification_emails[new_email]
+    assert purpose == "email-change"
+
+    confirmed = client.raw_post("/api/auth/email-verification/confirm", json={
+        "token": verification_token,
+    })
+    assert confirmed.status_code == 200
+    assert client.get("/api/account", headers=headers).status_code == 401
+    assert client.post("/api/auth/login", data={
+        "username": old_email, "password": password,
+    }).status_code == 401
+    new_login = client.post("/api/auth/login", data={
+        "username": new_email, "password": password,
+    })
+    assert new_login.status_code == 200
+    new_headers = {"Authorization": f"Bearer {new_login.json()['access_token']}"}
+    changed_account = client.get("/api/account", headers=new_headers).json()
+    assert changed_account["email"] == new_email
+    assert changed_account["pending_email"] is None
 
 
 def test_registration_starts_without_assuming_medication_and_dose_is_calculated() -> None:
@@ -319,6 +442,40 @@ def test_password_reset_email_uses_tls_and_keeps_token_in_url_fragment(monkeypat
     body = message.get_content()
     assert "https://forma.example.com/#reset?token=secret%2B%2Ftoken" in body
     assert "?token=" not in body.split("#", maxsplit=1)[0]
+
+
+def test_verification_email_contains_expiring_fragment_link_and_date(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_port", 587)
+    monkeypatch.setattr(settings, "smtp_username", "")
+    monkeypatch.setattr(settings, "smtp_from_email", "noreply@example.com")
+    monkeypatch.setattr(settings, "smtp_use_ssl", False)
+    monkeypatch.setattr(settings, "public_app_url", "https://forma.example.com")
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *_args, **_kwargs):
+            self.tls_enabled = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def starttls(self, *, context):
+            self.tls_enabled = context is not None
+
+        def send_message(self, message):
+            sent.append((self.tls_enabled, message))
+
+    monkeypatch.setattr("app.password_reset_email.smtplib.SMTP", FakeSMTP)
+    send_email_verification_email("verify@example.com", "verify+/token", "signup")
+
+    assert sent and sent[0][0]
+    message = sent[0][1]
+    assert abs((datetime.now(timezone.utc) - parsedate_to_datetime(message["Date"])).total_seconds()) < 10
+    assert "https://forma.example.com/#verify?token=verify%2B%2Ftoken" in message.get_content()
 
 
 def test_profile_rejects_unknown_timezone() -> None:
@@ -848,7 +1005,7 @@ def test_journal_module_crud_is_scoped() -> None:
 def test_refresh_cookie_rotates_and_logout_revokes_session() -> None:
     registered = client.post(
         "/api/auth/register", json={"email": "refresh@example.com", "password": "refresh-password-123"})
-    assert registered.status_code == 201
+    assert registered.status_code == 200
     cookie_header = registered.headers["set-cookie"].lower()
     assert "httponly" in cookie_header and "secure" in cookie_header and "samesite=strict" in cookie_header
     old_refresh = client.cookies.get("forma_refresh")

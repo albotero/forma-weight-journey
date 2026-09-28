@@ -22,9 +22,9 @@ from app.config import settings
 from app.data_transfer import MAX_ARCHIVE_BYTES, build_export, parse_export, preview_export, restore_export
 from app.database import get_db
 from app.dependencies import current_user
-from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PasswordResetToken, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
-from app.password_reset_email import send_password_reset_email
-from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, DoseCreate, DoseOut, JournalEntryCreate,
+from app.models import BodyMeasurement, CatalogItem, Dose, EmailVerificationToken, JournalEntry, Medication, PasswordResetToken, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
+from app.password_reset_email import send_email_verification_email, send_password_reset_email
+from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, DoseCreate, DoseOut, EmailChangeRequest, EmailTokenConfirm, JournalEntryCreate,
                          JournalEntryOut, MedicationCreate, MedicationOut, MedicationsReviewToggle, PhotoRecordOut, ProfileOut,
                          PasswordChange, PasswordResetConfirm, PasswordResetRequest, PhotoUpdate, ProfileUpdate, ReminderToggle, Token, UserCreate, WeightCreate, WeightOut)
 from app.security import (create_access_token, create_refresh_token, hash_password,
@@ -69,6 +69,24 @@ def issue_refresh_session(user: User, response: Response, db: Session) -> None:
 def clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie("forma_refresh", httponly=True, secure=settings.cookie_secure,
                            samesite="strict", path="/api/auth", domain=settings.cookie_domain)
+
+
+def issue_email_verification(user: User, email: str, purpose: str, db: Session) -> str:
+    now = utc_now()
+    for previous in db.scalars(select(EmailVerificationToken).where(
+            EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.purpose == purpose,
+            EmailVerificationToken.used_at.is_(None))).all():
+        previous.used_at = now
+    token = secrets.token_urlsafe(32)
+    db.add(EmailVerificationToken(
+        user_id=user.id,
+        email=email,
+        purpose=purpose,
+        token_hash=hash_password_reset_token(token),
+        expires_at=now + timedelta(hours=settings.email_verification_token_hours),
+    ))
+    return token
 
 
 def validate_auth_origin(request: Request) -> None:
@@ -209,9 +227,12 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
     return {"ok": True}
 
 
-@router.post("/auth/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+@router.post("/auth/register", status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("10/minute")
-def register(request: Request, response: Response, payload: UserCreate, db: Session = Depends(get_db)) -> Token:
+def register(request: Request, background_tasks: BackgroundTasks, payload: UserCreate, db: Session = Depends(get_db)) -> dict[str, str]:
+    validate_auth_origin(request)
+    if not settings.smtp_configured:
+        raise HTTPException(status_code=503, detail="El registro requiere correo de verificación y el envío no está configurado.")
     email = str(payload.email).lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(
@@ -220,9 +241,11 @@ def register(request: Request, response: Response, payload: UserCreate, db: Sess
     db.add(user)
     db.flush()
     db.add(UserProfile(user_id=user.id, timezone=settings.timezone))
-    issue_refresh_session(user, response, db)
+    verification_token = issue_email_verification(user, email, "signup", db)
     db.commit()
-    return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
+    background_tasks.add_task(send_email_verification_email,
+                              email, verification_token, "signup")
+    return {"message": "Revisa tu correo y confirma la dirección antes de iniciar sesión."}
 
 
 @router.post("/auth/login", response_model=Token)
@@ -232,9 +255,122 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
     if user is None or not verify_password(form.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect email or password", headers={
                             "WWW-Authenticate": "Bearer"})
+    if user.email_verified_at is None:
+        raise HTTPException(status_code=403, detail="Confirma tu correo antes de iniciar sesión.")
     issue_refresh_session(user, response, db)
     db.commit()
     return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
+
+
+@router.post("/auth/email-verification/request", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("5/hour")
+def request_email_verification(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    validate_auth_origin(request)
+    if not settings.smtp_configured:
+        raise HTTPException(status_code=503, detail="El envío de correo no está configurado.")
+    email = str(payload.email).lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None and user.email_verified_at is None:
+        token = issue_email_verification(user, email, "signup", db)
+        db.commit()
+        background_tasks.add_task(send_email_verification_email, email, token, "signup")
+    return {"message": "Si existe una cuenta pendiente con ese correo, enviaremos un enlace de verificación."}
+
+
+@router.post("/auth/email-verification/confirm")
+@limiter.limit("10/hour")
+def confirm_email_verification(
+    request: Request,
+    response: Response,
+    payload: EmailTokenConfirm,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    validate_auth_origin(request)
+    now = utc_now()
+    verification = db.scalar(select(EmailVerificationToken).where(
+        EmailVerificationToken.token_hash == hash_password_reset_token(payload.token),
+        EmailVerificationToken.used_at.is_(None),
+        EmailVerificationToken.expires_at > now,
+    ).with_for_update())
+    if verification is None:
+        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+
+    claimed = db.execute(update(EmailVerificationToken).where(
+        EmailVerificationToken.id == verification.id,
+        EmailVerificationToken.used_at.is_(None),
+        EmailVerificationToken.expires_at > now,
+    ).values(used_at=now).execution_options(synchronize_session=False))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+
+    user = db.get(User, verification.user_id)
+    if user is None:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+    if verification.purpose == "signup" and user.email == verification.email and user.email_verified_at is None:
+        user.email_verified_at = now
+        message = "Correo confirmado. Ya puedes iniciar sesión."
+    elif verification.purpose == "email-change" and user.pending_email == verification.email:
+        existing = db.scalar(select(User.id).where(
+            User.email == verification.email, User.id != user.id))
+        if existing is not None:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Ese correo ya pertenece a otra cuenta.")
+        user.email = verification.email
+        user.pending_email = None
+        user.auth_version = (user.auth_version or 0) + 1
+        db.execute(update(RefreshSession).where(
+            RefreshSession.user_id == user.id,
+            RefreshSession.revoked_at.is_(None),
+        ).values(revoked_at=now))
+        message = "Correo actualizado. Inicia sesión de nuevo."
+    else:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+
+    db.commit()
+    clear_refresh_cookie(response)
+    return {"message": message}
+
+
+@router.post("/auth/email-change/request", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("5/hour")
+def request_email_change(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: EmailChangeRequest,
+    user: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    validate_auth_origin(request)
+    if not settings.smtp_configured:
+        raise HTTPException(status_code=503, detail="El envío de correo no está configurado.")
+    if user.email_verified_at is None:
+        raise HTTPException(status_code=403, detail="Confirma tu correo actual antes de cambiarlo.")
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="La contraseña actual no es correcta.")
+    new_email = str(payload.new_email).lower()
+    if new_email == user.email:
+        raise HTTPException(status_code=422, detail="El nuevo correo debe ser distinto.")
+    existing = db.scalar(select(User.id).where(
+        User.email == new_email, User.id != user.id))
+    pending = db.scalar(select(User.id).where(
+        User.pending_email == new_email, User.id != user.id))
+    if existing is not None or pending is not None:
+        raise HTTPException(status_code=409, detail="Ese correo ya pertenece a otra cuenta o solicitud pendiente.")
+
+    user.pending_email = new_email
+    token = issue_email_verification(user, new_email, "email-change", db)
+    db.commit()
+    background_tasks.add_task(send_email_verification_email,
+                              new_email, token, "email-change")
+    return {"message": "Enviamos un enlace al nuevo correo. La dirección actual sigue activa hasta que lo confirmes."}
 
 
 @router.post("/auth/refresh", response_model=Token)
@@ -304,7 +440,7 @@ def request_password_reset(
 
     email = str(payload.email).lower()
     user = db.scalar(select(User).where(User.email == email))
-    if user is not None:
+    if user is not None and user.email_verified_at is not None:
         now = utc_now()
         for previous in db.scalars(select(PasswordResetToken).where(
                 PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None))).all():
@@ -374,8 +510,13 @@ def confirm_password_reset(
 
 
 @router.get("/account", response_model=AccountOut)
-def get_account(user: User = Depends(current_user)) -> User:
-    return user
+def get_account(user: User = Depends(current_user)) -> AccountOut:
+    return AccountOut(
+        email=user.email,
+        email_verified=user.email_verified_at is not None,
+        pending_email=user.pending_email,
+        created_at=user.created_at,
+    )
 
 
 @router.get("/account/export")

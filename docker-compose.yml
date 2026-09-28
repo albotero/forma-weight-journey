@@ -37,6 +37,7 @@ services:
       SMTP_FROM_EMAIL: ${SMTP_FROM_EMAIL:-}
       SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
       PASSWORD_RESET_TOKEN_MINUTES: ${PASSWORD_RESET_TOKEN_MINUTES:-30}
+      EMAIL_VERIFICATION_TOKEN_HOURS: ${EMAIL_VERIFICATION_TOKEN_HOURS:-24}
     volumes:
       - ./storage:/data/storage
     depends_on:

@@ -89,7 +89,12 @@ export type Profile = {
   birth_date: string | null
   medications_reviewed: boolean
 }
-export type Account = { email: string; created_at: string }
+export type Account = {
+  email: string
+  email_verified: boolean
+  pending_email: string | null
+  created_at: string
+}
 export type AccountImportPreview = {
   format_version: number
   exported_at: string
@@ -130,17 +135,62 @@ export async function api<T>(path: string, token: string, options: RequestInit =
   return response.json() as Promise<T>
 }
 
-export async function authenticate(email: string, password: string, createAccount: boolean): Promise<string> {
-  const response = await fetch(`${API_URL}/auth/${createAccount ? "register" : "login"}`, {
+export async function authenticate(email: string, password: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/login`, {
     credentials: "same-origin",
     method: "POST",
-    headers: { "Content-Type": createAccount ? "application/json" : "application/x-www-form-urlencoded" },
-    body: createAccount ? JSON.stringify({ email, password }) : new URLSearchParams({ username: email, password }),
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ username: email, password }),
   })
   const result: { access_token?: string; detail?: string } = await response.json().catch(() => ({}))
   if (!response.ok || !result.access_token) throw new Error(result.detail ?? "No se pudo iniciar sesión.")
   currentAccessToken = result.access_token
   return result.access_token
+}
+
+export async function registerAccount(email: string, password: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/register`, {
+    credentials: "same-origin",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  })
+  const result: { message?: string; detail?: string } = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(result.detail ?? "No se pudo crear la cuenta.", response.status)
+  return result.message ?? "Revisa tu correo y confirma la dirección antes de iniciar sesión."
+}
+
+export async function requestEmailVerification(email: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/email-verification/request`, {
+    credentials: "same-origin",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  const result: { message?: string; detail?: string } = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(result.detail ?? "No se pudo solicitar la verificación.", response.status)
+  return result.message ?? "Si existe una cuenta pendiente con ese correo, enviaremos un enlace de verificación."
+}
+
+export async function confirmEmailVerification(token: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/email-verification/confirm`, {
+    credentials: "same-origin",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  })
+  const result: { message?: string; detail?: string } = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(result.detail ?? "No se pudo confirmar el correo.", response.status)
+  return result.message ?? "Correo confirmado. Ya puedes iniciar sesión."
+}
+
+export async function requestEmailChange(token: string, currentPassword: string, newEmail: string): Promise<string> {
+  return (
+    await api<{ message: string }>("/auth/email-change/request", token, {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_email: newEmail }),
+    })
+  ).message
 }
 
 export async function requestPasswordReset(email: string): Promise<string> {
