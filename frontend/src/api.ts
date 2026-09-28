@@ -38,8 +38,29 @@ export type JournalEntry = {
   module: JournalModule
   occurred_at: string
   title: string
-  data: Record<string, string | number | boolean | null>
+  data: Record<string, unknown>
   notes: string | null
+}
+export type CatalogCategory = "symptom" | "goal" | "lab"
+export type CatalogItem = {
+  id: number
+  category: CatalogCategory
+  name: string
+  unit: string | null
+  symptom_category: "Gastrointestinal" | "Otro" | null
+  is_blood_pressure: boolean
+}
+export type CatalogResult = {
+  catalog_item_id: number
+  name: string
+  unit: string | null
+  value: number | null
+  severity: number | null
+  intensity: number | null
+  systolic: number | null
+  diastolic: number | null
+  mean: number | null
+  category: string | null
 }
 export type PhotoEntry = { id: number; caption: string | null; taken_at: string; created_at: string }
 export type Medication = {
@@ -66,6 +87,7 @@ export type Profile = {
   initial_weight_kg: number
   timezone: string
   birth_date: string | null
+  medications_reviewed: boolean
 }
 export type Account = { email: string; created_at: string }
 export type TelegramConnection = { configured: boolean; linked: boolean; bot_username: string }

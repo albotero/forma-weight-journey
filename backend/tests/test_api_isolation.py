@@ -411,6 +411,31 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     assert weight_reminder["data"]["reminder_at"] != original_date
 
 
+def test_automatic_reminder_tracks_latest_blood_pressure_lab_entry() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "blood-pressure-reminder@example.com", "password": "blood-pressure-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+
+    without_bp = client.get("/api/entries/reminders", headers=headers)
+    assert "blood_pressure" not in {
+        entry["data"].get("auto_key") for entry in without_bp.json()}
+
+    lab_entry = client.post("/api/entries", headers=headers, json={
+        "module": "labs", "title": "Presión arterial", "data": {
+            "results": [{"catalog_item_id": 1, "name": "Presión arterial", "unit": "mmHg",
+                        "systolic": 120, "diastolic": 80, "mean": 100}],
+        },
+    })
+    assert lab_entry.status_code == 201
+
+    listed = client.get("/api/entries/reminders", headers=headers)
+    automatic = {entry["data"]["auto_key"]: entry for entry in listed.json(
+    ) if entry["data"].get("auto_generated")}
+    assert "blood_pressure" in automatic
+    assert automatic["blood_pressure"]["data"]["source_record_id"] == lab_entry.json()[
+        "id"]
+
+
 def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable() -> None:
     registered = client.post("/api/auth/register", json={
         "email": "resync-timezone@example.com", "password": "resync-timezone-password-123"})
@@ -653,3 +678,73 @@ def test_photo_files_are_private_and_owner_scoped(tmp_path, monkeypatch) -> None
     assert photo_path.parent.stat().st_mode & 0o777 == 0o700
     assert client.delete(
         f"/api/photos/{photo_id}", headers=owner_headers).status_code == 204
+
+
+def test_medications_review_toggle_tracks_active_medication_changes() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "med-review@example.com", "password": "med-review-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    client.put("/api/profile", headers=headers, json={
+        "height_cm": 180, "initial_weight_kg": 90, "timezone": "UTC"})
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Tirzepatida", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
+
+    initial = client.get("/api/profile", headers=headers)
+    assert initial.json()["medications_reviewed"] is False
+
+    confirmed = client.patch("/api/profile/medications-review",
+                             headers=headers, json={"reviewed": True})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["medications_reviewed"] is True
+
+    still_confirmed = client.get("/api/profile", headers=headers)
+    assert still_confirmed.json()["medications_reviewed"] is True
+
+    client.put(f"/api/medications/{medication['id']}", headers=headers, json={
+        "name": "Tirzepatida", "active": True, "concentration_mg": 12.5,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    })
+    invalidated = client.get("/api/profile", headers=headers)
+    assert invalidated.json()["medications_reviewed"] is False
+
+    unconfirmed = client.patch(
+        "/api/profile/medications-review", headers=headers, json={"reviewed": False})
+    assert unconfirmed.json()["medications_reviewed"] is False
+
+
+def test_catalog_items_are_user_scoped_and_blood_pressure_is_protected() -> None:
+    owner = client.post("/api/auth/register", json={
+        "email": "catalog-owner@example.com", "password": "catalog-owner-password-123"})
+    other = client.post("/api/auth/register", json={
+        "email": "catalog-other@example.com", "password": "catalog-other-password-123"})
+    owner_headers = {"Authorization": f"Bearer {owner.json()['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    labs = client.get("/api/catalog/lab", headers=owner_headers)
+    assert labs.status_code == 200
+    assert [item["name"] for item in labs.json()] == ["Presión arterial"]
+    assert labs.json()[0]["is_blood_pressure"] is True
+
+    created = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "Glucosa", "unit": "mg/dL"})
+    assert created.status_code == 201
+
+    duplicate = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "glucosa"})
+    assert duplicate.status_code == 409
+
+    other_labs = client.get("/api/catalog/lab", headers=other_headers)
+    assert [item["name"] for item in other_labs.json()] == ["Presión arterial"]
+
+    protected = client.delete(
+        f"/api/catalog/{labs.json()[0]['id']}", headers=owner_headers)
+    assert protected.status_code == 409
+
+    removable = client.delete(
+        f"/api/catalog/{created.json()['id']}", headers=owner_headers)
+    assert removable.status_code == 204
+
+    forbidden = client.get("/api/catalog/unknown", headers=owner_headers)
+    assert forbidden.status_code == 422

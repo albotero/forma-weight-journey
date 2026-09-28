@@ -20,9 +20,9 @@ from app.automatic_reminders import sync_automatic_reminders
 from app.config import settings
 from app.database import get_db
 from app.dependencies import current_user
-from app.models import BodyMeasurement, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
-from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, DoseCreate, DoseOut, JournalEntryCreate,
-                         JournalEntryOut, MedicationCreate, MedicationOut, PhotoRecordOut, ProfileOut,
+from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
+from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, DoseCreate, DoseOut, JournalEntryCreate,
+                         JournalEntryOut, MedicationCreate, MedicationOut, MedicationsReviewToggle, PhotoRecordOut, ProfileOut,
                          PasswordChange, PhotoUpdate, ProfileUpdate, ReminderToggle, Token, UserCreate, WeightCreate, WeightOut)
 from app.security import (create_access_token, create_refresh_token, hash_password,
                           hash_refresh_token, verify_password)
@@ -290,17 +290,39 @@ def get_account(user: User = Depends(current_user)) -> User:
     return user
 
 
+def _medications_signature(db: Session, user_id: int) -> str:
+    rows = db.scalars(
+        select(Medication)
+        .where(Medication.user_id == user_id, Medication.active.is_(True))
+        .order_by(Medication.id)
+    ).all()
+    return "|".join(
+        f"{row.id}:{row.concentration_mg}:{row.concentration_volume_ml}:{row.units_per_ml}"
+        for row in rows
+    )
+
+
+def _build_profile_out(profile: UserProfile, db: Session, user_id: int) -> ProfileOut:
+    signature = _medications_signature(db, user_id)
+    reviewed = bool(
+        profile.medications_reviewed_at and profile.medications_reviewed_signature == signature)
+    data = ProfileOut.model_validate(
+        profile, from_attributes=True).model_dump()
+    data["medications_reviewed"] = reviewed
+    return ProfileOut(**data)
+
+
 @router.get("/profile", response_model=ProfileOut)
-def get_profile(user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserProfile:
+def get_profile(user: User = Depends(current_user), db: Session = Depends(get_db)) -> ProfileOut:
     profile = db.scalar(select(UserProfile).where(
         UserProfile.user_id == user.id))
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return profile
+    return _build_profile_out(profile, db, user.id)
 
 
 @router.put("/profile", response_model=ProfileOut)
-def update_profile(payload: ProfileUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> UserProfile:
+def update_profile(payload: ProfileUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> ProfileOut:
     profile = db.scalar(select(UserProfile).where(
         UserProfile.user_id == user.id))
     if profile is None:
@@ -310,7 +332,80 @@ def update_profile(payload: ProfileUpdate, user: User = Depends(current_user), d
         setattr(profile, field, value)
     db.commit()
     db.refresh(profile)
-    return profile
+    return _build_profile_out(profile, db, user.id)
+
+
+@router.patch("/profile/medications-review", response_model=ProfileOut)
+def set_medications_reviewed(payload: MedicationsReviewToggle, user: User = Depends(current_user), db: Session = Depends(get_db)) -> ProfileOut:
+    profile = db.scalar(select(UserProfile).where(
+        UserProfile.user_id == user.id))
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    if payload.reviewed:
+        profile.medications_reviewed_at = utc_now()
+        profile.medications_reviewed_signature = _medications_signature(
+            db, user.id)
+    else:
+        profile.medications_reviewed_at = None
+        profile.medications_reviewed_signature = None
+    db.commit()
+    db.refresh(profile)
+    return _build_profile_out(profile, db, user.id)
+
+
+DEFAULT_BLOOD_PRESSURE_NAME = "Presión arterial"
+
+
+def _ensure_default_catalog(db: Session, user_id: int, category: str) -> None:
+    if category != "lab":
+        return
+    exists = db.scalar(select(CatalogItem).where(
+        CatalogItem.user_id == user_id, CatalogItem.category == "lab", CatalogItem.is_blood_pressure.is_(True)))
+    if exists is None:
+        db.add(CatalogItem(user_id=user_id, category="lab", name=DEFAULT_BLOOD_PRESSURE_NAME,
+                           unit="mmHg", is_blood_pressure=True))
+        db.commit()
+
+
+@router.get("/catalog/{category}", response_model=list[CatalogItemOut])
+def list_catalog_items(category: str, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[CatalogItem]:
+    if category not in ("symptom", "goal", "lab"):
+        raise HTTPException(status_code=422, detail="Unknown catalog category")
+    _ensure_default_catalog(db, user.id, category)
+    statement = select(CatalogItem).where(
+        CatalogItem.user_id == user.id, CatalogItem.category == category
+    ).order_by(CatalogItem.is_blood_pressure.desc(), CatalogItem.name)
+    return list(db.scalars(statement))
+
+
+@router.post("/catalog", response_model=CatalogItemOut, status_code=status.HTTP_201_CREATED)
+def create_catalog_item(payload: CatalogItemCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> CatalogItem:
+    existing = db.scalars(select(CatalogItem).where(
+        CatalogItem.user_id == user.id, CatalogItem.category == payload.category)).all()
+    normalized = payload.name.strip()
+    if any(item.name.strip().casefold() == normalized.casefold() for item in existing):
+        raise HTTPException(
+            status_code=409, detail="This item already exists in your catalog")
+    item = CatalogItem(user_id=user.id, category=payload.category, name=normalized,
+                       unit=payload.unit, symptom_category=payload.symptom_category)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.delete("/catalog/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_catalog_item(item_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Response:
+    item = db.scalar(select(CatalogItem).where(
+        CatalogItem.id == item_id, CatalogItem.user_id == user.id))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Catalog item not found")
+    if item.is_blood_pressure:
+        raise HTTPException(
+            status_code=409, detail="The blood pressure catalog item cannot be removed")
+    db.delete(item)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/medications", response_model=list[MedicationOut])

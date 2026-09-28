@@ -8,10 +8,11 @@ from sqlalchemy.orm import Session
 from app.models import BodyMeasurement, Dose, JournalEntry, Medication, User, UserProfile, WeightMeasurement
 
 AUTO_REMINDERS: tuple[tuple[str, str, int, str], ...] = (
-    ("dose", "Registrar dosis", 1, "week"),
-    ("weight", "Registrar peso", 1, "day"),
-    ("composition", "Registrar composición corporal", 1, "month"),
-    ("measurements", "Registrar medidas corporales", 1, "month"),
+    ("dose", "Checklist semanal: dosis registrada", 1, "week"),
+    ("weight", "Checklist diario: registrar peso", 1, "day"),
+    ("blood_pressure", "Checklist semanal: presión arterial", 1, "week"),
+    ("composition", "Checklist mensual: composición corporal", 1, "month"),
+    ("measurements", "Checklist mensual: medidas corporales", 1, "month"),
 )
 
 
@@ -68,11 +69,24 @@ def _latest_sources(db: Session, user_id: int) -> dict[str, tuple[int, datetime]
         .order_by(BodyMeasurement.measured_at.desc(), BodyMeasurement.id.desc())
         .limit(1)
     )
+    latest_blood_pressure = None
+    for entry in db.scalars(
+        select(JournalEntry)
+        .where(JournalEntry.user_id == user_id, JournalEntry.module == "labs")
+        .order_by(JournalEntry.occurred_at.desc(), JournalEntry.id.desc())
+    ).all():
+        results = entry.data.get("results") if entry.data else None
+        if isinstance(results, list) and any(
+            isinstance(result, dict) and result.get("systolic") is not None for result in results
+        ):
+            latest_blood_pressure = entry
+            break
     return {
         "dose": (latest_dose.id, latest_dose.administered_at) if latest_dose else None,
         "weight": (latest_weight.id, latest_weight.measured_at) if latest_weight else None,
         "composition": (latest_composition.id, latest_composition.measured_at) if latest_composition else None,
         "measurements": (latest_measurement.id, latest_measurement.measured_at) if latest_measurement else None,
+        "blood_pressure": (latest_blood_pressure.id, latest_blood_pressure.occurred_at) if latest_blood_pressure else None,
     }
 
 

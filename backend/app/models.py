@@ -32,6 +32,10 @@ class UserProfile(Base):
     height_cm: Mapped[float] = mapped_column(Float, default=180)
     initial_weight_kg: Mapped[float] = mapped_column(Float, default=106)
     timezone: Mapped[str] = mapped_column(String(64), default="America/Bogota")
+    medications_reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    medications_reviewed_signature: Mapped[str | None] = mapped_column(
+        String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -175,6 +179,23 @@ class RefreshSession(Base):
         DateTime(timezone=True), index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now())
+
+
+class CatalogItem(Base):
+    __tablename__ = "catalog_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey(
+        "users.id", ondelete="CASCADE"), index=True)
+    category: Mapped[str] = mapped_column(String(16), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    unit: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    symptom_category: Mapped[str | None] = mapped_column(
+        String(40), nullable=True)
+    is_blood_pressure: Mapped[bool] = mapped_column(
+        Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
 

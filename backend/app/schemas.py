@@ -107,6 +107,11 @@ class ProfileUpdate(NumericPrecisionModel):
 class ProfileOut(ProfileUpdate):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    medications_reviewed: bool = False
+
+
+class MedicationsReviewToggle(BaseModel):
+    reviewed: bool
 
 
 class MedicationCreate(NumericPrecisionModel):
@@ -216,6 +221,23 @@ class JournalEntryOut(JournalEntryCreate):
 
 class ReminderToggle(BaseModel):
     enabled: bool
+
+
+CatalogCategory = Literal["symptom", "goal", "lab"]
+SymptomCategory = Literal["Gastrointestinal", "Otro"]
+
+
+class CatalogItemCreate(BaseModel):
+    category: CatalogCategory
+    name: str = Field(min_length=1, max_length=120)
+    unit: str | None = Field(default=None, max_length=40)
+    symptom_category: SymptomCategory | None = None
+
+
+class CatalogItemOut(CatalogItemCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    is_blood_pressure: bool
 
 
 class PhotoRecordOut(BaseModel):

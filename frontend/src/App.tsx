@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react"
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { useLocation, useNavigate } from "react-router-dom"
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart as RechartsLineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import {
   Activity,
   UserRoundCog,
@@ -43,6 +55,9 @@ import {
   uploadPhoto,
   type BodyMeasurementEntry,
   type Account,
+  type CatalogCategory,
+  type CatalogItem,
+  type CatalogResult,
   type DoseEntry,
   type JournalEntry,
   type JournalModule,
@@ -74,6 +89,26 @@ type Section =
 type AuthMode = "login" | "register"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
+const sectionPaths: Record<Section, string> = {
+  Inicio: "/",
+  Peso: "/peso",
+  Medicación: "/medicacion",
+  Medidas: "/medidas",
+  Composición: "/composicion",
+  Síntomas: "/sintomas",
+  Actividad: "/actividad",
+  Laboratorios: "/laboratorios",
+  Fotos: "/fotos",
+  Objetivos: "/objetivos",
+  Revisiones: "/revisiones",
+  Recordatorios: "/recordatorios",
+  Análisis: "/analisis",
+  Historial: "/historial",
+  "Perfil y ajustes": "/perfil",
+}
+const pathSections: Record<string, Section> = Object.fromEntries(
+  Object.entries(sectionPaths).map(([label, path]) => [path, label as Section]),
+)
 const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Inicio", icon: Home },
   { label: "Peso", icon: Scale },
@@ -122,9 +157,12 @@ const compositionFields = [
 ] as const
 
 export default function App() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  const section: Section = pathSections[location.pathname] ?? "Inicio"
+  const setSection = useCallback((target: Section) => navigate(sectionPaths[target]), [navigate])
   const [token, setToken] = useState<string | null>(null)
   const [restoringSession, setRestoringSession] = useState(true)
-  const [section, setSection] = useState<Section>("Inicio")
   const [profile, setProfile] = useState<Profile | null>(null)
   const [account, setAccount] = useState<Account | null>(null)
   const [weights, setWeights] = useState<WeightEntry[]>([])
@@ -1395,6 +1433,7 @@ function AnalysisWorkspace({
   entries,
   photos,
   onNavigate,
+  onToggleMedicationsReviewed,
 }: {
   weights: WeightEntry[]
   profile: Profile | null
@@ -1404,6 +1443,7 @@ function AnalysisWorkspace({
   entries: JournalEntry[]
   photos: PhotoEntry[]
   onNavigate: (target: Section) => void
+  onToggleMedicationsReviewed: (reviewed: boolean) => void
 }) {
   const now = Date.now()
   const isWithinDays = (date: string, days: number) => {
@@ -1457,12 +1497,17 @@ function AnalysisWorkspace({
       new Date(entry.occurred_at).getTime() >= new Date(doseStartedAt ?? currentDose.administered_at).getTime(),
   )
   const concerningSymptoms = doseSymptoms.filter((entry) => {
-    const intensity = Number(entry.data.severity ?? 0)
     const tolerance = String(entry.data.tolerance ?? "")
-    return intensity >= 5 || tolerance === "Con molestias moderadas" || tolerance === "Con molestias importantes"
+    const results = Array.isArray(entry.data.results) ? (entry.data.results as CatalogResult[]) : []
+    const maxSeverity = results.reduce((max, result) => Math.max(max, Number(result.severity ?? 0)), 0)
+    return maxSeverity >= 5 || tolerance === "Con molestias moderadas" || tolerance === "Con molestias importantes"
   })
   const hasGastrointestinalSymptoms = concerningSymptoms.some(
-    (entry) => entry.data.symptom_category === "Gastrointestinal",
+    (entry) =>
+      Array.isArray(entry.data.results) &&
+      (entry.data.results as CatalogResult[]).some(
+        (result) => result.category === "Gastrointestinal" && Number(result.severity ?? 0) >= 5,
+      ),
   )
   const goodToleranceRecorded = doseSymptoms.some((entry) => entry.data.tolerance === "Buena")
   const doseMedication = currentDose && medications.find((item) => item.id === currentDose.medication_id)
@@ -1490,7 +1535,20 @@ function AnalysisWorkspace({
   const hasRecentTreatmentReview = reviewEntries.some(
     (entry) => entry.data.review_type === "Tratamiento" && isWithinDays(entry.occurred_at, 90),
   )
-  const checklistGroups = [
+  const hasRecentBloodPressure = labEntries.some(
+    (entry) =>
+      isWithinDays(entry.occurred_at, 7) &&
+      Array.isArray(entry.data.results) &&
+      (entry.data.results as CatalogResult[]).some((result) => result.systolic != null),
+  )
+  type ChecklistTask = {
+    label: string
+    done: boolean
+    target: Section
+    detail?: string
+    toggle?: (value: boolean) => void
+  }
+  const checklistGroups: { title: string; subtitle: string; tasks: ChecklistTask[] }[] = [
     {
       title: "Antes de iniciar",
       subtitle:
@@ -1501,14 +1559,17 @@ function AnalysisWorkspace({
         {
           label: "Presión arterial",
           done: labEntries.some(
-            (entry) => entry.data.systolic_pressure != null && entry.data.diastolic_pressure != null,
+            (entry) =>
+              Array.isArray(entry.data.results) &&
+              (entry.data.results as CatalogResult[]).some((result) => result.systolic != null),
           ),
           target: "Laboratorios" as Section,
         },
         {
           label: "Revisar y confirmar medicamentos actuales",
-          done: false,
+          done: profile?.medications_reviewed ?? false,
           target: "Medicación" as Section,
+          toggle: onToggleMedicationsReviewed,
         },
         { label: "Antecedentes relevantes", done: hasRelevantHistory, target: "Revisiones" as Section },
         {
@@ -1519,23 +1580,38 @@ function AnalysisWorkspace({
       ],
     },
     {
-      title: "Cada semana",
-      subtitle: "Seguimiento de los últimos 7 días.",
+      title: "Cada día",
+      subtitle: "Registro diario recomendado.",
       tasks: [
         {
           label: "Peso",
-          done: pastWeights.some((item) => isWithinDays(item.measured_at, 7)),
+          done: pastWeights.some((item) => isWithinDays(item.measured_at, 1)),
           target: "Peso" as Section,
         },
+      ],
+    },
+    {
+      title: "Cada semana",
+      subtitle: "Seguimiento de los últimos 7 días.",
+      tasks: [
         {
           label: "Dosis registrada",
           done: pastDoses.some((item) => isWithinDays(item.administered_at, 7)),
           target: "Medicación" as Section,
         },
+        {
+          label: "Presión arterial",
+          done: hasRecentBloodPressure,
+          target: "Laboratorios" as Section,
+        },
         { label: "Apetito y saciedad", done: Boolean(weeklyCheckIn), target: "Síntomas" as Section },
         {
           label: "Síntomas y tolerancia",
-          done: recentSymptoms.some((entry) => entry.data.severity != null || entry.data.tolerance != null),
+          done: recentSymptoms.some(
+            (entry) =>
+              (Array.isArray(entry.data.results) && (entry.data.results as CatalogResult[]).length > 0) ||
+              entry.data.tolerance != null,
+          ),
           target: "Síntomas" as Section,
         },
         {
@@ -1578,7 +1654,9 @@ function AnalysisWorkspace({
           label: "Síntomas y tolerancia",
           done: symptoms.some(
             (entry) =>
-              isWithinDays(entry.occurred_at, 28) && (entry.data.severity != null || entry.data.tolerance != null),
+              isWithinDays(entry.occurred_at, 28) &&
+              ((Array.isArray(entry.data.results) && (entry.data.results as CatalogResult[]).length > 0) ||
+                entry.data.tolerance != null),
           ),
           target: "Síntomas" as Section,
         },
@@ -1708,14 +1786,26 @@ function AnalysisWorkspace({
               <ul className="followup-list">
                 {group.tasks.map((task) => (
                   <li key={task.label} className={task.done ? "complete" : "pending"}>
-                    <span className="followup-status" aria-label={task.done ? "Registrado" : "Pendiente"}>
-                      {task.done ? <Check size={14} /> : <span />}
-                    </span>
+                    {task.toggle ? (
+                      <button
+                        type="button"
+                        className="followup-status followup-toggle"
+                        aria-pressed={task.done}
+                        aria-label={task.done ? "Marcar como pendiente" : "Marcar como confirmado"}
+                        onClick={() => task.toggle?.(!task.done)}
+                      >
+                        {task.done ? <Check size={14} /> : <span />}
+                      </button>
+                    ) : (
+                      <span className="followup-status" aria-label={task.done ? "Registrado" : "Pendiente"}>
+                        {task.done ? <Check size={14} /> : <span />}
+                      </span>
+                    )}
                     <div className="followup-task-copy">
                       <strong>{task.label}</strong>
                       {task.detail && <small>{task.detail}</small>}
                     </div>
-                    {!task.done && (
+                    {!task.done && !task.toggle && (
                       <button type="button" className="followup-action" onClick={() => onNavigate(task.target)}>
                         Registrar
                       </button>
@@ -1856,21 +1946,16 @@ const journalDefinitions: Record<
   { title: string; fields: { key: string; label: string; type?: string; options?: string[] }[] }
 > = {
   symptoms: {
-    title: "síntoma o check-in",
+    title: "check-in semanal",
     fields: [
-      { key: "record_type", label: "Tipo de registro", options: ["Síntoma", "Check-in semanal"] },
-      { key: "symptom_category", label: "Categoría del síntoma", options: ["Gastrointestinal", "Otro"] },
-      { key: "severity", label: "Intensidad (0–10)", type: "number" },
+      { key: "appetite", label: "Apetito", options: ["Menor", "Sin cambios", "Mayor"] },
+      { key: "satiety", label: "Saciedad", options: ["Menor", "Sin cambios", "Mayor"] },
+      { key: "hydration_l", label: "Hidratación aproximada (L)", type: "number" },
       {
         key: "tolerance",
         label: "Tolerancia percibida",
         options: ["Buena", "Con molestias leves", "Con molestias moderadas", "Con molestias importantes"],
       },
-      { key: "appetite", label: "Apetito", options: ["Menor", "Sin cambios", "Mayor"] },
-      { key: "satiety", label: "Saciedad", options: ["Menor", "Sin cambios", "Mayor"] },
-      { key: "hydration_l", label: "Hidratación aproximada (L)", type: "number" },
-      { key: "duration", label: "Duración" },
-      { key: "triggers", label: "Posibles factores" },
     ],
   },
   activity: {
@@ -1882,25 +1967,12 @@ const journalDefinitions: Record<
     ],
   },
   labs: {
-    title: "resultado",
-    fields: [
-      { key: "phase", label: "Contexto", options: ["Basal", "Seguimiento"] },
-      { key: "value", label: "Resultado" },
-      { key: "unit", label: "Unidad" },
-      { key: "systolic_pressure", label: "Presión sistólica (mmHg)", type: "number" },
-      { key: "diastolic_pressure", label: "Presión diastólica (mmHg)", type: "number" },
-      { key: "reference_range", label: "Rango de referencia" },
-      { key: "laboratory", label: "Laboratorio" },
-    ],
+    title: "resultado de laboratorio",
+    fields: [],
   },
   goals: {
     title: "objetivo",
-    fields: [
-      { key: "target_value", label: "Meta" },
-      { key: "unit", label: "Unidad" },
-      { key: "due_date", label: "Fecha objetivo", type: "date" },
-      { key: "status", label: "Estado", options: ["En progreso", "Completado", "En pausa"] },
-    ],
+    fields: [],
   },
   reviews: {
     title: "revisión",
@@ -1968,6 +2040,84 @@ function ModuleWorkspace(props: {
   const [showNewMedication, setShowNewMedication] = useState(false)
   const [telegram, setTelegram] = useState<TelegramConnection | null>(null)
   const [pairingUrl, setPairingUrl] = useState("")
+  const [catalog, setCatalog] = useState<CatalogItem[]>([])
+  const [showCatalogEntryForm, setShowCatalogEntryForm] = useState(false)
+  const [editingCatalogEntry, setEditingCatalogEntry] = useState<JournalEntry | null>(null)
+  const catalogCategory: CatalogCategory | undefined =
+    section === "Síntomas"
+      ? "symptom"
+      : section === "Objetivos"
+        ? "goal"
+        : section === "Laboratorios"
+          ? "lab"
+          : undefined
+  const catalogModule: JournalModule | undefined =
+    catalogCategory === "symptom"
+      ? "symptoms"
+      : catalogCategory === "goal"
+        ? "goals"
+        : catalogCategory === "lab"
+          ? "labs"
+          : undefined
+
+  useEffect(() => {
+    if (!catalogCategory) return
+    let active = true
+    void api<CatalogItem[]>(`/catalog/${catalogCategory}`, token)
+      .then((items) => {
+        if (active) setCatalog(items)
+      })
+      .catch((reason: Error) => props.onError(reason.message))
+    return () => {
+      active = false
+    }
+  }, [catalogCategory, token, props.onError])
+
+  async function addCatalogItem(name: string, unit: string, symptomCategory?: "Gastrointestinal" | "Otro") {
+    if (!catalogCategory) return
+    const created = await api<CatalogItem>("/catalog", token, {
+      method: "POST",
+      body: JSON.stringify({
+        category: catalogCategory,
+        name,
+        unit: unit || null,
+        symptom_category: symptomCategory ?? null,
+      }),
+    })
+    setCatalog((current) => [...current, created])
+  }
+
+  async function removeCatalogItem(item: CatalogItem) {
+    if (!window.confirm(`¿Quitar "${item.name}" de tu lista? No afecta a los registros ya guardados.`)) return
+    try {
+      await api<void>(`/catalog/${item.id}`, token, { method: "DELETE" })
+      setCatalog((current) => current.filter((entry) => entry.id !== item.id))
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo quitar el elemento")
+    }
+  }
+
+  async function saveCatalogEntry(payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) {
+    await api(editingCatalogEntry ? `/entries/${editingCatalogEntry.id}` : "/entries", token, {
+      method: editingCatalogEntry ? "PUT" : "POST",
+      body: JSON.stringify(payload),
+    })
+    await props.onRefresh()
+    setShowCatalogEntryForm(false)
+    setEditingCatalogEntry(null)
+  }
+
+  async function toggleMedicationsReviewed(reviewed: boolean) {
+    try {
+      await api<Profile>("/profile/medications-review", token, {
+        method: "PATCH",
+        body: JSON.stringify({ reviewed }),
+      })
+      await props.onRefresh()
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo actualizar la revisión de medicamentos")
+    }
+  }
 
   useEffect(() => {
     if (section !== "Recordatorios") return
@@ -2085,49 +2235,84 @@ function ModuleWorkspace(props: {
 
   return (
     <section className="module-page">
-      <div className="module-heading">
-        <div>
-          <div className="eyebrow">TU ESPACIO PERSONAL</div>
-          <h1>{section}</h1>
+      {section !== "Análisis" && (
+        <div className="module-heading">
+          <div>
+            <div className="eyebrow">TU ESPACIO PERSONAL</div>
+            <h1>{section}</h1>
+          </div>
+          {section === "Peso" && (
+            <button className="primary-button" onClick={props.onNewWeight}>
+              <Plus size={16} /> Registrar peso
+            </button>
+          )}
+          {section === "Composición" && (
+            <button className="primary-button" onClick={props.onNewWeight}>
+              <Plus size={16} /> Registrar lectura
+            </button>
+          )}
+          {section === "Medicación" && (
+            <button className="primary-button" onClick={() => setShowNewMedication(true)}>
+              <Plus size={16} /> Añadir medicación
+            </button>
+          )}
+          {section === "Medidas" && (
+            <button
+              className="primary-button"
+              onClick={() => {
+                setEditingMeasurement(null)
+                setShowMeasurementForm(true)
+              }}
+            >
+              <Plus size={16} /> Registrar medidas
+            </button>
+          )}
+          {module && !catalogCategory && (
+            <button
+              className="primary-button"
+              onClick={() => {
+                setEditingEntry(null)
+                setShowEntryForm(true)
+              }}
+            >
+              <Plus size={16} /> Añadir {journalDefinitions[module].title}
+            </button>
+          )}
+          {section === "Síntomas" && (
+            <>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setEditingCatalogEntry(null)
+                  setShowCatalogEntryForm(true)
+                }}
+              >
+                <Plus size={16} /> Registrar síntoma
+              </button>
+              <button
+                className="outline-button"
+                onClick={() => {
+                  setEditingEntry(null)
+                  setShowEntryForm(true)
+                }}
+              >
+                Check-in semanal
+              </button>
+            </>
+          )}
+          {(section === "Objetivos" || section === "Laboratorios") && (
+            <button
+              className="primary-button"
+              onClick={() => {
+                setEditingCatalogEntry(null)
+                setShowCatalogEntryForm(true)
+              }}
+            >
+              <Plus size={16} /> {section === "Objetivos" ? "Registrar objetivo" : "Registrar resultados"}
+            </button>
+          )}
         </div>
-        {section === "Peso" && (
-          <button className="primary-button" onClick={props.onNewWeight}>
-            <Plus size={16} /> Registrar peso
-          </button>
-        )}
-        {section === "Composición" && (
-          <button className="primary-button" onClick={props.onNewWeight}>
-            <Plus size={16} /> Registrar lectura
-          </button>
-        )}
-        {section === "Medicación" && (
-          <button className="primary-button" onClick={() => setShowNewMedication(true)}>
-            <Plus size={16} /> Añadir medicación
-          </button>
-        )}
-        {section === "Medidas" && (
-          <button
-            className="primary-button"
-            onClick={() => {
-              setEditingMeasurement(null)
-              setShowMeasurementForm(true)
-            }}
-          >
-            <Plus size={16} /> Registrar medidas
-          </button>
-        )}
-        {module && (
-          <button
-            className="primary-button"
-            onClick={() => {
-              setEditingEntry(null)
-              setShowEntryForm(true)
-            }}
-          >
-            <Plus size={16} /> Añadir {journalDefinitions[module].title}
-          </button>
-        )}
-      </div>
+      )}
 
       {section === "Composición" && (
         <>
@@ -2180,6 +2365,7 @@ function ModuleWorkspace(props: {
           entries={entries}
           photos={photos}
           onNavigate={props.onNavigate}
+          onToggleMedicationsReviewed={(reviewed) => void toggleMedicationsReviewed(reviewed)}
         />
       )}
 
@@ -2322,7 +2508,7 @@ function ModuleWorkspace(props: {
         </>
       )}
 
-      {module && (
+      {module && (!catalogCategory || module === "symptoms") && (
         <>
           {module === "reminders" && (
             <div className="telegram-panel">
@@ -2355,9 +2541,12 @@ function ModuleWorkspace(props: {
               )}
             </div>
           )}
+          {module === "symptoms" && <h2 className="module-subheading">Check-ins semanales</h2>}
           <div className="record-list">
             {entries
-              .filter((entry) => entry.module === module)
+              .filter(
+                (entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)),
+              )
               .map((entry) => (
                 <article className="record-card" key={entry.id}>
                   <div className="record-card-heading">
@@ -2436,8 +2625,92 @@ function ModuleWorkspace(props: {
                   {entry.notes && <p>{entry.notes}</p>}
                 </article>
               ))}
-            {!entries.some((entry) => entry.module === module) && (
-              <EmptyModule text={`Aún no hay registros de ${section.toLowerCase()}.`} />
+            {!entries.some(
+              (entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)),
+            ) && (
+              <EmptyModule
+                text={`Aún no hay registros de ${module === "symptoms" ? "check-ins semanales" : section.toLowerCase()}.`}
+              />
+            )}
+          </div>
+        </>
+      )}
+
+      {catalogCategory && catalogModule && (
+        <>
+          {catalog.length > 0 && (
+            <div className="catalog-chip-list">
+              {catalog.map((item) => (
+                <span className="catalog-chip" key={item.id}>
+                  {item.name}
+                  {!item.is_blood_pressure && (
+                    <button
+                      type="button"
+                      aria-label={`Quitar ${item.name}`}
+                      onClick={() => void removeCatalogItem(item)}
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+          {section === "Laboratorios" && (
+            <LabEvolutionCharts
+              entries={entries.filter((entry) => entry.module === "labs")}
+              catalog={catalog}
+              timezone={userTimezone}
+            />
+          )}
+          <div className="record-list">
+            {entries
+              .filter((entry) => entry.module === catalogModule && Array.isArray(entry.data.results))
+              .map((entry) => (
+                <article className="record-card" key={entry.id}>
+                  <div className="record-card-heading">
+                    <div>
+                      <strong>{entry.title}</strong>
+                      <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                    </div>
+                    <RecordActions
+                      onEdit={() => {
+                        setEditingCatalogEntry(entry)
+                        setShowCatalogEntryForm(true)
+                      }}
+                      onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
+                    />
+                  </div>
+                  <div className="composition-results">
+                    {(entry.data.results as CatalogResult[]).map((result) => (
+                      <div key={result.catalog_item_id}>
+                        <span>{result.name}</span>
+                        <strong>
+                          {result.systolic != null
+                            ? `${result.systolic}/${result.diastolic} mmHg (media ${result.mean})`
+                            : result.value != null
+                              ? `${formatDecimal(result.value)}${result.unit ? ` ${result.unit}` : ""}`
+                              : `${result.severity ?? result.intensity}/10`}
+                        </strong>
+                      </div>
+                    ))}
+                  </div>
+                  {typeof entry.data.tolerance === "string" && (
+                    <p className="module-hint">Tolerancia percibida: {entry.data.tolerance}</p>
+                  )}
+                  {entry.notes && <p>{entry.notes}</p>}
+                </article>
+              ))}
+            {!entries.some((entry) => entry.module === catalogModule && Array.isArray(entry.data.results)) && (
+              <EmptyModule
+                text={
+                  catalogCategory === "symptom"
+                    ? "Registra un síntoma seleccionándolo de tu lista."
+                    : catalogCategory === "goal"
+                      ? "Registra un objetivo seleccionándolo de tu lista."
+                      : "Registra resultados de laboratorio seleccionándolos de tu lista."
+                }
+              />
             )}
           </div>
         </>
@@ -2555,6 +2828,20 @@ function ModuleWorkspace(props: {
             setEditingEntry(null)
           }}
           onSave={saveJournal}
+        />
+      )}
+      {showCatalogEntryForm && catalogCategory && (
+        <CatalogEntryEditor
+          category={catalogCategory}
+          catalog={catalog}
+          entry={editingCatalogEntry ?? undefined}
+          timezone={userTimezone}
+          onClose={() => {
+            setShowCatalogEntryForm(false)
+            setEditingCatalogEntry(null)
+          }}
+          onSave={saveCatalogEntry}
+          onAddCatalogItem={addCatalogItem}
         />
       )}
       {showMeasurementForm && (
@@ -2720,20 +3007,12 @@ function JournalEntryEditor({
     >
       <form className="entry-form" onSubmit={submit}>
         <label>
-          {module === "labs"
-            ? "Prueba"
-            : module === "symptoms"
-              ? data.record_type === "Check-in semanal"
-                ? "Nombre del check-in"
-                : "Síntoma"
-              : journalDefinitions[module].title}
+          {module === "symptoms" ? "Nombre del check-in" : journalDefinitions[module].title}
           <input
             required
             maxLength={160}
             value={title}
-            placeholder={
-              module === "symptoms" && data.record_type === "Check-in semanal" ? "Seguimiento semanal" : undefined
-            }
+            placeholder={module === "symptoms" ? "Seguimiento semanal" : undefined}
             onChange={(event) => setTitle(event.target.value)}
           />
         </label>
@@ -2746,38 +3025,30 @@ function JournalEntryEditor({
             onChange={(event) => setOccurredAt(event.target.value)}
           />
         </label>
-        {journalDefinitions[module].fields
-          .filter(({ key }) => {
-            if (module !== "symptoms") return true
-            if (data.record_type === "Check-in semanal") {
-              return ["record_type", "appetite", "satiety", "hydration_l", "tolerance"].includes(key)
-            }
-            return !["appetite", "satiety", "hydration_l"].includes(key)
-          })
-          .map(({ key, label, type, options }) => (
-            <label key={key}>
-              {label}
-              {options ? (
-                <select
-                  value={data[key] ?? ""}
-                  onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
-                >
-                  <option value="">Seleccionar…</option>
-                  {options.map((option) => (
-                    <option key={option}>{option}</option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type={type ?? "text"}
-                  min={type === "number" ? "0" : undefined}
-                  step={type === "number" ? "0.01" : undefined}
-                  value={data[key] ?? ""}
-                  onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
-                />
-              )}
-            </label>
-          ))}
+        {journalDefinitions[module].fields.map(({ key, label, type, options }) => (
+          <label key={key}>
+            {label}
+            {options ? (
+              <select
+                value={data[key] ?? ""}
+                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+              >
+                <option value="">Seleccionar…</option>
+                {options.map((option) => (
+                  <option key={option}>{option}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type={type ?? "text"}
+                min={type === "number" ? "0" : undefined}
+                step={type === "number" ? "0.01" : undefined}
+                value={data[key] ?? ""}
+                onChange={(event) => setData((current) => ({ ...current, [key]: event.target.value }))}
+              />
+            )}
+          </label>
+        ))}
         <label>
           Notas <span className="optional">opcional</span>
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
@@ -2793,6 +3064,422 @@ function JournalEntryEditor({
         </div>
       </form>
     </Modal>
+  )
+}
+
+function CatalogEntryEditor({
+  category,
+  catalog,
+  entry,
+  timezone,
+  onClose,
+  onSave,
+  onAddCatalogItem,
+}: {
+  category: CatalogCategory
+  catalog: CatalogItem[]
+  entry?: JournalEntry
+  timezone: string
+  onClose: () => void
+  onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
+  onAddCatalogItem: (name: string, unit: string, symptomCategory?: "Gastrointestinal" | "Otro") => Promise<void>
+}) {
+  const existingResults = Array.isArray(entry?.data.results) ? (entry!.data.results as CatalogResult[]) : []
+  const [occurredAt, setOccurredAt] = useState(() =>
+    dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
+  )
+  const [notes, setNotes] = useState(entry?.notes ?? "")
+  const [tolerance, setTolerance] = useState(String(entry?.data.tolerance ?? ""))
+  const [phase, setPhase] = useState(String(entry?.data.phase ?? ""))
+  const [laboratory, setLaboratory] = useState(String(entry?.data.laboratory ?? ""))
+  const [selections, setSelections] = useState<
+    Record<number, { checked: boolean; value: string; systolic: string; diastolic: string }>
+  >(() =>
+    Object.fromEntries(
+      catalog.map((item) => {
+        const existing = existingResults.find((result) => result.catalog_item_id === item.id)
+        return [
+          item.id,
+          {
+            checked: Boolean(existing),
+            value:
+              existing?.value != null
+                ? String(existing.value)
+                : existing?.severity != null
+                  ? String(existing.severity)
+                  : existing?.intensity != null
+                    ? String(existing.intensity)
+                    : "",
+            systolic: existing?.systolic != null ? String(existing.systolic) : "",
+            diastolic: existing?.diastolic != null ? String(existing.diastolic) : "",
+          },
+        ]
+      }),
+    ),
+  )
+  const [newItemName, setNewItemName] = useState("")
+  const [newItemUnit, setNewItemUnit] = useState("")
+  const [newItemSymptomCategory, setNewItemSymptomCategory] = useState<"Gastrointestinal" | "Otro">("Otro")
+  const [addingItem, setAddingItem] = useState(false)
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  function toggle(itemId: number) {
+    setSelections((current) => ({
+      ...current,
+      [itemId]: { ...current[itemId], checked: !current[itemId]?.checked },
+    }))
+  }
+  function updateField(itemId: number, field: "value" | "systolic" | "diastolic", value: string) {
+    setSelections((current) => ({
+      ...current,
+      [itemId]: {
+        ...(current[itemId] ?? { checked: true, value: "", systolic: "", diastolic: "" }),
+        [field]: value,
+      },
+    }))
+  }
+
+  async function submitNewItem() {
+    if (!newItemName.trim()) return
+    setBusy(true)
+    setError("")
+    try {
+      await onAddCatalogItem(
+        newItemName.trim(),
+        newItemUnit.trim(),
+        category === "symptom" ? newItemSymptomCategory : undefined,
+      )
+      setNewItemName("")
+      setNewItemUnit("")
+      setAddingItem(false)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo añadir el elemento")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError("")
+    const results: CatalogResult[] = []
+    for (const item of catalog) {
+      const selection = selections[item.id]
+      if (!selection?.checked) continue
+      if (item.is_blood_pressure) {
+        if (!selection.systolic || !selection.diastolic) continue
+        const systolic = Number(selection.systolic)
+        const diastolic = Number(selection.diastolic)
+        results.push({
+          catalog_item_id: item.id,
+          name: item.name,
+          unit: item.unit,
+          value: null,
+          severity: null,
+          intensity: null,
+          systolic,
+          diastolic,
+          mean: Math.round(((systolic + diastolic) / 2) * 100) / 100,
+          category: null,
+        })
+      } else if (selection.value !== "") {
+        const numeric = Number(selection.value)
+        results.push({
+          catalog_item_id: item.id,
+          name: item.name,
+          unit: item.unit,
+          value: category === "lab" ? numeric : null,
+          severity: category === "symptom" ? numeric : null,
+          intensity: category === "goal" ? numeric : null,
+          systolic: null,
+          diastolic: null,
+          mean: null,
+          category: item.symptom_category ?? null,
+        })
+      }
+    }
+    if (!results.length) {
+      setError("Selecciona al menos un elemento e indica su valor")
+      setBusy(false)
+      return
+    }
+    const module: JournalModule = category === "symptom" ? "symptoms" : category === "goal" ? "goals" : "labs"
+    const title =
+      category === "lab"
+        ? laboratory.trim() || "Resultados de laboratorio"
+        : category === "goal"
+          ? "Registro de objetivos"
+          : results.map((result) => result.name).join(", ")
+    const data: Record<string, unknown> = { results }
+    if (category === "symptom" && tolerance) data.tolerance = tolerance
+    if (category === "lab") {
+      if (phase) data.phase = phase
+      if (laboratory) data.laboratory = laboratory
+    }
+    try {
+      await onSave({
+        module,
+        title,
+        occurred_at: localDateTimeToIso(occurredAt, timezone),
+        notes: notes || null,
+        data,
+      })
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const intensityLabel = category === "symptom" ? "Intensidad (0–10)" : "Progreso (0–10)"
+
+  return (
+    <Modal
+      title={`${entry ? "Editar" : "Registrar"} ${
+        category === "symptom" ? "síntomas" : category === "goal" ? "objetivos" : "resultados de laboratorio"
+      }`}
+      subtitle="Selecciona los elementos de tu lista que correspondan y define su valor."
+      onClose={onClose}
+      size="wide"
+    >
+      <form className="entry-form" onSubmit={submit}>
+        <label>
+          Fecha y hora
+          <input
+            required
+            type="datetime-local"
+            value={occurredAt}
+            onChange={(event) => setOccurredAt(event.target.value)}
+          />
+        </label>
+        {category === "lab" && (
+          <div className="form-two-columns">
+            <label>
+              Contexto
+              <select value={phase} onChange={(event) => setPhase(event.target.value)}>
+                <option value="">Seleccionar…</option>
+                <option>Basal</option>
+                <option>Seguimiento</option>
+              </select>
+            </label>
+            <label>
+              Laboratorio <span className="optional">opcional</span>
+              <input value={laboratory} onChange={(event) => setLaboratory(event.target.value)} />
+            </label>
+          </div>
+        )}
+        {category === "symptom" && (
+          <label>
+            Tolerancia percibida <span className="optional">opcional</span>
+            <select value={tolerance} onChange={(event) => setTolerance(event.target.value)}>
+              <option value="">Seleccionar…</option>
+              <option>Buena</option>
+              <option>Con molestias leves</option>
+              <option>Con molestias moderadas</option>
+              <option>Con molestias importantes</option>
+            </select>
+          </label>
+        )}
+        <div className="catalog-selection-list">
+          {catalog.map((item) => {
+            const selection = selections[item.id] ?? { checked: false, value: "", systolic: "", diastolic: "" }
+            return (
+              <div className="catalog-selection-row" key={item.id}>
+                <label className="catalog-selection-checkbox">
+                  <input type="checkbox" checked={selection.checked} onChange={() => toggle(item.id)} />
+                  {item.name}
+                  {item.unit ? ` (${item.unit})` : ""}
+                </label>
+                {selection.checked &&
+                  (item.is_blood_pressure ? (
+                    <div className="catalog-selection-values">
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        placeholder="Sistólica"
+                        value={selection.systolic}
+                        onChange={(event) => updateField(item.id, "systolic", event.target.value)}
+                      />
+                      <input
+                        type="number"
+                        step="1"
+                        min="0"
+                        placeholder="Diastólica"
+                        value={selection.diastolic}
+                        onChange={(event) => updateField(item.id, "diastolic", event.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <input
+                      className="catalog-selection-values"
+                      type="number"
+                      step={category === "lab" ? "0.01" : "1"}
+                      min="0"
+                      max={category === "lab" ? undefined : "10"}
+                      placeholder={category === "lab" ? "Valor" : intensityLabel}
+                      value={selection.value}
+                      onChange={(event) => updateField(item.id, "value", event.target.value)}
+                    />
+                  ))}
+              </div>
+            )
+          })}
+          {!catalog.length && (
+            <p className="module-hint">Aún no tienes elementos en tu lista. Añade el primero abajo.</p>
+          )}
+        </div>
+        {addingItem ? (
+          <div className="catalog-new-item">
+            <input
+              placeholder="Nombre"
+              maxLength={120}
+              value={newItemName}
+              onChange={(event) => setNewItemName(event.target.value)}
+            />
+            {category === "lab" && (
+              <input
+                placeholder="Unidad (opcional)"
+                maxLength={40}
+                value={newItemUnit}
+                onChange={(event) => setNewItemUnit(event.target.value)}
+              />
+            )}
+            {category === "symptom" && (
+              <select
+                value={newItemSymptomCategory}
+                onChange={(event) => setNewItemSymptomCategory(event.target.value as "Gastrointestinal" | "Otro")}
+              >
+                <option>Otro</option>
+                <option>Gastrointestinal</option>
+              </select>
+            )}
+            <button type="button" className="small-action" disabled={busy} onClick={() => void submitNewItem()}>
+              Guardar en la lista
+            </button>
+            <button type="button" className="small-action" onClick={() => setAddingItem(false)}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <button type="button" className="outline-button" onClick={() => setAddingItem(true)}>
+            <Plus size={14} /> Añadir elemento nuevo a la lista
+          </button>
+        )}
+        <label>
+          Notas <span className="optional">opcional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+function LabEvolutionCharts({
+  entries,
+  catalog,
+  timezone,
+}: {
+  entries: JournalEntry[]
+  catalog: CatalogItem[]
+  timezone: string
+}) {
+  const series = catalog
+    .map((item) => {
+      const points = entries
+        .filter((entry) => Array.isArray(entry.data.results))
+        .flatMap((entry) => {
+          const result = (entry.data.results as CatalogResult[]).find((row) => row.catalog_item_id === item.id)
+          if (!result) return []
+          return [
+            {
+              date: formatDate(entry.occurred_at, timezone),
+              occurred_at: entry.occurred_at,
+              value: result.value,
+              systolic: result.systolic,
+              diastolic: result.diastolic,
+              mean: result.mean,
+            },
+          ]
+        })
+        .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+      return { item, points }
+    })
+    .filter((series) => series.points.length > 0)
+
+  if (!series.length) {
+    return <EmptyModule text="Registra resultados para ver la evolución de cada prueba." />
+  }
+
+  return (
+    <div className="lab-charts-grid">
+      {series.map(({ item, points }) => (
+        <div className="panel analysis-chart-panel" key={item.id}>
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">EVOLUCIÓN</div>
+              <h2>{item.name}</h2>
+            </div>
+            <span className="goal-caption">
+              {points.length} {points.length === 1 ? "registro" : "registros"}
+            </span>
+          </div>
+          <div className="chart-wrap">
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
+                <XAxis
+                  dataKey="date"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  minTickGap={30}
+                />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <Tooltip />
+                {item.is_blood_pressure ? (
+                  <>
+                    <Legend />
+                    <Line type="monotone" dataKey="systolic" name="Sistólica" stroke="#c0554d" strokeWidth={2.4} dot />
+                    <Line
+                      type="monotone"
+                      dataKey="diastolic"
+                      name="Diastólica"
+                      stroke="#3d6fb4"
+                      strokeWidth={2.4}
+                      dot
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="mean"
+                      name="Media"
+                      stroke="#7a54bf"
+                      strokeWidth={2.4}
+                      strokeDasharray="4 3"
+                      dot
+                    />
+                  </>
+                ) : (
+                  <Line type="monotone" dataKey="value" name={item.name} stroke="#398766" strokeWidth={2.4} dot />
+                )}
+              </RechartsLineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

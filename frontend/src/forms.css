@@ -116,6 +116,14 @@
   border-color: var(--green);
   background: var(--green);
 }
+.followup-toggle {
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+}
+.followup-toggle:hover {
+  border-color: var(--green);
+}
 .followup-task-copy {
   flex: 1;
   min-width: 0;
@@ -484,6 +492,85 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+.catalog-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 16px;
+}
+.catalog-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 600;
+}
+.catalog-chip button {
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--sub);
+  cursor: pointer;
+  padding: 0;
+}
+.catalog-selection-list {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+.catalog-selection-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.catalog-selection-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+}
+.catalog-selection-values {
+  display: flex;
+  gap: 8px;
+}
+.catalog-selection-values input {
+  width: 110px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--panel);
+  color: var(--text);
+}
+.catalog-new-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.catalog-new-item input,
+.catalog-new-item select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 9px;
+  background: var(--panel);
+  color: var(--text);
+}
+.lab-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
 }
 .entry-form textarea {
   min-height: 74px;

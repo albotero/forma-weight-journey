@@ -41,6 +41,7 @@ def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:
     assert policy == {
         "dose": (1, "week"),
         "weight": (1, "day"),
+        "blood_pressure": (1, "week"),
         "composition": (1, "month"),
         "measurements": (1, "month"),
     }
