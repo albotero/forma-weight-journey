@@ -31,3 +31,16 @@ def test_automatic_reminder_offsets_use_calendar_time_in_profile_timezone() -> N
         2026, 3, 14, 16, 30, tzinfo=timezone.utc)
     assert _next_date(datetime(2026, 1, 31, 17, 30, tzinfo=timezone.utc), 1, "month", ZoneInfo("UTC")) == datetime(
         2026, 2, 28, 17, 30, tzinfo=timezone.utc)
+
+
+def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:
+    from app.automatic_reminders import AUTO_REMINDERS
+
+    policy = {key: (delay, unit)
+              for key, _title, delay, unit in AUTO_REMINDERS}
+    assert policy == {
+        "dose": (1, "week"),
+        "weight": (1, "day"),
+        "composition": (1, "month"),
+        "measurements": (1, "month"),
+    }

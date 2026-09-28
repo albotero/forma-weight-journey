@@ -225,6 +225,19 @@ def test_composition_readings_are_returned_newest_first() -> None:
     assert [record["weight_kg"] for record in readings] == [89, 90]
 
 
+def test_records_with_matching_timestamp_are_ordered_by_newest_id_first() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "same-time-order@example.com", "password": "same-time-order-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    timestamp = "2026-01-15T12:00:00Z"
+    older = client.post("/api/weights", headers=headers, json={
+        "weight_kg": 82, "measured_at": timestamp}).json()
+    newer = client.post("/api/weights", headers=headers, json={
+        "weight_kg": 81, "measured_at": timestamp}).json()
+    records = client.get("/api/weights", headers=headers).json()
+    assert [record["id"] for record in records] == [newer["id"], older["id"]]
+
+
 def test_telegram_connection_requires_a_valid_webhook_secret(monkeypatch) -> None:
     registered = client.post("/api/auth/register", json={
         "email": "telegram-security@example.com", "password": "telegram-security-password-123"})
@@ -360,6 +373,24 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
         "id"]
     original_reminder_id = automatic["weight"]["id"]
     original_date = automatic["weight"]["data"]["reminder_at"]
+    composition_reminder = automatic["composition"]
+    correct_composition_date = composition_reminder["data"]["reminder_at"]
+    with TestingSession() as db:
+        stale_composition_reminder = db.get(
+            JournalEntry, composition_reminder["id"])
+        assert stale_composition_reminder is not None
+        stale_data = dict(stale_composition_reminder.data)
+        stale_data["reminder_at"] = "2026-11-14T18:00:00+00:00"
+        stale_composition_reminder.data = stale_data
+        stale_composition_reminder.occurred_at = datetime(
+            2026, 11, 14, 18, tzinfo=timezone.utc)
+        db.commit()
+
+    corrected_entries = client.get(
+        "/api/entries/reminders", headers=headers).json()
+    corrected_composition = next(
+        entry for entry in corrected_entries if entry["id"] == composition_reminder["id"])
+    assert corrected_composition["data"]["reminder_at"] == correct_composition_date
 
     disabled = client.patch(
         f"/api/entries/{original_reminder_id}/enabled", headers=headers, json={"enabled": False})
@@ -378,6 +409,60 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     assert weight_reminder["id"] == original_reminder_id
     assert weight_reminder["data"]["enabled"] == "Sí"
     assert weight_reminder["data"]["reminder_at"] != original_date
+
+
+def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "resync-timezone@example.com", "password": "resync-timezone-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
+    dose = client.post("/api/doses", headers=headers, json={
+        "medication_id": medication["id"], "dose_mg": 2.5,
+        "administered_at": "2026-03-01T17:30:00Z",
+    })
+    assert dose.status_code == 201
+    original_reminders = client.get(
+        "/api/entries/reminders", headers=headers).json()
+    dose_reminder = next(
+        entry for entry in original_reminders if entry["data"].get("auto_key") == "dose")
+
+    assert client.delete(
+        f"/api/medications/{medication['id']}", headers=headers).status_code == 204
+    paused = client.get("/api/entries/reminders", headers=headers).json()
+    paused_reminder = next(
+        entry for entry in paused if entry["id"] == dose_reminder["id"])
+    assert paused_reminder["data"]["enabled"] == "No"
+    assert paused_reminder["data"]["source_missing"] is True
+
+    explicitly_disabled = client.patch(
+        f"/api/entries/{dose_reminder['id']}/enabled", headers=headers, json={"enabled": False})
+    assert explicitly_disabled.status_code == 200
+
+    profile = client.get("/api/profile", headers=headers).json()
+    changed_profile = client.put("/api/profile", headers=headers, json={
+        "height_cm": profile["height_cm"],
+        "initial_weight_kg": profile["initial_weight_kg"],
+        "timezone": "America/New_York",
+        "birth_date": profile["birth_date"],
+    })
+    assert changed_profile.status_code == 200
+    reactivated = client.put(f"/api/medications/{medication['id']}", headers=headers, json={
+        "name": medication["name"], "active": True,
+        "concentration_mg": medication["concentration_mg"],
+        "concentration_volume_ml": medication["concentration_volume_ml"],
+        "units_per_ml": medication["units_per_ml"],
+    })
+    assert reactivated.status_code == 200
+
+    resynced = client.get("/api/entries/reminders", headers=headers).json()
+    dose_reminder_after = next(
+        entry for entry in resynced if entry["id"] == dose_reminder["id"])
+    assert dose_reminder_after["data"]["enabled"] == "No"
+    assert dose_reminder_after["data"]["reminder_at"] == "2026-03-08T16:30:00+00:00"
+    assert dose_reminder_after["data"].get("source_missing") is None
 
 
 def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None:

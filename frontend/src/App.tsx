@@ -135,6 +135,7 @@ export default function App() {
   const [photos, setPhotos] = useState<PhotoEntry[]>([])
   const [editingWeight, setEditingWeight] = useState<WeightEntry | null>(null)
   const [editingDose, setEditingDose] = useState<DoseEntry | null>(null)
+  const [doseMedicationId, setDoseMedicationId] = useState<number | null>(null)
   const [editingMedication, setEditingMedication] = useState<Medication | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -207,6 +208,10 @@ export default function App() {
 
   const sortedWeights = useMemo(
     () => [...weights].sort((a, b) => a.measured_at.localeCompare(b.measured_at)),
+    [weights],
+  )
+  const newestWeights = useMemo(
+    () => [...weights].sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id),
     [weights],
   )
   const latestWeightEntry = [...sortedWeights]
@@ -287,6 +292,7 @@ export default function App() {
     })
     await refresh(token)
     setModal(null)
+    setDoseMedicationId(null)
   }
 
   async function removeRecord(path: string) {
@@ -788,7 +794,7 @@ export default function App() {
             <ModuleWorkspace
               section={section}
               token={token}
-              weights={sortedWeights}
+              weights={newestWeights}
               doses={doses}
               measurements={bodyMeasurements}
               medications={medications}
@@ -799,7 +805,11 @@ export default function App() {
               onRefresh={() => refresh(token)}
               onError={setError}
               onNewWeight={() => setModal("weight")}
-              onNewDose={() => setModal("dose")}
+              onNewDose={(medication) => {
+                setEditingDose(null)
+                setDoseMedicationId(medication.id)
+                setModal("dose")
+              }}
               onEditWeight={(entry) => {
                 setEditingWeight(entry)
                 setModal("weight")
@@ -874,8 +884,13 @@ export default function App() {
           onClose={() => {
             setModal(null)
             setEditingDose(null)
+            setDoseMedicationId(null)
           }}
-          medication={medications.find((item) => item.id === editingDose?.medication_id) ?? activeMedication}
+          medication={
+            medications.find((item) => item.id === editingDose?.medication_id) ??
+            medications.find((item) => item.id === doseMedicationId) ??
+            activeMedication
+          }
           onSubmit={submitDose}
         />
       )}
@@ -1399,7 +1414,9 @@ function AnalysisWorkspace({
   const pastDoses = doses.filter((item) => new Date(item.administered_at).getTime() <= now)
   const pastPhotos = photos.filter((item) => new Date(item.taken_at).getTime() <= now)
   const pastEntries = entries.filter((item) => new Date(item.occurred_at).getTime() <= now)
-  const pastWeights = weights.filter((item) => new Date(item.measured_at).getTime() <= now)
+  const pastWeights = weights
+    .filter((item) => new Date(item.measured_at).getTime() <= now)
+    .sort((a, b) => a.measured_at.localeCompare(b.measured_at) || a.id - b.id)
   const latest = pastWeights.at(-1)
   const previous = pastWeights.at(-2)
   const recent = pastWeights.filter((item) => isWithinDays(item.measured_at, 7))
@@ -1927,7 +1944,7 @@ function ModuleWorkspace(props: {
   onRefresh: () => Promise<void>
   onError: (message: string) => void
   onNewWeight: () => void
-  onNewDose: () => void
+  onNewDose: (medication: Medication) => void
   onEditWeight: (entry: WeightEntry) => void
   onEditDose: (entry: DoseEntry) => void
   onEditMedication: (entry: Medication) => void
@@ -1937,7 +1954,7 @@ function ModuleWorkspace(props: {
   const userTimezone = props.profile?.timezone ?? "America/Bogota"
   const module = journalModuleBySection[section]
   const compositionWeights = [...weights]
-    .sort((a, b) => b.measured_at.localeCompare(a.measured_at))
+    .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
   const [showEntryForm, setShowEntryForm] = useState(false)
@@ -2237,6 +2254,11 @@ function ModuleWorkspace(props: {
                     </p>
                   </div>
                   <div className="record-actions">
+                    {item.active && (
+                      <button className="small-action" onClick={() => props.onNewDose(item)}>
+                        <Plus size={13} /> Registrar dosis
+                      </button>
+                    )}
                     <button
                       className="small-action"
                       onClick={() => {
@@ -2394,8 +2416,20 @@ function ModuleWorkspace(props: {
                       )
                       .map(({ key, label }) => (
                         <div key={key}>
-                          <span>{label}</span>
-                          <strong>{String(entry.data[key])}</strong>
+                          <span>
+                            {module === "reminders" && key === "reminder_at"
+                              ? entry.data.last_sent_epoch != null
+                                ? "Aviso enviado"
+                                : entry.data.auto_generated === true && entry.data.enabled === "No"
+                                  ? "Aviso desactivado para"
+                                  : "Próximo aviso"
+                              : label}
+                          </span>
+                          <strong>
+                            {module === "reminders" && key === "reminder_at"
+                              ? formatDateTime(String(entry.data[key]), userTimezone)
+                              : String(entry.data[key])}
+                          </strong>
                         </div>
                       ))}
                   </div>

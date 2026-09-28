@@ -354,7 +354,7 @@ def deactivate_medication(medication_id: int, user: User = Depends(current_user)
 @router.get("/weights", response_model=list[WeightOut])
 def list_weights(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[WeightMeasurement]:
     statement = select(WeightMeasurement).where(WeightMeasurement.user_id == user.id).order_by(
-        WeightMeasurement.measured_at.desc()).offset(offset).limit(limit)
+        WeightMeasurement.measured_at.desc(), WeightMeasurement.id.desc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 
 
@@ -396,7 +396,7 @@ def delete_weight(weight_id: int, user: User = Depends(current_user), db: Sessio
 @router.get("/doses", response_model=list[DoseOut])
 def list_doses(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Dose]:
     statement = select(Dose).join(Medication).where(Medication.user_id == user.id).order_by(
-        Dose.administered_at.desc()).offset(offset).limit(limit)
+        Dose.administered_at.desc(), Dose.id.desc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 
 
@@ -458,7 +458,7 @@ def delete_dose(dose_id: int, user: User = Depends(current_user), db: Session = 
 @router.get("/body-measurements", response_model=list[BodyMeasurementOut])
 def list_body_measurements(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[BodyMeasurement]:
     statement = select(BodyMeasurement).where(BodyMeasurement.user_id == user.id).order_by(
-        BodyMeasurement.measured_at.desc()).offset(offset).limit(limit)
+        BodyMeasurement.measured_at.desc(), BodyMeasurement.id.desc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 
 
@@ -502,7 +502,7 @@ def list_entries(module: str, limit: int = Query(default=100, ge=1, le=500), off
     if module == "reminders":
         sync_automatic_reminders(db, user)
     statement = select(JournalEntry).where(JournalEntry.user_id == user.id,
-                                           JournalEntry.module == module).order_by(JournalEntry.occurred_at.desc()).offset(offset).limit(limit)
+                                           JournalEntry.module == module).order_by(JournalEntry.occurred_at.desc(), JournalEntry.id.desc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 
 
@@ -531,10 +531,16 @@ def toggle_reminder(entry_id: int, payload: ReminderToggle, user: User = Depends
         if scheduled_at is not None and scheduled_at <= utc_now():
             scheduled_at = utc_now() + timedelta(seconds=30)
             data["reminder_at"] = scheduled_at.isoformat()
+            data["schedule_override"] = True
             entry.occurred_at = scheduled_at
     data["enabled"] = "Sí" if payload.enabled else "No"
     if payload.enabled:
         data.pop("source_missing", None)
+        data.pop("user_disabled", None)
+        data.pop("system_disabled_reason", None)
+    else:
+        data["user_disabled"] = True
+        data.pop("system_disabled_reason", None)
     entry.data = data
     db.commit()
     db.refresh(entry)
@@ -591,7 +597,7 @@ def delete_entry(entry_id: int, user: User = Depends(current_user), db: Session 
 
 @router.get("/photos", response_model=list[PhotoRecordOut])
 def list_photos(user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[PhotoRecord]:
-    return list(db.scalars(select(PhotoRecord).where(PhotoRecord.user_id == user.id).order_by(PhotoRecord.taken_at.desc())))
+    return list(db.scalars(select(PhotoRecord).where(PhotoRecord.user_id == user.id).order_by(PhotoRecord.taken_at.desc(), PhotoRecord.id.desc())))
 
 
 @router.post("/photos", response_model=PhotoRecordOut, status_code=status.HTTP_201_CREATED)

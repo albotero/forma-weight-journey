@@ -8,9 +8,9 @@ from sqlalchemy.orm import Session
 from app.models import BodyMeasurement, Dose, JournalEntry, Medication, User, UserProfile, WeightMeasurement
 
 AUTO_REMINDERS: tuple[tuple[str, str, int, str], ...] = (
-    ("dose", "Registrar dosis", 7, "week"),
+    ("dose", "Registrar dosis", 1, "week"),
     ("weight", "Registrar peso", 1, "day"),
-    ("composition", "Registrar composición corporal", 7, "week"),
+    ("composition", "Registrar composición corporal", 1, "month"),
     ("measurements", "Registrar medidas corporales", 1, "month"),
 )
 
@@ -103,11 +103,14 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
         source = sources[key]
         reminder = auto_entries.get(key)
         if source is None:
-            if reminder is not None and reminder.data.get("enabled") != "No":
+            if reminder is not None:
                 data = dict(reminder.data)
-                data["enabled"] = "No"
-                data["source_missing"] = True
-                reminder.data = data
+                if not data.get("source_missing"):
+                    data["source_missing"] = True
+                    if not data.get("user_disabled"):
+                        data["enabled"] = "No"
+                        data["system_disabled_reason"] = "source_missing"
+                    reminder.data = data
             continue
 
         source_id, source_time = source
@@ -145,13 +148,44 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
             data.pop("completed_reminder_epoch", None)
             data.pop("completed_at", None)
             data.pop("source_missing", None)
+            data.pop("schedule_override", None)
+            data.pop("user_disabled", None)
+            data.pop("system_disabled_reason", None)
             reminder.data = data
             reminder.occurred_at = scheduled
         elif data.get("source_missing"):
             data.pop("source_missing", None)
-            data["enabled"] = "Sí"
+            stored_at = data.get("reminder_at")
+            try:
+                stored_at = datetime.fromisoformat(stored_at.replace(
+                    "Z", "+00:00")) if isinstance(stored_at, str) else None
+            except ValueError:
+                stored_at = None
+            if stored_at is None or _utc(stored_at) != scheduled:
+                data["reminder_at"] = scheduled.isoformat()
+                data.pop("last_sent_epoch", None)
+                data.pop("completed_reminder_epoch", None)
+                data.pop("completed_at", None)
+            if data.get("system_disabled_reason") == "source_missing":
+                if not data.get("user_disabled"):
+                    data["enabled"] = "Sí"
+                data.pop("system_disabled_reason", None)
             reminder.data = data
             reminder.occurred_at = scheduled
+        elif not data.get("schedule_override"):
+            stored_at = data.get("reminder_at")
+            try:
+                stored_at = datetime.fromisoformat(stored_at.replace(
+                    "Z", "+00:00")) if isinstance(stored_at, str) else None
+            except ValueError:
+                stored_at = None
+            if stored_at is None or _utc(stored_at) != scheduled:
+                data["reminder_at"] = scheduled.isoformat()
+                data.pop("last_sent_epoch", None)
+                data.pop("completed_reminder_epoch", None)
+                data.pop("completed_at", None)
+                reminder.data = data
+                reminder.occurred_at = scheduled
 
     db.commit()
 
