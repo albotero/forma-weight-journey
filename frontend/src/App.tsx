@@ -23,6 +23,7 @@ import {
   CircleHelp,
   Clock3,
   Dna,
+  Download,
   FileText,
   Footprints,
   Gauge,
@@ -43,16 +44,23 @@ import {
   Syringe,
   Target,
   TrendingDown,
+  Upload,
   UserRound,
   X,
 } from "lucide-react"
 import {
   api,
   authenticate,
+  completePasswordReset,
+  downloadAccountExport,
   loadPhoto,
   logoutSession,
+  previewAccountImport,
   refreshSession,
+  requestPasswordReset,
+  restoreAccountImport,
   uploadPhoto,
+  type AccountImportPreview,
   type BodyMeasurementEntry,
   type Account,
   type CatalogCategory,
@@ -87,7 +95,7 @@ type Section =
   | "Análisis"
   | "Historial"
   | "Perfil y ajustes"
-type AuthMode = "login" | "register"
+type AuthMode = "login" | "register" | "forgot" | "reset"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
 const WEB_NOTIFICATIONS_ENABLED_KEY = "forma:web-notifications-enabled"
@@ -1182,9 +1190,7 @@ function AccountSettings({
         method: "PUT",
         body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       })
-      setSuccess(
-        "Contraseña actualizada. Se revocaron las sesiones persistentes; inicia sesión de nuevo. Los tokens de acceso ya emitidos pueden seguir vigentes hasta 30 minutos.",
-      )
+      setSuccess("Contraseña actualizada. Se revocaron las sesiones; inicia sesión de nuevo.")
       window.setTimeout(onPasswordChanged, 1200)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo cambiar la contraseña.")
@@ -1354,6 +1360,8 @@ function AccountSettings({
               </form>
             </section>
 
+            <AccountDataTransfer token={token} />
+
             <section className="account-card account-telegram-card">
               <div className="account-card-heading">
                 <div>
@@ -1439,18 +1447,173 @@ function AccountSettings({
   )
 }
 
+function AccountDataTransfer({ token }: { token: string }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [preview, setPreview] = useState<AccountImportPreview | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
+
+  async function downloadExport() {
+    setBusy(true)
+    setError("")
+    setSuccess("")
+    try {
+      const blob = await downloadAccountExport(token)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = "forma-account-export.zip"
+      link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setSuccess("Copia descargada. Guárdala en un lugar privado.")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo descargar la copia.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function inspectImport() {
+    if (!file) return
+    setBusy(true)
+    setError("")
+    setSuccess("")
+    setPreview(null)
+    try {
+      setPreview(await previewAccountImport(token, file))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo validar la copia.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function restoreImport() {
+    if (!file || !preview) return
+    if (
+      !window.confirm(
+        "Se reemplazarán todos los registros actuales de esta cuenta. Esta acción no se puede deshacer. ¿Continuar?",
+      )
+    )
+      return
+    setBusy(true)
+    setError("")
+    try {
+      await restoreAccountImport(token, file)
+      setSuccess("Datos restaurados. Inicia sesión de nuevo para continuar.")
+      window.setTimeout(() => {
+        void logoutSession().finally(() => window.location.reload())
+      }, 1000)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo restaurar la copia.")
+      setBusy(false)
+    }
+  }
+
+  const countLabels: Record<string, string> = {
+    medications: "Medicamentos",
+    doses: "Dosis",
+    weights: "Pesos",
+    body_measurements: "Medidas",
+    journal_entries: "Diario y recordatorios",
+    catalog_items: "Elementos de catálogo",
+    photos: "Fotos",
+  }
+
+  return (
+    <section className="account-card account-data-card">
+      <div className="account-card-heading">
+        <div>
+          <h2>Exportar y restaurar datos</h2>
+          <p>Descarga tus registros y fotos o restaura una copia de esta cuenta.</p>
+        </div>
+        <Download size={19} />
+      </div>
+      <button className="outline-button" disabled={busy} onClick={() => void downloadExport()}>
+        <Download size={16} /> Descargar copia
+      </button>
+      <label className="account-import-file">
+        Archivo de copia (.zip)
+        <input
+          type="file"
+          accept=".zip,application/zip"
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null)
+            setPreview(null)
+            setError("")
+          }}
+        />
+      </label>
+      <button className="outline-button" disabled={!file || busy} onClick={() => void inspectImport()}>
+        <Upload size={16} /> {busy ? "Validando…" : "Revisar copia"}
+      </button>
+      {preview && (
+        <div className="account-import-preview" aria-live="polite">
+          <strong>Contenido validado</strong>
+          <span>
+            {preview.account_email} · copia del {formatDate(preview.exported_at)}
+          </span>
+          <dl>
+            {Object.entries(preview.counts).map(([key, value]) => (
+              <div key={key}>
+                <dt>{countLabels[key] ?? key}</dt>
+                <dd>{value}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>
+            La restauración reemplaza los datos actuales, revoca las sesiones y requiere volver a vincular Telegram.
+          </p>
+          <button className="small-action danger" disabled={busy} onClick={() => void restoreImport()}>
+            {busy ? "Restaurando…" : "Reemplazar con esta copia"}
+          </button>
+        </div>
+      )}
+      {error && (
+        <div className="error-banner" role="alert">
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="success-banner" role="status">
+          {success}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => void }) {
-  const [mode, setMode] = useState<AuthMode>("login")
+  const resetQuery = window.location.hash.split("?")[1] ?? ""
+  const resetToken = new URLSearchParams(resetQuery).get("token")
+  const [mode, setMode] = useState<AuthMode>(() => (resetToken ? "reset" : "login"))
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
   const [busy, setBusy] = useState(false)
   async function submit(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError("")
+    setSuccess("")
     try {
-      onAuthenticated(await authenticate(email, password, mode === "register"))
+      if (mode === "forgot") {
+        setSuccess(await requestPasswordReset(email))
+      } else if (mode === "reset") {
+        if (!resetToken) throw new Error("El enlace de restablecimiento no es válido.")
+        const values = new FormData(event.currentTarget as HTMLFormElement)
+        const newPassword = String(values.get("new_password"))
+        if (newPassword !== String(values.get("confirm_password"))) {
+          throw new Error("La confirmación no coincide con la nueva contraseña.")
+        }
+        setSuccess(await completePasswordReset(resetToken, newPassword))
+        setMode("login")
+        window.history.replaceState({}, document.title, `${window.location.pathname}${window.location.search}`)
+      } else {
+        onAuthenticated(await authenticate(email, password, mode === "register"))
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Error de autenticación")
     } finally {
@@ -1490,60 +1653,151 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
       <div className="auth-form-side">
         <form className="auth-form" onSubmit={submit}>
           <div className="auth-kicker">BIENVENIDO A FORMA</div>
-          <h2>{mode === "login" ? "Qué bueno tenerte de vuelta." : "Crea tu espacio seguro."}</h2>
+          <h2>
+            {mode === "login"
+              ? "Qué bueno tenerte de vuelta."
+              : mode === "register"
+                ? "Crea tu espacio seguro."
+                : mode === "forgot"
+                  ? "Recupera tu cuenta."
+                  : "Elige una contraseña nueva."}
+          </h2>
           <p>
             {mode === "login"
               ? "Inicia sesión para ver tu seguimiento personal."
-              : "Tu cuenta es privada y solo tú puedes acceder."}
+              : mode === "register"
+                ? "Tu cuenta es privada y solo tú puedes acceder."
+                : mode === "forgot"
+                  ? "Te enviaremos un enlace de un solo uso si el correo corresponde a una cuenta."
+                  : "El enlace es temporal y solo se puede usar una vez."}
           </p>
           {error && (
             <div className="error-banner" role="alert">
               {error}
             </div>
           )}
-          <label>
-            Correo electrónico
-            <input
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="tu@correo.com"
-            />
-          </label>
-          <label>
-            Contraseña
-            <input
-              type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
-              required
-              minLength={mode === "register" ? 12 : 1}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder={mode === "register" ? "Mínimo 12 caracteres" : "Tu contraseña"}
-            />
-          </label>
+          {success && (
+            <div className="success-banner" role="status">
+              {success}
+            </div>
+          )}
+          {(mode === "login" || mode === "register" || mode === "forgot") && (
+            <label>
+              Correo electrónico
+              <input
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="tu@correo.com"
+              />
+            </label>
+          )}
+          {(mode === "login" || mode === "register") && (
+            <label>
+              Contraseña
+              <input
+                type="password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                required
+                minLength={mode === "register" ? 12 : 1}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder={mode === "register" ? "Mínimo 12 caracteres" : "Tu contraseña"}
+              />
+            </label>
+          )}
+          {mode === "reset" && (
+            <>
+              <label>
+                Nueva contraseña
+                <input
+                  name="new_password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  required
+                />
+              </label>
+              <label>
+                Confirmar contraseña
+                <input
+                  name="confirm_password"
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={12}
+                  maxLength={128}
+                  required
+                />
+              </label>
+            </>
+          )}
           {mode === "register" && (
             <small className="password-hint">
               Usa al menos 12 caracteres. La contraseña se almacena con hash seguro.
             </small>
           )}
           <button className="primary-button auth-submit" disabled={busy}>
-            {busy ? "Un momento…" : mode === "login" ? "Iniciar sesión" : "Crear cuenta"} <ArrowRight size={17} />
+            {busy
+              ? "Un momento…"
+              : mode === "login"
+                ? "Iniciar sesión"
+                : mode === "register"
+                  ? "Crear cuenta"
+                  : mode === "forgot"
+                    ? "Enviar enlace"
+                    : "Actualizar contraseña"}{" "}
+            <ArrowRight size={17} />
           </button>
-          <div className="auth-switch">
-            {mode === "login" ? "¿Primera vez aquí?" : "¿Ya tienes una cuenta?"}{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setMode(mode === "login" ? "register" : "login")
-                setError("")
-              }}
-            >
-              {mode === "login" ? "Crear cuenta" : "Iniciar sesión"}
-            </button>
-          </div>
+          {mode === "login" && (
+            <div className="auth-switch">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("forgot")
+                  setError("")
+                  setSuccess("")
+                }}
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
+          )}
+          {mode === "login" || mode === "register" ? (
+            <div className="auth-switch">
+              {mode === "login" ? "¿Primera vez aquí?" : "¿Ya tienes una cuenta?"}{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setMode(mode === "login" ? "register" : "login")
+                  setError("")
+                  setSuccess("")
+                }}
+              >
+                {mode === "login" ? "Crear cuenta" : "Iniciar sesión"}
+              </button>
+            </div>
+          ) : (
+            <div className="auth-switch">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("login")
+                  setError("")
+                  setSuccess("")
+                  window.history.replaceState(
+                    {},
+                    document.title,
+                    `${window.location.pathname}${window.location.search}`,
+                  )
+                }}
+              >
+                Volver a iniciar sesión
+              </button>
+            </div>
+          )}
           <div className="auth-security">
             <ShieldCheck size={15} /> Contraseña con hash seguro · Sin anuncios ni rastreo
           </div>

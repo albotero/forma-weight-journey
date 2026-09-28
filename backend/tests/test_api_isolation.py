@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
@@ -12,7 +13,9 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.config import settings
 from app.main import app
-from app.models import JournalEntry, RefreshSession, TelegramConnection, User
+from app.models import JournalEntry, PasswordResetToken, RefreshSession, TelegramConnection, User
+from app.password_reset_email import send_password_reset_email
+from app.security import hash_password_reset_token
 
 engine = create_engine(
     "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -112,6 +115,212 @@ def test_protected_endpoints_require_authentication() -> None:
     assert client.get("/api/weights").status_code == 401
 
 
+def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(settings, "storage_path", str(tmp_path))
+    registered = client.post("/api/auth/register", json={
+        "email": "data-transfer@example.com", "password": "data-transfer-password-123"})
+    other = client.post("/api/auth/register", json={
+        "email": "data-transfer-other@example.com", "password": "data-transfer-other-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Registro de prueba", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
+    client.post("/api/medications", headers=other_headers, json={
+        "name": "Otro medicamento", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    })
+    dose = client.post("/api/doses", headers=headers, json={
+        "medication_id": medication["id"], "dose_mg": 2.5,
+    })
+    assert dose.status_code == 201
+    original_weight = client.post("/api/weights", headers=headers, json={
+        "weight_kg": 82.5,
+    })
+    assert original_weight.status_code == 201
+    catalog = client.post("/api/catalog", headers=headers, json={
+        "category": "lab", "name": "Glucosa", "unit": "mg/dL",
+    })
+    assert catalog.status_code == 201
+    entry = client.post("/api/entries", headers=headers, json={
+        "module": "labs", "title": "Glucosa", "data": {
+            "results": [{"catalog_item_id": catalog.json()["id"], "name": "Glucosa", "value": 95}],
+        },
+    })
+    assert entry.status_code == 201
+    taken_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    photo_bytes = b"\xff\xd8\xffforma-test-image"
+    photo = client.post("/api/photos", headers=headers, data={"caption": "Foto de prueba", "taken_at": taken_at},
+                        files={"file": ("progress.jpg", photo_bytes, "image/jpeg")})
+    assert photo.status_code == 201
+
+    exported = client.get("/api/account/export", headers=headers)
+    assert exported.status_code == 200
+    assert exported.headers["content-type"] == "application/zip"
+    upload = {"file": ("forma-account-export.zip",
+                       exported.content, "application/zip")}
+    preview = client.post("/api/account/import/preview",
+                          headers=headers, files=upload)
+    assert preview.status_code == 200
+    assert preview.json()["counts"]["weights"] == 1
+    assert preview.json()["counts"]["photos"] == 1
+
+    wrong_account = client.post(
+        "/api/account/import/preview", headers=other_headers, files=upload)
+    assert wrong_account.status_code == 422
+    client.post("/api/weights", headers=headers, json={"weight_kg": 79.5})
+
+    restored = client.post("/api/account/import",
+                           headers=headers, files=upload)
+    assert restored.status_code == 200
+    assert restored.json()["replaces_existing_data"] is True
+    assert client.get("/api/account", headers=headers).status_code == 401
+    login = client.post("/api/auth/login", data={
+        "username": "data-transfer@example.com", "password": "data-transfer-password-123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    weights = client.get("/api/weights", headers=headers).json()
+    assert len(weights) == 1 and weights[0]["weight_kg"] == 82.5
+    restored_medication = client.get(
+        "/api/medications", headers=headers).json()[0]
+    restored_dose = client.get("/api/doses", headers=headers).json()[0]
+    assert restored_dose["medication_id"] == restored_medication["id"]
+    restored_entry = client.get("/api/entries/labs", headers=headers).json()[0]
+    restored_catalog = client.get("/api/catalog/lab", headers=headers).json()
+    custom_item = next(
+        item for item in restored_catalog if item["name"] == "Glucosa")
+    assert restored_entry["data"]["results"][0]["catalog_item_id"] == custom_item["id"]
+    restored_photos = client.get("/api/photos", headers=headers).json()
+    image = client.get(
+        f"/api/photos/{restored_photos[0]['id']}/image", headers=headers)
+    assert image.status_code == 200 and image.content == photo_bytes
+
+
+def test_password_reset_is_generic_hashed_single_use_and_revokes_sessions(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_from_email", "noreply@example.com")
+    monkeypatch.setattr(settings, "public_app_url",
+                        "https://forma.example.com")
+    sent: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        "app.routers.api.send_password_reset_email",
+        lambda email, token: sent.append((email, token)),
+    )
+    old_password = "recovery-old-password-123"
+    new_password = "recovery-new-password-456"
+    registered = client.post("/api/auth/register", json={
+        "email": "password-reset@example.com", "password": old_password})
+    request = client.post("/api/auth/password-reset/request", json={
+        "email": "password-reset@example.com"})
+    assert request.status_code == 202
+    assert request.json()["message"].startswith("Si existe una cuenta")
+    assert sent and sent[0][0] == "password-reset@example.com"
+
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "password-reset@example.com"))
+        assert user is not None
+        reset = db.scalar(select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id))
+        assert reset is not None
+        assert reset.token_hash == hash_password_reset_token(sent[0][1])
+        assert sent[0][1] != reset.token_hash
+        user_id = user.id
+
+    reset_response = client.post("/api/auth/password-reset/confirm", json={
+        "token": sent[0][1], "new_password": new_password})
+    assert reset_response.status_code == 200
+    old_access_headers = {
+        "Authorization": f"Bearer {registered.json()['access_token']}"}
+    assert client.get(
+        "/api/account", headers=old_access_headers).status_code == 401
+    with TestingSession() as db:
+        sessions = db.scalars(select(RefreshSession).where(
+            RefreshSession.user_id == user_id)).all()
+        assert sessions and all(
+            session.revoked_at is not None for session in sessions)
+    assert client.post("/api/auth/login", data={
+        "username": "password-reset@example.com", "password": old_password}).status_code == 401
+    assert client.post("/api/auth/login", data={
+        "username": "password-reset@example.com", "password": new_password}).status_code == 200
+    assert client.post("/api/auth/password-reset/confirm", json={
+        "token": sent[0][1], "new_password": "replayed-reset-password-789"}).status_code == 400
+
+    unknown = client.post("/api/auth/password-reset/request", json={
+        "email": "unknown-reset@example.com"})
+    assert unknown.status_code == 202
+    assert unknown.json() == request.json()
+
+
+def test_password_reset_rejects_expired_token_and_requires_mail_configuration(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_from_email", "noreply@example.com")
+    monkeypatch.setattr(settings, "public_app_url",
+                        "https://forma.example.com")
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "app.routers.api.send_password_reset_email",
+        lambda _email, token: sent.append(token),
+    )
+    client.post("/api/auth/register", json={
+        "email": "expired-reset@example.com", "password": "expired-reset-password-123"})
+    assert client.post("/api/auth/password-reset/request", json={
+        "email": "expired-reset@example.com"}).status_code == 202
+    with TestingSession() as db:
+        reset = db.scalar(select(PasswordResetToken).where(
+            PasswordResetToken.token_hash == hash_password_reset_token(sent[0])))
+        assert reset is not None
+        reset.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+    expired = client.post("/api/auth/password-reset/confirm", json={
+        "token": sent[0], "new_password": "expired-new-password-123"})
+    assert expired.status_code == 400
+
+    monkeypatch.setattr(settings, "smtp_host", "")
+    unavailable = client.post("/api/auth/password-reset/request", json={
+        "email": "expired-reset@example.com"})
+    assert unavailable.status_code == 503
+
+
+def test_password_reset_email_uses_tls_and_keeps_token_in_url_fragment(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "smtp_host", "smtp.example.com")
+    monkeypatch.setattr(settings, "smtp_port", 587)
+    monkeypatch.setattr(settings, "smtp_username", "")
+    monkeypatch.setattr(settings, "smtp_from_email", "noreply@example.com")
+    monkeypatch.setattr(settings, "smtp_use_ssl", False)
+    monkeypatch.setattr(settings, "public_app_url",
+                        "https://forma.example.com")
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, *_args, **_kwargs):
+            self.tls_enabled = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def starttls(self, *, context):
+            self.tls_enabled = context is not None
+
+        def send_message(self, message):
+            sent.append((self.tls_enabled, message))
+
+    monkeypatch.setattr("app.password_reset_email.smtplib.SMTP", FakeSMTP)
+    send_password_reset_email("reset@example.com", "secret+/token")
+
+    assert sent and sent[0][0]
+    message = sent[0][1]
+    email_date = parsedate_to_datetime(message["Date"])
+    assert abs((datetime.now(timezone.utc) - email_date).total_seconds()) < 10
+    assert message["Message-ID"].startswith("<")
+    body = message.get_content()
+    assert "https://forma.example.com/#reset?token=secret%2B%2Ftoken" in body
+    assert "?token=" not in body.split("#", maxsplit=1)[0]
+
+
 def test_profile_rejects_unknown_timezone() -> None:
     created = client.post("/api/auth/register", json={
                           "email": "timezone-owner@example.com", "password": "timezone-owner-password-123"})
@@ -157,6 +366,7 @@ def test_account_settings_and_password_change_revoke_refresh_sessions() -> None:
     changed = client.put("/api/auth/password", headers=headers, json={
         "current_password": old_password, "new_password": new_password})
     assert changed.status_code == 204
+    assert client.get("/api/account", headers=headers).status_code == 401
 
     with TestingSession() as db:
         user = db.scalar(select(User).where(

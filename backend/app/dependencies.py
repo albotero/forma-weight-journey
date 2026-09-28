@@ -22,6 +22,7 @@ def current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_
     except (jwt.InvalidTokenError, TypeError, ValueError):
         raise unauthorized from None
     user = db.get(User, user_id)
-    if user is None:
+    auth_version = payload.get("ver", 0)
+    if user is None or not isinstance(auth_version, int) or isinstance(auth_version, bool) or auth_version != user.auth_version:
         raise unauthorized
     return user

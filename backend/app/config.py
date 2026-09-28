@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_bot_username: str = ""
     telegram_webhook_secret: str = ""
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_ssl: bool = False
+    password_reset_token_minutes: int = 30
+
+    @property
+    def password_reset_email_configured(self) -> bool:
+        return bool(self.smtp_host.strip() and self.smtp_from_email.strip() and self.public_app_url.strip())
 
 
 settings = Settings()

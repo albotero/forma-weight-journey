@@ -5,27 +5,30 @@ import logging
 import os
 from pathlib import Path
 import secrets
+from typing import Any
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.calculations import dose_volume_ml, u100_units
 from app.automatic_reminders import sync_automatic_reminders
 from app.config import settings
+from app.data_transfer import MAX_ARCHIVE_BYTES, build_export, parse_export, preview_export, restore_export
 from app.database import get_db
 from app.dependencies import current_user
-from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
+from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PasswordResetToken, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
+from app.password_reset_email import send_password_reset_email
 from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, DoseCreate, DoseOut, JournalEntryCreate,
                          JournalEntryOut, MedicationCreate, MedicationOut, MedicationsReviewToggle, PhotoRecordOut, ProfileOut,
-                         PasswordChange, PhotoUpdate, ProfileUpdate, ReminderToggle, Token, UserCreate, WeightCreate, WeightOut)
+                         PasswordChange, PasswordResetConfirm, PasswordResetRequest, PhotoUpdate, ProfileUpdate, ReminderToggle, Token, UserCreate, WeightCreate, WeightOut)
 from app.security import (create_access_token, create_refresh_token, hash_password,
-                          hash_refresh_token, verify_password)
+                          hash_password_reset_token, hash_refresh_token, verify_password)
 from app.telegram import answer_callback_query, connection_status, handle_telegram_command, send_telegram_message
 
 router = APIRouter(prefix="/api")
@@ -219,7 +222,7 @@ def register(request: Request, response: Response, payload: UserCreate, db: Sess
     db.add(UserProfile(user_id=user.id, timezone=settings.timezone))
     issue_refresh_session(user, response, db)
     db.commit()
-    return Token(access_token=create_access_token(str(user.id)))
+    return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
 
 
 @router.post("/auth/login", response_model=Token)
@@ -231,7 +234,7 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
                             "WWW-Authenticate": "Bearer"})
     issue_refresh_session(user, response, db)
     db.commit()
-    return Token(access_token=create_access_token(str(user.id)))
+    return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
 
 
 @router.post("/auth/refresh", response_model=Token)
@@ -250,7 +253,7 @@ def refresh_session(request: Request, response: Response, db: Session = Depends(
     session.revoked_at = utc_now()
     issue_refresh_session(user, response, db)
     db.commit()
-    return Token(access_token=create_access_token(str(user.id)))
+    return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
 
 
 @router.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -278,6 +281,7 @@ def change_password(request: Request, payload: PasswordChange, user: User = Depe
         raise HTTPException(
             status_code=422, detail="La nueva contraseña debe ser distinta")
     user.password_hash = hash_password(payload.new_password)
+    user.auth_version = (user.auth_version or 0) + 1
     for session in db.scalars(select(RefreshSession).where(
             RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))).all():
         session.revoked_at = utc_now()
@@ -285,9 +289,129 @@ def change_password(request: Request, payload: PasswordChange, user: User = Depe
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/auth/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("5/hour")
+def request_password_reset(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    validate_auth_origin(request)
+    if not settings.password_reset_email_configured:
+        raise HTTPException(
+            status_code=503, detail="El restablecimiento por correo no está configurado.")
+
+    email = str(payload.email).lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if user is not None:
+        now = utc_now()
+        for previous in db.scalars(select(PasswordResetToken).where(
+                PasswordResetToken.user_id == user.id, PasswordResetToken.used_at.is_(None))).all():
+            previous.used_at = now
+        token = secrets.token_urlsafe(32)
+        db.add(PasswordResetToken(
+            user_id=user.id,
+            token_hash=hash_password_reset_token(token),
+            expires_at=now +
+            timedelta(minutes=settings.password_reset_token_minutes),
+        ))
+        db.commit()
+        background_tasks.add_task(send_password_reset_email, email, token)
+
+    return {"message": "Si existe una cuenta con ese correo, recibirás un enlace para restablecer la contraseña."}
+
+
+@router.post("/auth/password-reset/confirm")
+@limiter.limit("10/hour")
+def confirm_password_reset(
+    request: Request,
+    response: Response,
+    payload: PasswordResetConfirm,
+    db: Session = Depends(get_db),
+) -> dict[str, str]:
+    validate_auth_origin(request)
+    now = utc_now()
+    reset = db.scalar(select(PasswordResetToken).where(
+        PasswordResetToken.token_hash == hash_password_reset_token(
+            payload.token),
+        PasswordResetToken.used_at.is_(None),
+        PasswordResetToken.expires_at > now,
+    ).with_for_update())
+    if reset is None:
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+
+    claimed = db.execute(update(PasswordResetToken).where(
+        PasswordResetToken.id == reset.id,
+        PasswordResetToken.used_at.is_(None),
+        PasswordResetToken.expires_at > now,
+    ).values(used_at=now).execution_options(synchronize_session=False))
+    if claimed.rowcount != 1:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+
+    user = db.get(User, reset.user_id)
+    if user is None:
+        db.rollback()
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+    user.password_hash = hash_password(payload.new_password)
+    user.auth_version = (user.auth_version or 0) + 1
+    db.execute(update(RefreshSession).where(
+        RefreshSession.user_id == user.id,
+        RefreshSession.revoked_at.is_(None),
+    ).values(revoked_at=now))
+    db.execute(update(PasswordResetToken).where(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.id != reset.id,
+        PasswordResetToken.used_at.is_(None),
+    ).values(used_at=now))
+    db.commit()
+    clear_refresh_cookie(response)
+    return {"message": "Contraseña actualizada. Inicia sesión con tu nueva contraseña."}
+
+
 @router.get("/account", response_model=AccountOut)
 def get_account(user: User = Depends(current_user)) -> User:
     return user
+
+
+@router.get("/account/export")
+@limiter.limit("5/hour")
+def export_account_data(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> StreamingResponse:
+    try:
+        archive = build_export(db, user, settings.storage_path)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    return StreamingResponse(
+        iter([archive]), media_type="application/zip",
+        headers={
+            "Content-Disposition": 'attachment; filename="forma-account-export.zip"'},
+    )
+
+
+@router.post("/account/import/preview")
+@limiter.limit("10/hour")
+async def preview_account_import(request: Request, file: UploadFile = File(...), user: User = Depends(current_user)) -> dict[str, Any]:
+    content = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        return preview_export(parse_export(content, user.email))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
+
+
+@router.post("/account/import")
+@limiter.limit("3/hour")
+async def import_account_data(request: Request, file: UploadFile = File(...), user: User = Depends(current_user), db: Session = Depends(get_db)) -> dict[str, Any]:
+    content = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        parsed = parse_export(content, user.email)
+        return restore_export(db, user, parsed, settings.storage_path)
+    except ValueError as error:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(error)) from None
 
 
 def _medications_signature(db: Session, user_id: int) -> str:

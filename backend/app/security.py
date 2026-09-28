@@ -27,7 +27,11 @@ def hash_refresh_token(token: str) -> str:
     return sha256(token.encode("utf-8")).hexdigest()
 
 
-def create_access_token(subject: str) -> str:
+def hash_password_reset_token(token: str) -> str:
+    return sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_access_token(subject: str, auth_version: int = 0) -> str:
     expires = datetime.now(timezone.utc) + \
         timedelta(minutes=settings.access_token_minutes)
-    return jwt.encode({"sub": subject, "exp": expires}, settings.secret_key, algorithm=ALGORITHM)
+    return jwt.encode({"sub": subject, "ver": auth_version, "exp": expires}, settings.secret_key, algorithm=ALGORITHM)

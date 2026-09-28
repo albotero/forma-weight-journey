@@ -326,6 +326,73 @@
 .account-telegram-card {
   grid-column: 1 / -1;
 }
+.account-data-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.account-data-card > .outline-button {
+  justify-self: start;
+}
+.account-import-file {
+  display: grid;
+  gap: 7px;
+  color: var(--sub);
+  font-size: 11px;
+  font-weight: 600;
+}
+.account-import-file input {
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 10px;
+}
+.account-import-preview {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.account-import-preview > strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.account-import-preview > span,
+.account-import-preview > p {
+  margin: 0;
+  color: var(--sub);
+  font-size: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.account-import-preview dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px 12px;
+  margin: 2px 0;
+}
+.account-import-preview dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+.account-import-preview dt {
+  color: var(--sub);
+  overflow-wrap: anywhere;
+}
+.account-import-preview dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 700;
+}
 .telegram-account-status {
   display: flex;
   align-items: center;

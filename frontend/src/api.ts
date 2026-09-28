@@ -90,6 +90,14 @@ export type Profile = {
   medications_reviewed: boolean
 }
 export type Account = { email: string; created_at: string }
+export type AccountImportPreview = {
+  format_version: number
+  exported_at: string
+  account_email: string
+  counts: Record<string, number>
+  replaces_existing_data: boolean
+  notices: string[]
+}
 export type TelegramConnection = { configured: boolean; linked: boolean; bot_username: string }
 export type TelegramPairing = { start_url: string; expires_at: string }
 
@@ -133,6 +141,73 @@ export async function authenticate(email: string, password: string, createAccoun
   if (!response.ok || !result.access_token) throw new Error(result.detail ?? "No se pudo iniciar sesión.")
   currentAccessToken = result.access_token
   return result.access_token
+}
+
+export async function requestPasswordReset(email: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/password-reset/request`, {
+    credentials: "same-origin",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  })
+  const result: { message?: string; detail?: string } = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(result.detail ?? "No se pudo solicitar el restablecimiento.", response.status)
+  return result.message ?? "Si existe una cuenta con ese correo, recibirás un enlace para restablecer la contraseña."
+}
+
+export async function completePasswordReset(token: string, newPassword: string): Promise<string> {
+  const response = await fetch(`${API_URL}/auth/password-reset/confirm`, {
+    credentials: "same-origin",
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, new_password: newPassword }),
+  })
+  const result: { message?: string; detail?: string } = await response.json().catch(() => ({}))
+  if (!response.ok) throw new ApiError(result.detail ?? "No se pudo actualizar la contraseña.", response.status)
+  return result.message ?? "Contraseña actualizada. Inicia sesión con tu nueva contraseña."
+}
+
+async function accountTransferRequest(
+  path: string,
+  token: string,
+  method: "GET" | "POST",
+  form?: FormData,
+): Promise<Response> {
+  const request = (accessToken: string) =>
+    fetch(`${API_URL}${path}`, {
+      method,
+      credentials: "same-origin",
+      headers: { Authorization: `Bearer ${accessToken}` },
+      body: form,
+    })
+  let response = await request(currentAccessToken ?? token)
+  if (response.status === 401) {
+    const refreshed = await refreshSession()
+    if (refreshed) response = await request(refreshed)
+  }
+  if (!response.ok) {
+    const body: { detail?: string } = await response.json().catch(() => ({}))
+    throw new ApiError(body.detail ?? "No se pudo procesar el archivo de cuenta.", response.status)
+  }
+  return response
+}
+
+export async function downloadAccountExport(token: string): Promise<Blob> {
+  return (await accountTransferRequest("/account/export", token, "GET")).blob()
+}
+
+export async function previewAccountImport(token: string, file: File): Promise<AccountImportPreview> {
+  const form = new FormData()
+  form.set("file", file)
+  return (
+    await accountTransferRequest("/account/import/preview", token, "POST", form)
+  ).json() as Promise<AccountImportPreview>
+}
+
+export async function restoreAccountImport(token: string, file: File): Promise<AccountImportPreview> {
+  const form = new FormData()
+  form.set("file", file)
+  return (await accountTransferRequest("/account/import", token, "POST", form)).json() as Promise<AccountImportPreview>
 }
 
 export async function refreshSession(): Promise<string | null> {

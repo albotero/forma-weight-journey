@@ -61,6 +61,14 @@ Las sesiones se restauran mediante un refresh token aleatorio almacenado como ha
 
 ## Desarrollo local
 
+**PostgreSQL local** (desde la raíz del workspace, después de configurar `.env`):
+
+```sh
+docker compose up -d postgres
+```
+
+El servicio crea la base y el usuario indicados por `POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`. Configura `DATABASE_URL` del backend con esos mismos valores y `localhost:5432`; no uses la contraseña de ejemplo en un entorno real.
+
 **Backend** (desde `backend/`):
 
 ```sh
@@ -94,20 +102,27 @@ cd backend && pip install -e '.[dev]' alembic && pytest
 cd frontend && npm test && npm run build && npm run lint
 ```
 
-Las pruebas backend cubren cálculos, aislamiento de cuentas, recordatorios y Telegram. Las pruebas frontend cubren conversiones de fecha/hora y las reglas de elegibilidad, destino y deduplicación de notificaciones.
+Las pruebas backend cubren cálculos, aislamiento de cuentas, exportación/restauración de datos, recuperación de contraseñas, migraciones, recordatorios y Telegram. Las pruebas frontend cubren conversiones de fecha/hora y las reglas de elegibilidad, destino y deduplicación de notificaciones.
 
 ## Privacidad y seguridad
 
 - API protegida con token JWT de expiración corta y Argon2id para contraseñas.
-- Límite de solicitudes por dirección de cliente para registro (10/min), inicio de sesión (10/min) y cambio de contraseña (5/min). Nginx sobrescribe `X-Real-IP`; no expongas el backend directamente. Al escalar, configura un almacenamiento compartido para los límites.
+- Límite de solicitudes por dirección de cliente para registro (10/min), inicio de sesión (10/min), cambio de contraseña (5/min), solicitud de recuperación (5/h) y confirmación de recuperación (10/h). Nginx sobrescribe `X-Real-IP`; no expongas el backend directamente. Al escalar, configura un almacenamiento compartido para los límites.
 - El token de acceso solo vive en memoria; al recargar, la app intenta restaurar la sesión con la cookie segura y rotatoria de refresh. Los registros se guardan en PostgreSQL; solo preferencias de notificaciones e IDs de avisos ya mostrados se guardan en el almacenamiento local del navegador.
 - No hay analytics externos. Telegram usa un bot configurado por el administrador, vinculación individual de un solo uso y secreto verificado para el webhook. Evita guardar información médica sensible en texto de recordatorios: el mensaje solo contiene el título y la hora.
-- Limita el acceso de red, usa HTTPS, rota secretos, actualiza dependencias y limita intentos mediante proxy/WAF antes de exponer el servicio públicamente. La protección contra fuerza bruta distribuida y recuperación de cuenta aún no están implementadas.
-- Para producción, configura almacenamiento de fotos privado (todavía no implementado) y cifra respaldos fuera del host.
+- Los enlaces de recuperación se envían por SMTP, vencen en 30 minutos, se almacenan como hash y se consumen una sola vez. El cambio de contraseña incrementa la versión de autenticación y revoca tokens de acceso y sesiones persistentes.
+- Las fotos se guardan en el volumen local `./storage`, fuera del directorio público y protegidas por la API autenticada. Restringe el acceso al host y cifra las copias fuera del servidor.
+- Limita el acceso de red, usa HTTPS, rota secretos, actualiza dependencias y limita intentos mediante proxy/WAF antes de exponer el servicio públicamente. La protección contra fuerza bruta distribuida aún no está implementada.
+
+## Recuperar acceso
+
+Configura SMTP en `.env` para habilitar **¿Olvidaste tu contraseña?**. El ejemplo usa `mail.albotero.com`, STARTTLS en el puerto `587` y `noreply-forma@albotero.com` como remitente. Si el servidor requiere autenticación, establece `SMTP_USERNAME` y `SMTP_PASSWORD` localmente; no guardes la contraseña en Git. Para SSL implícito usa el puerto `465` con `SMTP_USE_SSL=true`. En producción, `PUBLIC_APP_URL` debe ser la URL HTTPS pública. Para una prueba local, configúrala solo en el proceso backend como `http://localhost:5173` para que el enlace abra el frontend local; no uses esa dirección en producción. El endpoint queda deshabilitado si falta el host, remitente o URL pública. Las respuestas no revelan si el correo está registrado; los enlaces usan un fragmento URL para que el token no se envíe en solicitudes HTTP ni aparezca en los logs del servidor.
 
 ## Copias de seguridad
 
-La exportación JSON/CSV y restauración desde la app aún no están implementadas. Para desarrollo, `docker compose exec -T postgres pg_dump -U tracker tracker > backup.sql`; restauración sobre una base vacía: `docker compose exec -T postgres psql -U tracker tracker < backup.sql`. Protege el archivo como dato médico sensible y verifica restauraciones periódicamente.
+Desde **Perfil y ajustes → Exportar y restaurar datos** puedes descargar un archivo ZIP versionado con el perfil, registros, catálogos y fotos. Antes de importar, la app valida la estructura y muestra un resumen; la restauración reemplaza los datos de la cuenta autenticada y solo acepta copias del mismo correo. Se revocan las sesiones y hay que volver a vincular Telegram; las preferencias locales de notificaciones no forman parte del archivo. Trata las copias como datos médicos sensibles.
+
+La exportación de la app no sustituye respaldos automáticos del servidor. Para desarrollo, `docker compose exec -T postgres pg_dump -U tracker tracker > backup.sql`; restauración sobre una base vacía: `docker compose exec -T postgres psql -U tracker tracker < backup.sql`. Los respaldos del servidor también deben incluir `./storage`, cifrarse fuera del host y probarse mediante restauraciones periódicas.
 
 ## Configurar Telegram
 
