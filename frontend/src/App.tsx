@@ -89,6 +89,15 @@ type Section =
 type AuthMode = "login" | "register"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
+type AppNotification = {
+  id: string
+  title: string
+  body: string
+  target: Section
+  severity: "due" | "info"
+}
+const WEB_NOTIFICATIONS_ENABLED_KEY = "forma:web-notifications-enabled"
+const NOTIFIED_REMINDERS_KEY = "forma:notified-reminders"
 const sectionPaths: Record<Section, string> = {
   Inicio: "/",
   Peso: "/peso",
@@ -181,6 +190,7 @@ export default function App() {
   const [dark, setDark] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [range, setRange] = useState("90 días")
 
   const refresh = useCallback(async (authToken: string) => {
@@ -285,6 +295,93 @@ export default function App() {
   const goals = [5, 10, 15, 20].map((percent) => ({ percent, weight: startingWeight * (1 - percent / 100) }))
   const progress = (goal: number) =>
     Math.max(0, Math.min(100, ((startingWeight - (currentWeight ?? startingWeight)) / (startingWeight - goal)) * 100))
+
+  const notifications = useMemo<AppNotification[]>(() => {
+    const now = Date.now()
+    const items: AppNotification[] = []
+    for (const entry of journalEntries) {
+      if (entry.module !== "reminders") continue
+      const enabled = entry.data.enabled === "Sí" || entry.data.enabled === true
+      if (!enabled) continue
+      const reminderAt = entry.data.reminder_at
+      if (typeof reminderAt !== "string") continue
+      const due = new Date(reminderAt).getTime()
+      if (Number.isNaN(due) || due > now) continue
+      const lastSent = entry.data.last_sent_epoch
+      const completed = entry.data.completed_reminder_epoch
+      if (typeof lastSent === "number" && completed === lastSent) continue
+      const autoKey = typeof entry.data.auto_key === "string" ? entry.data.auto_key : null
+      const target: Section =
+        autoKey === "weight"
+          ? "Peso"
+          : autoKey === "dose"
+            ? "Medicación"
+            : autoKey === "blood_pressure"
+              ? "Laboratorios"
+              : autoKey === "composition"
+                ? "Composición"
+                : autoKey === "measurements"
+                  ? "Medidas"
+                  : "Recordatorios"
+      items.push({
+        id: `reminder-${entry.id}-${reminderAt}`,
+        title: entry.title,
+        body: `Programado para ${formatDateTime(reminderAt, userTimezone)}`,
+        target,
+        severity: "due",
+      })
+    }
+    const hasWeightToday = weights.some((item) => {
+      const elapsed = now - new Date(item.measured_at).getTime()
+      return elapsed >= 0 && elapsed <= 86400000
+    })
+    if (!hasWeightToday) {
+      items.push({
+        id: "checklist-weight-today",
+        title: "Registra tu peso de hoy",
+        body: "Aún no tienes un registro de peso en las últimas 24 horas.",
+        target: "Peso",
+        severity: "info",
+      })
+    }
+    if (profile && !profile.medications_reviewed && medications.some((item) => item.active)) {
+      items.push({
+        id: "checklist-medications-review",
+        title: "Confirma tus medicamentos actuales",
+        body: "Revisa y confirma la lista de medicamentos activos en el checklist de Análisis.",
+        target: "Medicación",
+        severity: "info",
+      })
+    }
+    return items
+  }, [journalEntries, weights, profile, medications, userTimezone])
+  const dueNotificationsCount = notifications.filter((item) => item.severity === "due").length
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return
+    if (window.localStorage.getItem(WEB_NOTIFICATIONS_ENABLED_KEY) !== "1") return
+    if (Notification.permission !== "granted") return
+    const due = notifications.filter((item) => item.severity === "due")
+    if (!due.length) return
+    let notified: string[] = []
+    try {
+      notified = JSON.parse(window.localStorage.getItem(NOTIFIED_REMINDERS_KEY) ?? "[]")
+    } catch {
+      notified = []
+    }
+    const notifiedSet = new Set(notified)
+    const pending = due.filter((item) => !notifiedSet.has(item.id))
+    if (!pending.length) return
+    for (const item of pending) {
+      const popup = new Notification(item.title, { body: item.body, tag: item.id })
+      popup.onclick = () => {
+        window.focus()
+        setSection(item.target)
+      }
+      notifiedSet.add(item.id)
+    }
+    window.localStorage.setItem(NOTIFIED_REMINDERS_KEY, JSON.stringify(Array.from(notifiedSet).slice(-200)))
+  }, [notifications, setSection])
 
   if (restoringSession)
     return (
@@ -488,10 +585,47 @@ export default function App() {
             <span className="today-label">
               <span className="status-dot" /> Seguimiento personal
             </span>
-            <button className="icon-button notification-button" aria-label="Notificaciones">
-              <Bell size={19} />
-              <i />
-            </button>
+            <div className="notification-menu">
+              <button
+                className="icon-button notification-button"
+                aria-label="Notificaciones"
+                aria-expanded={notificationsOpen}
+                onClick={() => setNotificationsOpen((open) => !open)}
+              >
+                <Bell size={19} />
+                {dueNotificationsCount > 0 && <i />}
+              </button>
+              {notificationsOpen && (
+                <div className="notification-panel" role="menu">
+                  <div className="notification-panel-heading">
+                    <strong>Notificaciones</strong>
+                    <span>{notifications.length ? `${notifications.length} pendientes` : "Al día"}</span>
+                  </div>
+                  {notifications.length ? (
+                    <ul className="notification-list">
+                      {notifications.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            className={`notification-item ${item.severity}`}
+                            onClick={() => {
+                              setSection(item.target)
+                              setNotificationsOpen(false)
+                              setMobileOpen(false)
+                            }}
+                          >
+                            <strong>{item.title}</strong>
+                            <span>{item.body}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="notification-empty">No tienes notificaciones pendientes.</p>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               className="top-avatar"
               aria-label="Abrir Perfil y ajustes"
@@ -1008,6 +1142,27 @@ function AccountSettings({
   const [savingPassword, setSavingPassword] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">(() =>
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported",
+  )
+  const [webNotificationsEnabled, setWebNotificationsEnabled] = useState(
+    () => typeof window !== "undefined" && window.localStorage.getItem(WEB_NOTIFICATIONS_ENABLED_KEY) === "1",
+  )
+
+  async function toggleWebNotifications() {
+    if (webNotificationsEnabled) {
+      window.localStorage.setItem(WEB_NOTIFICATIONS_ENABLED_KEY, "0")
+      setWebNotificationsEnabled(false)
+      return
+    }
+    if (!("Notification" in window)) return
+    const permission = await Notification.requestPermission()
+    setNotificationPermission(permission)
+    if (permission === "granted") {
+      window.localStorage.setItem(WEB_NOTIFICATIONS_ENABLED_KEY, "1")
+      setWebNotificationsEnabled(true)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -1292,6 +1447,39 @@ function AccountSettings({
                   Abrir Telegram para confirmar el vínculo
                 </a>
               )}
+            </section>
+
+            <section className="account-card">
+              <div className="account-card-heading">
+                <div>
+                  <h2>Notificaciones del navegador</h2>
+                  <p>
+                    Recibe un aviso en este dispositivo cuando un recordatorio esté vencido, sin depender de Telegram.
+                  </p>
+                </div>
+                <Bell size={19} />
+              </div>
+              <div className="telegram-account-status">
+                <span className={`record-status ${webNotificationsEnabled ? "active" : ""}`}>
+                  {webNotificationsEnabled ? "Activadas" : "Desactivadas"}
+                </span>
+                {notificationPermission === "denied" && <span>Bloqueadas por el navegador</span>}
+              </div>
+              <p className="module-hint">
+                Se muestran mientras esta pestaña permanece abierta; para avisos aunque cierres el navegador, usa la
+                vinculación con Telegram.
+              </p>
+              <button
+                className="outline-button"
+                disabled={notificationPermission === "denied"}
+                onClick={() => void toggleWebNotifications()}
+              >
+                {notificationPermission === "denied"
+                  ? "Permite notificaciones en los ajustes del navegador"
+                  : webNotificationsEnabled
+                    ? "Desactivar notificaciones"
+                    : "Activar notificaciones"}
+              </button>
             </section>
           </div>
         </>
