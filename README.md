@@ -49,10 +49,12 @@ Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend po
 ## Módulos de seguimiento
 
 - **Composición:** cada lectura de peso acepta opcionalmente grasa corporal, masa libre de grasa, grasa subcutánea, índice de grasa visceral, agua corporal, músculo esquelético, masa muscular, masa ósea, proteína, metabolismo basal y edad metabólica. Son estimaciones reportadas por la báscula; se guardan junto con el peso, la fecha/hora, y pueden editarse o borrarse.
-- **Medidas, síntomas, actividad, laboratorios, objetivos, revisiones y recordatorios:** registros con fecha/hora, campos relevantes, notas y operaciones de edición/eliminación.
+- **Síntomas, objetivos y laboratorios:** catálogos personales permiten seleccionar varios elementos al registrar; síntomas y objetivos admiten intensidad de 0 a 10. Presión arterial está incluida como prueba protegida y guarda sistólica, diastólica y su media calculada. La app muestra gráficos de evolución para cada prueba.
+- **Medidas, actividad, revisiones y recordatorios:** registros con fecha/hora, campos relevantes, notas y operaciones de edición/eliminación.
 - **Fotos:** cargas privadas JPEG/PNG/WebP de hasta 10 MB, aisladas por usuario, con descripción y fecha editable.
 - **Medicación e historial:** permite añadir/editar concentraciones, archivar o reactivar medicamentos y editar/eliminar dosis; archivar conserva el historial relacionado. Las cuentas nuevas empiezan sin medicamentos; cada persona registra solo los tratamientos que usa.
-- Los recordatorios manuales y automáticos aparecen en Recordatorios. La app genera avisos para registrar la siguiente dosis (una semana tras la última dosis de una medicación activa), peso (1 día), composición (un mes tras una lectura que la incluya) y medidas (un mes); se recalculan al guardar un registro nuevo del mismo tipo. Los automáticos se pueden activar/desactivar, pero no editar ni borrar. Si Telegram está vinculado, los avisos activos se envían también al chat privado. Cada usuario vincula ese chat con un enlace de un solo uso que caduca en 15 minutos; los tiempos respetan la zona horaria del perfil.
+- Los recordatorios manuales y automáticos aparecen en Recordatorios. Los automáticos cubren dosis (una semana después de la última dosis de una medicación activa), peso (un día), presión arterial (una semana después del último resultado registrado), composición corporal (un mes después de una lectura que incluya composición) y medidas corporales (un mes después de la última medición). Se recalculan al guardar un registro nuevo de la misma categoría y respetan la zona horaria del perfil. Los automáticos se pueden activar/desactivar, pero no editar ni borrar. Si Telegram está vinculado, los avisos activos se envían también al chat privado; cada usuario vincula su chat con un enlace de un solo uso que caduca en 15 minutos.
+- **Notificaciones:** el centro bajo la campana muestra recordatorios vencidos y avisos de checklist para el peso diario y la confirmación de medicamentos activos. Se pueden activar notificaciones nativas del navegador desde Perfil y ajustes. Requieren permiso y que la app esté abierta; la preferencia y los IDs ya avisados se guardan en ese navegador. No son notificaciones push y no llegan cuando la app está cerrada. Para avisos fuera de la app, usa Telegram.
 - **Análisis y seguimiento:** reúne checklists contextuales previos al inicio, semanales, cada cuatro semanas y periódicos. El estado solo indica si hay datos guardados; no valida su vigencia ni la idoneidad clínica. Los resúmenes de dosis describen el tiempo desde los registros disponibles, tendencia de peso y tolerancia/síntomas documentados; nunca indican subir, bajar, iniciar o suspender dosis.
 
 Las sesiones se restauran mediante un refresh token aleatorio almacenado como hash en la base de datos. El navegador solo recibe la cookie segura; los refresh tokens rotan y el cierre de sesión revoca la sesión del servidor.
@@ -89,16 +91,16 @@ Vite arranca en `http://localhost:5173` y reenvía `/api` al backend local en `h
 
 ```sh
 cd backend && pip install -e '.[dev]' alembic && pytest
-cd frontend && npm run build && npm run lint
+cd frontend && npm test && npm run build && npm run lint
 ```
 
-La suite cubre IMC, objetivos, pérdida porcentual, promedio móvil, velocidad semanal, conversiones mg/mL/U-100 y aislamiento de cuentas.
+Las pruebas backend cubren cálculos, aislamiento de cuentas, recordatorios y Telegram. Las pruebas frontend cubren conversiones de fecha/hora y las reglas de elegibilidad, destino y deduplicación de notificaciones.
 
 ## Privacidad y seguridad
 
 - API protegida con token JWT de expiración corta y Argon2id para contraseñas.
 - Límite de solicitudes por dirección de cliente para registro (10/min), inicio de sesión (10/min) y cambio de contraseña (5/min). Nginx sobrescribe `X-Real-IP`; no expongas el backend directamente. Al escalar, configura un almacenamiento compartido para los límites.
-- El token no se persiste al recargar la página; inicia sesión nuevamente. Los registros se guardan en PostgreSQL, no en almacenamiento local del navegador.
+- El token de acceso solo vive en memoria; al recargar, la app intenta restaurar la sesión con la cookie segura y rotatoria de refresh. Los registros se guardan en PostgreSQL; solo preferencias de notificaciones e IDs de avisos ya mostrados se guardan en el almacenamiento local del navegador.
 - No hay analytics externos. Telegram usa un bot configurado por el administrador, vinculación individual de un solo uso y secreto verificado para el webhook. Evita guardar información médica sensible en texto de recordatorios: el mensaje solo contiene el título y la hora.
 - Limita el acceso de red, usa HTTPS, rota secretos, actualiza dependencias y limita intentos mediante proxy/WAF antes de exponer el servicio públicamente. La protección contra fuerza bruta distribuida y recuperación de cuenta aún no están implementadas.
 - Para producción, configura almacenamiento de fotos privado (todavía no implementado) y cifra respaldos fuera del host.

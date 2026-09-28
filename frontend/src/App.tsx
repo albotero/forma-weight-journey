@@ -69,6 +69,7 @@ import {
   type WeightEntry,
 } from "./api"
 import { dateTimeInputValue, localDateTimeToIso } from "./dateTime.js"
+import { buildNotifications, pendingBrowserNotifications } from "./notifications.js"
 
 type Section =
   | "Inicio"
@@ -89,13 +90,6 @@ type Section =
 type AuthMode = "login" | "register"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
-type AppNotification = {
-  id: string
-  title: string
-  body: string
-  target: Section
-  severity: "due" | "info"
-}
 const WEB_NOTIFICATIONS_ENABLED_KEY = "forma:web-notifications-enabled"
 const NOTIFIED_REMINDERS_KEY = "forma:notified-reminders"
 const sectionPaths: Record<Section, string> = {
@@ -296,65 +290,17 @@ export default function App() {
   const progress = (goal: number) =>
     Math.max(0, Math.min(100, ((startingWeight - (currentWeight ?? startingWeight)) / (startingWeight - goal)) * 100))
 
-  const notifications = useMemo<AppNotification[]>(() => {
-    const now = Date.now()
-    const items: AppNotification[] = []
-    for (const entry of journalEntries) {
-      if (entry.module !== "reminders") continue
-      const enabled = entry.data.enabled === "Sí" || entry.data.enabled === true
-      if (!enabled) continue
-      const reminderAt = entry.data.reminder_at
-      if (typeof reminderAt !== "string") continue
-      const due = new Date(reminderAt).getTime()
-      if (Number.isNaN(due) || due > now) continue
-      const lastSent = entry.data.last_sent_epoch
-      const completed = entry.data.completed_reminder_epoch
-      if (typeof lastSent === "number" && completed === lastSent) continue
-      const autoKey = typeof entry.data.auto_key === "string" ? entry.data.auto_key : null
-      const target: Section =
-        autoKey === "weight"
-          ? "Peso"
-          : autoKey === "dose"
-            ? "Medicación"
-            : autoKey === "blood_pressure"
-              ? "Laboratorios"
-              : autoKey === "composition"
-                ? "Composición"
-                : autoKey === "measurements"
-                  ? "Medidas"
-                  : "Recordatorios"
-      items.push({
-        id: `reminder-${entry.id}-${reminderAt}`,
-        title: entry.title,
-        body: `Programado para ${formatDateTime(reminderAt, userTimezone)}`,
-        target,
-        severity: "due",
-      })
-    }
-    const hasWeightToday = weights.some((item) => {
-      const elapsed = now - new Date(item.measured_at).getTime()
-      return elapsed >= 0 && elapsed <= 86400000
-    })
-    if (!hasWeightToday) {
-      items.push({
-        id: "checklist-weight-today",
-        title: "Registra tu peso de hoy",
-        body: "Aún no tienes un registro de peso en las últimas 24 horas.",
-        target: "Peso",
-        severity: "info",
-      })
-    }
-    if (profile && !profile.medications_reviewed && medications.some((item) => item.active)) {
-      items.push({
-        id: "checklist-medications-review",
-        title: "Confirma tus medicamentos actuales",
-        body: "Revisa y confirma la lista de medicamentos activos en el checklist de Análisis.",
-        target: "Medicación",
-        severity: "info",
-      })
-    }
-    return items
-  }, [journalEntries, weights, profile, medications, userTimezone])
+  const notifications = useMemo(
+    () =>
+      buildNotifications({
+        entries: journalEntries,
+        weights,
+        profile,
+        medications,
+        formatReminderTime: (value) => formatDateTime(value, userTimezone),
+      }),
+    [journalEntries, weights, profile, medications, userTimezone],
+  )
   const dueNotificationsCount = notifications.filter((item) => item.severity === "due").length
 
   useEffect(() => {
@@ -363,14 +309,10 @@ export default function App() {
     if (Notification.permission !== "granted") return
     const due = notifications.filter((item) => item.severity === "due")
     if (!due.length) return
-    let notified: string[] = []
-    try {
-      notified = JSON.parse(window.localStorage.getItem(NOTIFIED_REMINDERS_KEY) ?? "[]")
-    } catch {
-      notified = []
-    }
-    const notifiedSet = new Set(notified)
-    const pending = due.filter((item) => !notifiedSet.has(item.id))
+    const { pending, idsToStore } = pendingBrowserNotifications(
+      due,
+      window.localStorage.getItem(NOTIFIED_REMINDERS_KEY),
+    )
     if (!pending.length) return
     for (const item of pending) {
       const popup = new Notification(item.title, { body: item.body, tag: item.id })
@@ -378,9 +320,8 @@ export default function App() {
         window.focus()
         setSection(item.target)
       }
-      notifiedSet.add(item.id)
     }
-    window.localStorage.setItem(NOTIFIED_REMINDERS_KEY, JSON.stringify(Array.from(notifiedSet).slice(-200)))
+    window.localStorage.setItem(NOTIFIED_REMINDERS_KEY, JSON.stringify(idsToStore))
   }, [notifications, setSection])
 
   if (restoringSession)
