@@ -2663,6 +2663,7 @@ function ModuleWorkspace(props: {
               timezone={userTimezone}
             />
           )}
+          {section === "Síntomas" && <h2 className="module-subheading">Síntomas registrados</h2>}
           <div className="record-list">
             {entries
               .filter((entry) => entry.module === catalogModule && Array.isArray(entry.data.results))
@@ -2946,7 +2947,7 @@ function JournalEntryEditor({
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
 }) {
-  const [title, setTitle] = useState(entry?.title ?? "")
+  const [title, setTitle] = useState(entry?.title ?? (module === "symptoms" ? "Seguimiento semanal" : ""))
   const [occurredAt, setOccurredAt] = useState(() =>
     dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
   )
@@ -3006,16 +3007,12 @@ function JournalEntryEditor({
       onClose={onClose}
     >
       <form className="entry-form" onSubmit={submit}>
-        <label>
-          {module === "symptoms" ? "Nombre del check-in" : journalDefinitions[module].title}
-          <input
-            required
-            maxLength={160}
-            value={title}
-            placeholder={module === "symptoms" ? "Seguimiento semanal" : undefined}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </label>
+        {module !== "symptoms" && (
+          <label>
+            {journalDefinitions[module].title}
+            <input required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
+          </label>
+        )}
         <label>
           Fecha y hora
           <input
