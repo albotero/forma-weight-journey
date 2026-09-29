@@ -159,6 +159,18 @@ const navigation: { label: Section; icon: typeof Home }[] = [
 const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
 const formatDecimal = (value: number) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
+const compactAxisNumber = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 })
+const formatAxisTick = (value: number) => {
+  const absoluteValue = Math.abs(value)
+  const units = [
+    { threshold: 1e12, divisor: 1e12, suffix: "T" },
+    { threshold: 1e9, divisor: 1e9, suffix: "B" },
+    { threshold: 1e6, divisor: 1e6, suffix: "M" },
+    { threshold: 1e3, divisor: 1e3, suffix: "k" },
+  ]
+  const unit = units.find(({ threshold }) => absoluteValue >= threshold)
+  return unit ? `${compactAxisNumber.format(value / unit.divisor)}${unit.suffix}` : formatDecimal(value)
+}
 const isNumericString = (raw: string) => /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(raw.trim())
 const formatDateTime = (value: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value))
@@ -731,7 +743,7 @@ export default function App() {
                             axisLine={false}
                             tickLine={false}
                             tick={{ fill: "var(--muted)", fontSize: 11 }}
-                            tickFormatter={(v) => `${v}`}
+                            tickFormatter={(value) => formatAxisTick(Number(value))}
                           />
                           <Tooltip
                             contentStyle={{
@@ -2417,6 +2429,7 @@ function AnalysisWorkspace({
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  tickFormatter={(value) => formatAxisTick(Number(value))}
                 />
                 <Tooltip formatter={(value) => [`${formatDecimal(Number(value))} kg`, "Peso"]} />
                 <Area
@@ -4591,7 +4604,12 @@ function LabEvolutionCharts({
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
                   minTickGap={30}
                 />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted)", fontSize: 11 }}
+                  tickFormatter={(value) => formatAxisTick(Number(value))}
+                />
                 <Tooltip />
                 {item.is_blood_pressure ? (
                   <>
