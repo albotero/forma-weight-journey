@@ -265,6 +265,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     assert original_weight.status_code == 201
     catalog = client.post("/api/catalog", headers=headers, json={
         "category": "lab", "name": "Glucosa", "unit": "mg/dL",
+        "normal_min": 70, "normal_max": 100,
     })
     assert catalog.status_code == 201
     entry = client.post("/api/entries", headers=headers, json={
@@ -313,6 +314,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     restored_catalog = client.get("/api/catalog/lab", headers=headers).json()
     custom_item = next(
         item for item in restored_catalog if item["name"] == "Glucosa")
+    assert custom_item["normal_min"] == 70 and custom_item["normal_max"] == 100
     assert restored_entry["data"]["results"][0]["catalog_item_id"] == custom_item["id"]
     restored_photos = client.get("/api/photos", headers=headers).json()
     image = client.get(
@@ -1178,4 +1180,96 @@ def test_catalog_items_are_user_scoped_and_blood_pressure_is_protected() -> None
     assert removable.status_code == 204
 
     forbidden = client.get("/api/catalog/unknown", headers=owner_headers)
+    assert forbidden.status_code == 422
+
+
+def test_catalog_item_normal_thresholds_can_be_set_and_updated() -> None:
+    owner = client.post("/api/auth/register", json={
+        "email": "catalog-thresholds-owner@example.com", "password": "catalog-thresholds-owner-123"})
+    other = client.post("/api/auth/register", json={
+        "email": "catalog-thresholds-other@example.com", "password": "catalog-thresholds-other-123"})
+    owner_headers = {"Authorization": f"Bearer {owner.json()['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    created = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "Glucosa", "unit": "mg/dL",
+        "normal_min": 70, "normal_max": 100,
+    })
+    assert created.status_code == 201
+    assert created.json()["normal_min"] == 70 and created.json()[
+        "normal_max"] == 100
+
+    inverted = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "Invertido", "normal_min": 10, "normal_max": 1})
+    assert inverted.status_code == 422
+
+    wrong_category = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "goal", "name": "Meta con umbral", "normal_min": 1})
+    assert wrong_category.status_code == 422
+
+    item_id = created.json()["id"]
+    updated = client.patch(f"/api/catalog/{item_id}/thresholds", headers=owner_headers, json={
+        "normal_min": None, "normal_max": 126})
+    assert updated.status_code == 200
+    assert updated.json()["normal_min"] is None and updated.json()[
+        "normal_max"] == 126
+
+    invalid_update = client.patch(f"/api/catalog/{item_id}/thresholds", headers=owner_headers, json={
+        "normal_min": 200, "normal_max": 100})
+    assert invalid_update.status_code == 422
+
+    forbidden = client.patch(f"/api/catalog/{item_id}/thresholds", headers=other_headers, json={
+        "normal_min": 1, "normal_max": 2})
+    assert forbidden.status_code == 404
+
+    diastolic_rejected = client.patch(f"/api/catalog/{item_id}/thresholds", headers=owner_headers, json={
+        "diastolic_normal_min": 60, "diastolic_normal_max": 80})
+    assert diastolic_rejected.status_code == 422
+
+    blood_pressure = client.get(
+        "/api/catalog/lab", headers=owner_headers).json()[0]
+    assert blood_pressure["normal_min"] == 90 and blood_pressure["normal_max"] == 120
+    assert blood_pressure["diastolic_normal_min"] == 60 and blood_pressure["diastolic_normal_max"] == 80
+
+    bp_updated = client.patch(f"/api/catalog/{blood_pressure['id']}/thresholds", headers=owner_headers, json={
+        "normal_min": 95, "normal_max": 125, "diastolic_normal_min": 65, "diastolic_normal_max": 85})
+    assert bp_updated.status_code == 200
+    assert bp_updated.json()["normal_min"] == 95 and bp_updated.json()[
+        "normal_max"] == 125
+    assert bp_updated.json()["diastolic_normal_min"] == 65 and bp_updated.json()[
+        "diastolic_normal_max"] == 85
+
+
+def test_catalog_items_can_be_reordered_and_order_is_user_scoped() -> None:
+    owner = client.post("/api/auth/register", json={
+        "email": "catalog-order-owner@example.com", "password": "catalog-order-owner-123"})
+    other = client.post("/api/auth/register", json={
+        "email": "catalog-order-other@example.com", "password": "catalog-order-other-123"})
+    owner_headers = {"Authorization": f"Bearer {owner.json()['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+
+    glucose = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "Glucosa"}).json()
+    cholesterol = client.post("/api/catalog", headers=owner_headers, json={
+        "category": "lab", "name": "Colesterol"}).json()
+    blood_pressure = client.get(
+        "/api/catalog/lab", headers=owner_headers).json()[0]
+
+    default_order = client.get(
+        "/api/catalog/lab", headers=owner_headers).json()
+    assert [item["name"] for item in default_order] == [
+        "Presión arterial", "Glucosa", "Colesterol"]
+
+    reordered = client.put("/api/catalog/lab/order", headers=owner_headers, json={
+        "item_ids": [blood_pressure["id"], glucose["id"], cholesterol["id"]]})
+    assert reordered.status_code == 200
+    assert [item["name"] for item in reordered.json()] == [
+        "Presión arterial", "Glucosa", "Colesterol"]
+
+    incomplete = client.put("/api/catalog/lab/order", headers=owner_headers, json={
+        "item_ids": [glucose["id"]]})
+    assert incomplete.status_code == 422
+
+    forbidden = client.put("/api/catalog/lab/order", headers=other_headers, json={
+        "item_ids": [glucose["id"], cholesterol["id"], blood_pressure["id"]]})
     assert forbidden.status_code == 422

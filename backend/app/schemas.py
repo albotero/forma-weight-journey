@@ -305,17 +305,61 @@ CatalogCategory = Literal["symptom", "goal", "lab"]
 SymptomCategory = Literal["Gastrointestinal", "Otro"]
 
 
-class CatalogItemCreate(BaseModel):
+class CatalogItemCreate(NumericPrecisionModel):
     category: CatalogCategory
     name: str = Field(min_length=1, max_length=120)
     unit: str | None = Field(default=None, max_length=40)
     symptom_category: SymptomCategory | None = None
+    normal_min: float | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    normal_max: float | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    diastolic_normal_min: float | None = Field(
+        default=None, ge=-1_000_000, le=1_000_000)
+    diastolic_normal_max: float | None = Field(
+        default=None, ge=-1_000_000, le=1_000_000)
+
+    @model_validator(mode="after")
+    def normal_range_is_valid(self) -> "CatalogItemCreate":
+        if self.normal_min is not None and self.normal_max is not None and self.normal_min > self.normal_max:
+            raise ValueError(
+                "normal_min must be less than or equal to normal_max")
+        if self.diastolic_normal_min is not None and self.diastolic_normal_max is not None and self.diastolic_normal_min > self.diastolic_normal_max:
+            raise ValueError(
+                "diastolic_normal_min must be less than or equal to diastolic_normal_max")
+        has_thresholds = any(value is not None for value in (
+            self.normal_min, self.normal_max, self.diastolic_normal_min, self.diastolic_normal_max))
+        if self.category != "lab" and has_thresholds:
+            raise ValueError("Normal thresholds only apply to lab results")
+        return self
 
 
 class CatalogItemOut(CatalogItemCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
     is_blood_pressure: bool
+    sort_order: int
+
+
+class CatalogThresholdsUpdate(NumericPrecisionModel):
+    normal_min: float | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    normal_max: float | None = Field(default=None, ge=-1_000_000, le=1_000_000)
+    diastolic_normal_min: float | None = Field(
+        default=None, ge=-1_000_000, le=1_000_000)
+    diastolic_normal_max: float | None = Field(
+        default=None, ge=-1_000_000, le=1_000_000)
+
+    @model_validator(mode="after")
+    def normal_range_is_valid(self) -> "CatalogThresholdsUpdate":
+        if self.normal_min is not None and self.normal_max is not None and self.normal_min > self.normal_max:
+            raise ValueError(
+                "normal_min must be less than or equal to normal_max")
+        if self.diastolic_normal_min is not None and self.diastolic_normal_max is not None and self.diastolic_normal_min > self.diastolic_normal_max:
+            raise ValueError(
+                "diastolic_normal_min must be less than or equal to diastolic_normal_max")
+        return self
+
+
+class CatalogOrderUpdate(BaseModel):
+    item_ids: list[int] = Field(min_length=1)
 
 
 class PhotoRecordOut(BaseModel):

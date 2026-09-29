@@ -36,14 +36,16 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
         assert "email_verification_tokens" in inspector.get_table_names()
         verification_columns = {column["name"] for column in inspector.get_columns(
             "email_verification_tokens")}
-        assert {"user_id", "email", "purpose", "token_hash", "expires_at", "used_at"} <= verification_columns
+        assert {"user_id", "email", "purpose", "token_hash",
+                "expires_at", "used_at"} <= verification_columns
         reset_columns = {column["name"]
                          for column in inspector.get_columns("password_reset_tokens")}
         assert {"user_id", "token_hash",
                 "expires_at", "used_at"} <= reset_columns
         user_columns = {column["name"]
                         for column in inspector.get_columns("users")}
-        assert {"auth_version", "email_verified_at", "pending_email"} <= user_columns
+        assert {"auth_version", "email_verified_at",
+                "pending_email"} <= user_columns
         with engine.connect() as connection:
             legacy = connection.execute(text(
                 "SELECT email_verified_at FROM users WHERE email = :email"),
@@ -54,5 +56,9 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
                    for column in inspector.get_columns("telegram_connections")}
         assert {"user_id", "chat_id", "pairing_token_hash",
                 "pairing_expires_at", "linked_at"} <= columns
+        catalog_columns = {column["name"]
+                           for column in inspector.get_columns("catalog_items")}
+        assert {"normal_min", "normal_max", "diastolic_normal_min",
+                "diastolic_normal_max", "sort_order"} <= catalog_columns
     finally:
         engine.dispose()

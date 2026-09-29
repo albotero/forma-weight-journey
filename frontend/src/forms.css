@@ -534,6 +534,15 @@
   display: block;
   font-size: 13px;
 }
+.lab-out-of-range {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+  color: #b3261e;
+}
+.dark .lab-out-of-range {
+  color: #f2a49b;
+}
 .module-empty {
   display: flex;
   align-items: center;
@@ -585,6 +594,10 @@
   color: var(--sub);
   cursor: pointer;
   padding: 0;
+}
+.catalog-chip button:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 .catalog-selection-list {
   display: grid;

@@ -7,6 +7,8 @@ import {
   Legend,
   Line,
   LineChart as RechartsLineChart,
+  ReferenceArea,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -15,11 +17,14 @@ import {
 import {
   Activity,
   UserRoundCog,
+  AlertTriangle,
   ArrowDownRight,
   ArrowRight,
   Bell,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronUp,
   CircleHelp,
   Clock3,
   Dna,
@@ -2594,6 +2599,7 @@ function ModuleWorkspace(props: {
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
   const [showCatalogEntryForm, setShowCatalogEntryForm] = useState(false)
   const [editingCatalogEntry, setEditingCatalogEntry] = useState<JournalEntry | null>(null)
+  const [editingThresholdsItem, setEditingThresholdsItem] = useState<CatalogItem | null>(null)
   const catalogCategory: CatalogCategory | undefined =
     section === "Síntomas"
       ? "symptom"
@@ -2624,7 +2630,12 @@ function ModuleWorkspace(props: {
     }
   }, [catalogCategory, token, props.onError])
 
-  async function addCatalogItem(name: string, unit: string, symptomCategory?: "Gastrointestinal" | "Otro") {
+  async function addCatalogItem(
+    name: string,
+    unit: string,
+    symptomCategory?: "Gastrointestinal" | "Otro",
+    thresholds?: { normal_min: number | null; normal_max: number | null },
+  ) {
     if (!catalogCategory) return
     const created = await api<CatalogItem>("/catalog", token, {
       method: "POST",
@@ -2633,9 +2644,53 @@ function ModuleWorkspace(props: {
         name,
         unit: unit || null,
         symptom_category: symptomCategory ?? null,
+        normal_min: thresholds?.normal_min ?? null,
+        normal_max: thresholds?.normal_max ?? null,
       }),
     })
     setCatalog((current) => [...current, created])
+  }
+
+  async function updateCatalogThresholds(
+    item: CatalogItem,
+    normalMin: number | null,
+    normalMax: number | null,
+    diastolicMin: number | null,
+    diastolicMax: number | null,
+  ) {
+    const updated = await api<CatalogItem>(`/catalog/${item.id}/thresholds`, token, {
+      method: "PATCH",
+      body: JSON.stringify({
+        normal_min: normalMin,
+        normal_max: normalMax,
+        diastolic_normal_min: item.is_blood_pressure ? diastolicMin : null,
+        diastolic_normal_max: item.is_blood_pressure ? diastolicMax : null,
+      }),
+    })
+    setCatalog((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
+  }
+
+  async function moveCatalogItem(item: CatalogItem, direction: "up" | "down") {
+    if (!catalogCategory) return
+    const orderable = catalog.filter((entry) => !entry.is_blood_pressure)
+    const index = orderable.findIndex((entry) => entry.id === item.id)
+    const targetIndex = direction === "up" ? index - 1 : index + 1
+    if (index < 0 || targetIndex < 0 || targetIndex >= orderable.length) return
+    const reordered = [...orderable]
+    const [moved] = reordered.splice(index, 1)
+    reordered.splice(targetIndex, 0, moved)
+    const bloodPressureItem = catalog.find((entry) => entry.is_blood_pressure)
+    const fullOrder = bloodPressureItem ? [bloodPressureItem, ...reordered] : reordered
+    setCatalog(fullOrder)
+    try {
+      const updated = await api<CatalogItem[]>(`/catalog/${catalogCategory}/order`, token, {
+        method: "PUT",
+        body: JSON.stringify({ item_ids: fullOrder.map((entry) => entry.id) }),
+      })
+      setCatalog(updated)
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo reordenar la lista")
+    }
   }
 
   async function removeCatalogItem(item: CatalogItem) {
@@ -3195,20 +3250,56 @@ function ModuleWorkspace(props: {
         <>
           {catalog.length > 0 && (
             <div className="catalog-chip-list">
-              {catalog.map((item) => (
-                <span className="catalog-chip" key={item.id}>
-                  {item.name}
-                  {!item.is_blood_pressure && (
-                    <button
-                      type="button"
-                      aria-label={`Quitar ${item.name}`}
-                      onClick={() => void removeCatalogItem(item)}
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
-                </span>
-              ))}
+              {catalog.map((item) => {
+                const orderableIndex =
+                  catalogCategory === "lab" && !item.is_blood_pressure
+                    ? catalog.filter((entry) => !entry.is_blood_pressure).findIndex((entry) => entry.id === item.id)
+                    : -1
+                const orderableCount = catalog.filter((entry) => !entry.is_blood_pressure).length
+                return (
+                  <span className="catalog-chip" key={item.id}>
+                    {item.name}
+                    {orderableIndex >= 0 && (
+                      <>
+                        <button
+                          type="button"
+                          aria-label={`Subir ${item.name}`}
+                          disabled={orderableIndex === 0}
+                          onClick={() => void moveCatalogItem(item, "up")}
+                        >
+                          <ChevronUp size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Bajar ${item.name}`}
+                          disabled={orderableIndex === orderableCount - 1}
+                          onClick={() => void moveCatalogItem(item, "down")}
+                        >
+                          <ChevronDown size={11} />
+                        </button>
+                      </>
+                    )}
+                    {catalogCategory === "lab" && (
+                      <button
+                        type="button"
+                        aria-label={`Definir rango normal de ${item.name}`}
+                        onClick={() => setEditingThresholdsItem(item)}
+                      >
+                        <Settings size={11} />
+                      </button>
+                    )}
+                    {!item.is_blood_pressure && (
+                      <button
+                        type="button"
+                        aria-label={`Quitar ${item.name}`}
+                        onClick={() => void removeCatalogItem(item)}
+                      >
+                        <X size={11} />
+                      </button>
+                    )}
+                  </span>
+                )
+              })}
             </div>
           )}
           {section === "Laboratorios" && (
@@ -3238,20 +3329,29 @@ function ModuleWorkspace(props: {
                     />
                   </div>
                   <div className="composition-results">
-                    {(entry.data.results as CatalogResult[]).map((result) => (
-                      <div key={result.catalog_item_id}>
-                        <span>{result.name}</span>
-                        <strong>
-                          {result.systolic != null
-                            ? `${result.systolic}/${result.diastolic} mmHg (media ${result.mean})`
-                            : result.value != null
-                              ? `${formatDecimal(result.value)}${result.unit ? ` ${result.unit}` : ""}`
-                              : result.text_value != null
-                                ? result.text_value
-                                : `${result.severity ?? result.intensity}/10`}
-                        </strong>
-                      </div>
-                    ))}
+                    {(entry.data.results as CatalogResult[]).map((result) => {
+                      const catalogItem = catalog.find((listed) => listed.id === result.catalog_item_id)
+                      const outOfRange =
+                        catalogItem != null &&
+                        result.value != null &&
+                        ((catalogItem.normal_min != null && result.value < catalogItem.normal_min) ||
+                          (catalogItem.normal_max != null && result.value > catalogItem.normal_max))
+                      return (
+                        <div key={result.catalog_item_id}>
+                          <span>{result.name}</span>
+                          <strong className={outOfRange ? "lab-out-of-range" : undefined}>
+                            {outOfRange && <AlertTriangle size={12} aria-hidden="true" />}
+                            {result.systolic != null
+                              ? `${result.systolic}/${result.diastolic} mmHg (media ${result.mean})`
+                              : result.value != null
+                                ? `${formatDecimal(result.value)}${result.unit ? ` ${result.unit}` : ""}`
+                                : result.text_value != null
+                                  ? result.text_value
+                                  : `${result.severity ?? result.intensity}/10`}
+                          </strong>
+                        </div>
+                      )
+                    })}
                   </div>
                   {typeof entry.data.tolerance === "string" && (
                     <p className="module-hint">Tolerancia percibida: {entry.data.tolerance}</p>
@@ -3412,6 +3512,15 @@ function ModuleWorkspace(props: {
           }}
           onSave={saveCatalogEntry}
           onAddCatalogItem={addCatalogItem}
+        />
+      )}
+      {editingThresholdsItem && (
+        <CatalogThresholdsEditor
+          item={editingThresholdsItem}
+          onClose={() => setEditingThresholdsItem(null)}
+          onSave={(normalMin, normalMax, diastolicMin, diastolicMax) =>
+            updateCatalogThresholds(editingThresholdsItem, normalMin, normalMax, diastolicMin, diastolicMax)
+          }
         />
       )}
       {showMeasurementForm && (
@@ -3893,6 +4002,120 @@ function JournalEntryEditor({
   )
 }
 
+function CatalogThresholdsEditor({
+  item,
+  onClose,
+  onSave,
+}: {
+  item: CatalogItem
+  onClose: () => void
+  onSave: (
+    normalMin: number | null,
+    normalMax: number | null,
+    diastolicMin: number | null,
+    diastolicMax: number | null,
+  ) => Promise<void>
+}) {
+  const [normalMin, setNormalMin] = useState(item.normal_min != null ? String(item.normal_min) : "")
+  const [normalMax, setNormalMax] = useState(item.normal_max != null ? String(item.normal_max) : "")
+  const [diastolicMin, setDiastolicMin] = useState(
+    item.diastolic_normal_min != null ? String(item.diastolic_normal_min) : "",
+  )
+  const [diastolicMax, setDiastolicMax] = useState(
+    item.diastolic_normal_max != null ? String(item.diastolic_normal_max) : "",
+  )
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    const min = normalMin.trim() === "" ? null : Number(normalMin)
+    const max = normalMax.trim() === "" ? null : Number(normalMax)
+    const dMin = item.is_blood_pressure && diastolicMin.trim() !== "" ? Number(diastolicMin) : null
+    const dMax = item.is_blood_pressure && diastolicMax.trim() !== "" ? Number(diastolicMax) : null
+    if (min != null && max != null && min > max) {
+      setError(
+        item.is_blood_pressure
+          ? "El mínimo sistólico debe ser menor o igual al máximo."
+          : "El mínimo normal debe ser menor o igual al máximo.",
+      )
+      return
+    }
+    if (dMin != null && dMax != null && dMin > dMax) {
+      setError("El mínimo diastólico debe ser menor o igual al máximo.")
+      return
+    }
+    setBusy(true)
+    setError("")
+    try {
+      await onSave(min, max, dMin, dMax)
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar el rango normal.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={`Rango normal · ${item.name}`}
+      subtitle="Se aplica a los próximos registros y a la gráfica de evolución."
+      onClose={onClose}
+    >
+      <form className="entry-form" onSubmit={submit}>
+        <div className="form-two-columns">
+          <label>
+            {item.is_blood_pressure ? "Sistólica normal desde" : "Normal desde"}{" "}
+            <span className="optional">opcional</span>
+            <input type="number" step="0.01" value={normalMin} onChange={(event) => setNormalMin(event.target.value)} />
+          </label>
+          <label>
+            {item.is_blood_pressure ? "Sistólica normal hasta" : "Normal hasta"}{" "}
+            <span className="optional">opcional</span>
+            <input type="number" step="0.01" value={normalMax} onChange={(event) => setNormalMax(event.target.value)} />
+          </label>
+        </div>
+        {item.is_blood_pressure && (
+          <div className="form-two-columns">
+            <label>
+              Diastólica normal desde <span className="optional">opcional</span>
+              <input
+                type="number"
+                step="0.01"
+                value={diastolicMin}
+                onChange={(event) => setDiastolicMin(event.target.value)}
+              />
+            </label>
+            <label>
+              Diastólica normal hasta <span className="optional">opcional</span>
+              <input
+                type="number"
+                step="0.01"
+                value={diastolicMax}
+                onChange={(event) => setDiastolicMax(event.target.value)}
+              />
+            </label>
+          </div>
+        )}
+        <p className="module-hint">
+          Define solo el valor "hasta" para un máximo, solo "desde" para un mínimo, o ambos para un rango. Déjalos
+          vacíos para quitar el umbral.
+        </p>
+        {error && <div className="error-banner">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : "Guardar rango"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function CatalogEntryEditor({
   category,
   catalog,
@@ -3908,7 +4131,12 @@ function CatalogEntryEditor({
   timezone: string
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
-  onAddCatalogItem: (name: string, unit: string, symptomCategory?: "Gastrointestinal" | "Otro") => Promise<void>
+  onAddCatalogItem: (
+    name: string,
+    unit: string,
+    symptomCategory?: "Gastrointestinal" | "Otro",
+    thresholds?: { normal_min: number | null; normal_max: number | null },
+  ) => Promise<void>
 }) {
   const existingResults = Array.isArray(entry?.data.results) ? (entry!.data.results as CatalogResult[]) : []
   const [occurredAt, setOccurredAt] = useState(() =>
@@ -3947,6 +4175,8 @@ function CatalogEntryEditor({
   )
   const [newItemName, setNewItemName] = useState("")
   const [newItemUnit, setNewItemUnit] = useState("")
+  const [newItemNormalMin, setNewItemNormalMin] = useState("")
+  const [newItemNormalMax, setNewItemNormalMax] = useState("")
   const [newItemSymptomCategory, setNewItemSymptomCategory] = useState<"Gastrointestinal" | "Otro">("Otro")
   const [addingItem, setAddingItem] = useState(false)
   const [error, setError] = useState("")
@@ -3977,9 +4207,17 @@ function CatalogEntryEditor({
         newItemName.trim(),
         newItemUnit.trim(),
         category === "symptom" ? newItemSymptomCategory : undefined,
+        category === "lab"
+          ? {
+              normal_min: newItemNormalMin.trim() === "" ? null : Number(newItemNormalMin),
+              normal_max: newItemNormalMax.trim() === "" ? null : Number(newItemNormalMax),
+            }
+          : undefined,
       )
       setNewItemName("")
       setNewItemUnit("")
+      setNewItemNormalMin("")
+      setNewItemNormalMax("")
       setAddingItem(false)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo añadir el elemento")
@@ -4186,6 +4424,24 @@ function CatalogEntryEditor({
                 onChange={(event) => setNewItemUnit(event.target.value)}
               />
             )}
+            {category === "lab" && (
+              <>
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Normal desde (opcional)"
+                  value={newItemNormalMin}
+                  onChange={(event) => setNewItemNormalMin(event.target.value)}
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="Normal hasta (opcional)"
+                  value={newItemNormalMax}
+                  onChange={(event) => setNewItemNormalMax(event.target.value)}
+                />
+              </>
+            )}
             {category === "symptom" && (
               <select
                 value={newItemSymptomCategory}
@@ -4261,6 +4517,44 @@ function LabEvolutionCharts({
     return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
   }
 
+  const rangeText = (min: number | null, max: number | null, unit: string | null) => {
+    if (min != null && max != null) return `${formatDecimal(min)}–${formatDecimal(max)}${unit ? ` ${unit}` : ""}`
+    if (max != null) return `hasta ${formatDecimal(max)}${unit ? ` ${unit}` : ""}`
+    if (min != null) return `desde ${formatDecimal(min)}${unit ? ` ${unit}` : ""}`
+    return null
+  }
+  const normalRangeLabel = (item: CatalogItem) => {
+    if (item.is_blood_pressure) {
+      const systolic = rangeText(item.normal_min, item.normal_max, item.unit)
+      const diastolic = rangeText(item.diastolic_normal_min, item.diastolic_normal_max, item.unit)
+      const parts = [
+        systolic && `Sistólica normal: ${systolic}`,
+        diastolic && `Diastólica normal: ${diastolic}`,
+      ].filter(Boolean)
+      return parts.length ? parts.join(" · ") : null
+    }
+    const value = rangeText(item.normal_min, item.normal_max, item.unit)
+    return value ? `Normal: ${value}` : null
+  }
+  const normalRangeGuides = (min: number | null, max: number | null, color: string) => {
+    if (min != null && max != null) {
+      return (
+        <ReferenceArea
+          y1={min}
+          y2={max}
+          fill={color}
+          fillOpacity={0.08}
+          stroke={color}
+          strokeOpacity={0.3}
+          strokeDasharray="4 3"
+        />
+      )
+    }
+    if (min != null) return <ReferenceLine y={min} stroke={color} strokeDasharray="4 3" />
+    if (max != null) return <ReferenceLine y={max} stroke={color} strokeDasharray="4 3" />
+    return null
+  }
+
   return (
     <div className="lab-charts-grid">
       {series.map(({ item, points }) => (
@@ -4274,6 +4568,7 @@ function LabEvolutionCharts({
               {points.length} {points.length === 1 ? "registro" : "registros"}
             </span>
           </div>
+          {normalRangeLabel(item) && <p className="module-hint">{normalRangeLabel(item)}</p>}
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
@@ -4287,6 +4582,14 @@ function LabEvolutionCharts({
                 />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--muted)", fontSize: 11 }} />
                 <Tooltip />
+                {item.is_blood_pressure ? (
+                  <>
+                    {normalRangeGuides(item.normal_min, item.normal_max, "#c0554d")}
+                    {normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
+                  </>
+                ) : (
+                  normalRangeGuides(item.normal_min, item.normal_max, "#398766")
+                )}
                 {item.is_blood_pressure ? (
                   <>
                     <Legend />

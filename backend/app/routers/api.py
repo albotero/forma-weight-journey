@@ -13,7 +13,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import FileResponse, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.calculations import dose_volume_ml, u100_units
@@ -24,7 +24,7 @@ from app.database import get_db
 from app.dependencies import current_user
 from app.models import BodyMeasurement, CatalogItem, Dose, EmailVerificationToken, JournalEntry, Medication, PasswordResetToken, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
 from app.password_reset_email import send_email_verification_email, send_password_reset_email
-from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, DoseCreate, DoseOut, EmailChangeRequest, EmailTokenConfirm, JournalEntryCreate,
+from app.schemas import (AccountOut, BodyMeasurementCreate, BodyMeasurementOut, CatalogItemCreate, CatalogItemOut, CatalogOrderUpdate, CatalogThresholdsUpdate, DoseCreate, DoseOut, EmailChangeRequest, EmailTokenConfirm, JournalEntryCreate,
                          JournalEntryOut, MedicationCreate, MedicationOut, MedicationsReviewToggle, PhotoRecordOut, ProfileOut,
                          PasswordChange, PasswordResetConfirm, PasswordResetRequest, PhotoUpdate, ProfileUpdate, ReminderToggle, Token, UserCreate, WeightCreate, WeightOut)
 from app.security import (create_access_token, create_refresh_token, hash_password,
@@ -84,7 +84,8 @@ def issue_email_verification(user: User, email: str, purpose: str, db: Session) 
         email=email,
         purpose=purpose,
         token_hash=hash_password_reset_token(token),
-        expires_at=now + timedelta(hours=settings.email_verification_token_hours),
+        expires_at=now +
+        timedelta(hours=settings.email_verification_token_hours),
     ))
     return token
 
@@ -232,7 +233,8 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
 def register(request: Request, background_tasks: BackgroundTasks, payload: UserCreate, db: Session = Depends(get_db)) -> dict[str, str]:
     validate_auth_origin(request)
     if not settings.smtp_configured:
-        raise HTTPException(status_code=503, detail="El registro requiere correo de verificación y el envío no está configurado.")
+        raise HTTPException(
+            status_code=503, detail="El registro requiere correo de verificación y el envío no está configurado.")
     email = str(payload.email).lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(
@@ -256,7 +258,8 @@ def login(request: Request, response: Response, form: OAuth2PasswordRequestForm 
         raise HTTPException(status_code=401, detail="Incorrect email or password", headers={
                             "WWW-Authenticate": "Bearer"})
     if user.email_verified_at is None:
-        raise HTTPException(status_code=403, detail="Confirma tu correo antes de iniciar sesión.")
+        raise HTTPException(
+            status_code=403, detail="Confirma tu correo antes de iniciar sesión.")
     issue_refresh_session(user, response, db)
     db.commit()
     return Token(access_token=create_access_token(str(user.id), user.auth_version or 0))
@@ -272,13 +275,15 @@ def request_email_verification(
 ) -> dict[str, str]:
     validate_auth_origin(request)
     if not settings.smtp_configured:
-        raise HTTPException(status_code=503, detail="El envío de correo no está configurado.")
+        raise HTTPException(
+            status_code=503, detail="El envío de correo no está configurado.")
     email = str(payload.email).lower()
     user = db.scalar(select(User).where(User.email == email))
     if user is not None and user.email_verified_at is None:
         token = issue_email_verification(user, email, "signup", db)
         db.commit()
-        background_tasks.add_task(send_email_verification_email, email, token, "signup")
+        background_tasks.add_task(
+            send_email_verification_email, email, token, "signup")
     return {"message": "Si existe una cuenta pendiente con ese correo, enviaremos un enlace de verificación."}
 
 
@@ -293,12 +298,14 @@ def confirm_email_verification(
     validate_auth_origin(request)
     now = utc_now()
     verification = db.scalar(select(EmailVerificationToken).where(
-        EmailVerificationToken.token_hash == hash_password_reset_token(payload.token),
+        EmailVerificationToken.token_hash == hash_password_reset_token(
+            payload.token),
         EmailVerificationToken.used_at.is_(None),
         EmailVerificationToken.expires_at > now,
     ).with_for_update())
     if verification is None:
-        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
 
     claimed = db.execute(update(EmailVerificationToken).where(
         EmailVerificationToken.id == verification.id,
@@ -307,12 +314,14 @@ def confirm_email_verification(
     ).values(used_at=now).execution_options(synchronize_session=False))
     if claimed.rowcount != 1:
         db.rollback()
-        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
 
     user = db.get(User, verification.user_id)
     if user is None:
         db.rollback()
-        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
     if verification.purpose == "signup" and user.email == verification.email and user.email_verified_at is None:
         user.email_verified_at = now
         message = "Correo confirmado. Ya puedes iniciar sesión."
@@ -321,7 +330,8 @@ def confirm_email_verification(
             User.email == verification.email, User.id != user.id))
         if existing is not None:
             db.rollback()
-            raise HTTPException(status_code=409, detail="Ese correo ya pertenece a otra cuenta.")
+            raise HTTPException(
+                status_code=409, detail="Ese correo ya pertenece a otra cuenta.")
         user.email = verification.email
         user.pending_email = None
         user.auth_version = (user.auth_version or 0) + 1
@@ -332,7 +342,8 @@ def confirm_email_verification(
         message = "Correo actualizado. Inicia sesión de nuevo."
     else:
         db.rollback()
-        raise HTTPException(status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
+        raise HTTPException(
+            status_code=400, detail="El enlace expiró o no es válido. Solicita uno nuevo.")
 
     db.commit()
     clear_refresh_cookie(response)
@@ -350,20 +361,25 @@ def request_email_change(
 ) -> dict[str, str]:
     validate_auth_origin(request)
     if not settings.smtp_configured:
-        raise HTTPException(status_code=503, detail="El envío de correo no está configurado.")
+        raise HTTPException(
+            status_code=503, detail="El envío de correo no está configurado.")
     if user.email_verified_at is None:
-        raise HTTPException(status_code=403, detail="Confirma tu correo actual antes de cambiarlo.")
+        raise HTTPException(
+            status_code=403, detail="Confirma tu correo actual antes de cambiarlo.")
     if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="La contraseña actual no es correcta.")
+        raise HTTPException(
+            status_code=400, detail="La contraseña actual no es correcta.")
     new_email = str(payload.new_email).lower()
     if new_email == user.email:
-        raise HTTPException(status_code=422, detail="El nuevo correo debe ser distinto.")
+        raise HTTPException(
+            status_code=422, detail="El nuevo correo debe ser distinto.")
     existing = db.scalar(select(User.id).where(
         User.email == new_email, User.id != user.id))
     pending = db.scalar(select(User.id).where(
         User.pending_email == new_email, User.id != user.id))
     if existing is not None or pending is not None:
-        raise HTTPException(status_code=409, detail="Ese correo ya pertenece a otra cuenta o solicitud pendiente.")
+        raise HTTPException(
+            status_code=409, detail="Ese correo ya pertenece a otra cuenta o solicitud pendiente.")
 
     user.pending_email = new_email
     token = issue_email_verification(user, new_email, "email-change", db)
@@ -619,6 +635,9 @@ def set_medications_reviewed(payload: MedicationsReviewToggle, user: User = Depe
 
 
 DEFAULT_BLOOD_PRESSURE_NAME = "Presión arterial"
+# Typical normal ranges for an average adult; users can adjust or clear them.
+DEFAULT_SYSTOLIC_NORMAL_RANGE = (90.0, 120.0)
+DEFAULT_DIASTOLIC_NORMAL_RANGE = (60.0, 80.0)
 
 
 def _ensure_default_catalog(db: Session, user_id: int, category: str) -> None:
@@ -627,8 +646,13 @@ def _ensure_default_catalog(db: Session, user_id: int, category: str) -> None:
     exists = db.scalar(select(CatalogItem).where(
         CatalogItem.user_id == user_id, CatalogItem.category == "lab", CatalogItem.is_blood_pressure.is_(True)))
     if exists is None:
-        db.add(CatalogItem(user_id=user_id, category="lab", name=DEFAULT_BLOOD_PRESSURE_NAME,
-                           unit="mmHg", is_blood_pressure=True))
+        db.add(CatalogItem(
+            user_id=user_id, category="lab", name=DEFAULT_BLOOD_PRESSURE_NAME,
+            unit="mmHg", is_blood_pressure=True,
+            normal_min=DEFAULT_SYSTOLIC_NORMAL_RANGE[0], normal_max=DEFAULT_SYSTOLIC_NORMAL_RANGE[1],
+            diastolic_normal_min=DEFAULT_DIASTOLIC_NORMAL_RANGE[
+                0], diastolic_normal_max=DEFAULT_DIASTOLIC_NORMAL_RANGE[1],
+        ))
         db.commit()
 
 
@@ -639,21 +663,64 @@ def list_catalog_items(category: str, user: User = Depends(current_user), db: Se
     _ensure_default_catalog(db, user.id, category)
     statement = select(CatalogItem).where(
         CatalogItem.user_id == user.id, CatalogItem.category == category
-    ).order_by(CatalogItem.is_blood_pressure.desc(), CatalogItem.name)
+    ).order_by(CatalogItem.is_blood_pressure.desc(), CatalogItem.sort_order, CatalogItem.name)
+    return list(db.scalars(statement))
+
+
+@router.put("/catalog/{category}/order", response_model=list[CatalogItemOut])
+def reorder_catalog_items(category: str, payload: CatalogOrderUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[CatalogItem]:
+    if category not in ("symptom", "goal", "lab"):
+        raise HTTPException(status_code=422, detail="Unknown catalog category")
+    items = {item.id: item for item in db.scalars(select(CatalogItem).where(
+        CatalogItem.user_id == user.id, CatalogItem.category == category)).all()}
+    if set(payload.item_ids) != set(items):
+        raise HTTPException(
+            status_code=422, detail="The order must include exactly the items in this category")
+    for index, item_id in enumerate(payload.item_ids):
+        items[item_id].sort_order = index
+    db.commit()
+    statement = select(CatalogItem).where(
+        CatalogItem.user_id == user.id, CatalogItem.category == category
+    ).order_by(CatalogItem.is_blood_pressure.desc(), CatalogItem.sort_order, CatalogItem.name)
     return list(db.scalars(statement))
 
 
 @router.post("/catalog", response_model=CatalogItemOut, status_code=status.HTTP_201_CREATED)
 def create_catalog_item(payload: CatalogItemCreate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> CatalogItem:
+    if payload.diastolic_normal_min is not None or payload.diastolic_normal_max is not None:
+        raise HTTPException(
+            status_code=422, detail="Diastolic thresholds can only be set on the blood pressure item")
     existing = db.scalars(select(CatalogItem).where(
         CatalogItem.user_id == user.id, CatalogItem.category == payload.category)).all()
     normalized = payload.name.strip()
     if any(item.name.strip().casefold() == normalized.casefold() for item in existing):
         raise HTTPException(
             status_code=409, detail="This item already exists in your catalog")
+    next_order = (db.scalar(select(func.max(CatalogItem.sort_order)).where(
+        CatalogItem.user_id == user.id, CatalogItem.category == payload.category)) or 0) + 1
     item = CatalogItem(user_id=user.id, category=payload.category, name=normalized,
-                       unit=payload.unit, symptom_category=payload.symptom_category)
+                       unit=payload.unit, symptom_category=payload.symptom_category,
+                       normal_min=payload.normal_min, normal_max=payload.normal_max,
+                       sort_order=next_order)
     db.add(item)
+    db.commit()
+    db.refresh(item)
+    return item
+
+
+@router.patch("/catalog/{item_id}/thresholds", response_model=CatalogItemOut)
+def update_catalog_item_thresholds(item_id: int, payload: CatalogThresholdsUpdate, user: User = Depends(current_user), db: Session = Depends(get_db)) -> CatalogItem:
+    item = db.scalar(select(CatalogItem).where(
+        CatalogItem.id == item_id, CatalogItem.user_id == user.id))
+    if item is None:
+        raise HTTPException(status_code=404, detail="Catalog item not found")
+    if not item.is_blood_pressure and (payload.diastolic_normal_min is not None or payload.diastolic_normal_max is not None):
+        raise HTTPException(
+            status_code=422, detail="Diastolic thresholds only apply to blood pressure")
+    item.normal_min = payload.normal_min
+    item.normal_max = payload.normal_max
+    item.diastolic_normal_min = payload.diastolic_normal_min if item.is_blood_pressure else None
+    item.diastolic_normal_max = payload.diastolic_normal_max if item.is_blood_pressure else None
     db.commit()
     db.refresh(item)
     return item

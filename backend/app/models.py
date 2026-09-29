@@ -11,7 +11,8 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    pending_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    pending_email: Mapped[str | None] = mapped_column(
+        String(320), nullable=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255))
@@ -212,8 +213,10 @@ class EmailVerificationToken(Base):
         "users.id", ondelete="CASCADE"), index=True)
     email: Mapped[str] = mapped_column(String(320))
     purpose: Mapped[str] = mapped_column(String(24))
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    token_hash: Mapped[str] = mapped_column(
+        String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True)
     used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -233,6 +236,14 @@ class CatalogItem(Base):
         String(40), nullable=True)
     is_blood_pressure: Mapped[bool] = mapped_column(
         Boolean, default=False)
+    normal_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    normal_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    diastolic_normal_min: Mapped[float |
+                                 None] = mapped_column(Float, nullable=True)
+    diastolic_normal_max: Mapped[float |
+                                 None] = mapped_column(Float, nullable=True)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())
 

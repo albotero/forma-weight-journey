@@ -49,6 +49,11 @@ export type CatalogItem = {
   unit: string | null
   symptom_category: "Gastrointestinal" | "Otro" | null
   is_blood_pressure: boolean
+  normal_min: number | null
+  normal_max: number | null
+  diastolic_normal_min: number | null
+  diastolic_normal_max: number | null
+  sort_order: number
 }
 export type CatalogResult = {
   catalog_item_id: number

@@ -185,7 +185,10 @@ def build_export(db: Session, user: User, storage_path: str) -> bytes:
         manifest["catalog_items"].append({
             "key": catalog_keys[row.id], "category": row.category, "name": row.name,
             "unit": row.unit, "symptom_category": row.symptom_category,
-            "is_blood_pressure": row.is_blood_pressure, "created_at": _iso(row.created_at),
+            "is_blood_pressure": row.is_blood_pressure, "normal_min": row.normal_min,
+            "normal_max": row.normal_max, "diastolic_normal_min": row.diastolic_normal_min,
+            "diastolic_normal_max": row.diastolic_normal_max, "sort_order": row.sort_order,
+            "created_at": _iso(row.created_at),
         })
 
     archive_buffer = BytesIO()
@@ -301,7 +304,7 @@ def parse_export(content: bytes, expected_email: str) -> ParsedExport:
     catalog_keys: set[str] = set()
     normalized_catalog: list[dict[str, Any]] = []
     for row in catalog_items:
-        if not isinstance(row, dict) or set(row) - (set(CatalogItemCreate.model_fields) | {"key", "is_blood_pressure", "created_at"}):
+        if not isinstance(row, dict) or set(row) - (set(CatalogItemCreate.model_fields) | {"key", "is_blood_pressure", "sort_order", "created_at"}):
             raise ValueError("A catalog record contains unsupported fields")
         key = row.get("key")
         if not isinstance(key, str) or not _KEY_PATTERN.fullmatch(key) or not key.startswith("catalog-") or key in catalog_keys:
@@ -309,16 +312,24 @@ def parse_export(content: bytes, expected_email: str) -> ParsedExport:
         if not isinstance(row.get("is_blood_pressure", False), bool):
             raise ValueError(
                 "A catalog record has an invalid blood pressure flag")
+        sort_order = row.get("sort_order", 0)
+        if isinstance(sort_order, bool) or not isinstance(sort_order, int) or sort_order < 0:
+            raise ValueError("A catalog record has an invalid sort order")
         catalog_keys.add(key)
         model = _model_data(CatalogItemCreate, row, {
-                            "key", "is_blood_pressure", "created_at"})
+                            "key", "is_blood_pressure", "sort_order", "created_at"})
         normalized = model.model_dump(mode="python")
-        if row.get("is_blood_pressure", False) and (
+        is_blood_pressure = row.get("is_blood_pressure", False)
+        if is_blood_pressure and (
                 normalized["category"] != "lab" or normalized["name"] != "Presión arterial"):
             raise ValueError(
                 "The built-in blood pressure catalog entry is invalid")
+        if not is_blood_pressure and (
+                normalized["diastolic_normal_min"] is not None or normalized["diastolic_normal_max"] is not None):
+            raise ValueError(
+                "Diastolic thresholds only apply to blood pressure")
         normalized.update(
-            key=key, is_blood_pressure=row.get("is_blood_pressure", False),
+            key=key, is_blood_pressure=is_blood_pressure, sort_order=sort_order,
             created_at=_parse_datetime(
                 row.get("created_at"), "created_at", optional=True),
         )
@@ -491,6 +502,9 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
             item = CatalogItem(
                 user_id=user.id, category=row["category"], name=row["name"], unit=row["unit"],
                 symptom_category=row["symptom_category"], is_blood_pressure=row["is_blood_pressure"],
+                normal_min=row["normal_min"], normal_max=row["normal_max"],
+                diastolic_normal_min=row["diastolic_normal_min"], diastolic_normal_max=row["diastolic_normal_max"],
+                sort_order=row["sort_order"],
             )
             if row["created_at"] is not None:
                 item.created_at = row["created_at"]
