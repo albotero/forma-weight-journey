@@ -4375,7 +4375,7 @@ function CatalogEntryEditor({
             const selection = selections[item.id] ?? { checked: false, value: "", systolic: "", diastolic: "" }
             return (
               <div className="catalog-selection-row" key={item.id}>
-                <label className="catalog-selection-checkbox">
+                <label className={`catalog-selection-checkbox${selection.checked ? " selected" : ""}`}>
                   <input type="checkbox" checked={selection.checked} onChange={() => toggle(item.id)} />
                   {item.name}
                   {item.unit ? ` (${item.unit})` : ""}
