@@ -822,6 +822,26 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     assert weight_reminder["data"]["reminder_at"] != original_date
 
 
+def test_lab_results_accept_text_values_alongside_numeric_ones() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "lab-text-value@example.com", "password": "lab-text-value-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    entry = client.post("/api/entries", headers=headers, json={
+        "module": "labs", "title": "Panel de laboratorio", "data": {
+            "results": [
+                {"catalog_item_id": 1, "name": "Glucosa", "unit": "mg/dL",
+                 "value": 95.5, "text_value": None},
+                {"catalog_item_id": 2, "name": "Antígeno", "unit": None,
+                 "value": None, "text_value": "Negativo"},
+            ],
+        },
+    })
+    assert entry.status_code == 201
+    results = entry.json()["data"]["results"]
+    assert results[0]["value"] == 95.5 and results[0]["text_value"] is None
+    assert results[1]["value"] is None and results[1]["text_value"] == "Negativo"
+
+
 def test_automatic_reminder_tracks_latest_blood_pressure_lab_entry() -> None:
     registered = client.post("/api/auth/register", json={
         "email": "blood-pressure-reminder@example.com", "password": "blood-pressure-password-123"})

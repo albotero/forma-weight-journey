@@ -154,6 +154,7 @@ const navigation: { label: Section; icon: typeof Home }[] = [
 const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
 const formatDecimal = (value: number) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
+const isNumericString = (raw: string) => /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(raw.trim())
 const formatDateTime = (value: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value))
 async function loadAllRecords<T>(path: string, token: string, pageSize = 500): Promise<T[]> {
@@ -3245,7 +3246,9 @@ function ModuleWorkspace(props: {
                             ? `${result.systolic}/${result.diastolic} mmHg (media ${result.mean})`
                             : result.value != null
                               ? `${formatDecimal(result.value)}${result.unit ? ` ${result.unit}` : ""}`
-                              : `${result.severity ?? result.intensity}/10`}
+                              : result.text_value != null
+                                ? result.text_value
+                                : `${result.severity ?? result.intensity}/10`}
                         </strong>
                       </div>
                     ))}
@@ -3928,11 +3931,13 @@ function CatalogEntryEditor({
             value:
               existing?.value != null
                 ? String(existing.value)
-                : existing?.severity != null
-                  ? String(existing.severity)
-                  : existing?.intensity != null
-                    ? String(existing.intensity)
-                    : "",
+                : existing?.text_value != null
+                  ? existing.text_value
+                  : existing?.severity != null
+                    ? String(existing.severity)
+                    : existing?.intensity != null
+                      ? String(existing.intensity)
+                      : "",
             systolic: existing?.systolic != null ? String(existing.systolic) : "",
             diastolic: existing?.diastolic != null ? String(existing.diastolic) : "",
           },
@@ -4000,6 +4005,7 @@ function CatalogEntryEditor({
           name: item.name,
           unit: item.unit,
           value: null,
+          text_value: null,
           severity: null,
           intensity: null,
           systolic,
@@ -4007,13 +4013,17 @@ function CatalogEntryEditor({
           mean: Math.round(((systolic + diastolic) / 2) * 100) / 100,
           category: null,
         })
-      } else if (selection.value !== "") {
-        const numeric = Number(selection.value)
+      } else {
+        const raw = selection.value.trim()
+        if (raw === "") continue
+        const labIsNumeric = category === "lab" && isNumericString(raw)
+        const numeric = category === "lab" ? (labIsNumeric ? Number(raw) : null) : Number(raw)
         results.push({
           catalog_item_id: item.id,
           name: item.name,
           unit: item.unit,
           value: category === "lab" ? numeric : null,
+          text_value: category === "lab" && !labIsNumeric ? raw : null,
           severity: category === "symptom" ? numeric : null,
           intensity: category === "goal" ? numeric : null,
           systolic: null,
@@ -4079,20 +4089,25 @@ function CatalogEntryEditor({
           />
         </label>
         {category === "lab" && (
-          <div className="form-two-columns">
-            <label>
-              Contexto
-              <select value={phase} onChange={(event) => setPhase(event.target.value)}>
-                <option value="">Seleccionar…</option>
-                <option>Basal</option>
-                <option>Seguimiento</option>
-              </select>
-            </label>
-            <label>
-              Laboratorio <span className="optional">opcional</span>
-              <input value={laboratory} onChange={(event) => setLaboratory(event.target.value)} />
-            </label>
-          </div>
+          <>
+            <div className="form-two-columns">
+              <label>
+                Contexto
+                <select value={phase} onChange={(event) => setPhase(event.target.value)}>
+                  <option value="">Seleccionar…</option>
+                  <option>Basal</option>
+                  <option>Seguimiento</option>
+                </select>
+              </label>
+              <label>
+                Laboratorio <span className="optional">opcional</span>
+                <input value={laboratory} onChange={(event) => setLaboratory(event.target.value)} />
+              </label>
+            </div>
+            <p className="module-hint">
+              El valor puede ser numérico o texto (por ejemplo, "Negativo"). Solo los valores numéricos se grafican.
+            </p>
+          </>
         )}
         {category === "symptom" && (
           <label>
@@ -4139,11 +4154,11 @@ function CatalogEntryEditor({
                   ) : (
                     <input
                       className="catalog-selection-values"
-                      type="number"
-                      step={category === "lab" ? "0.01" : "1"}
-                      min="0"
+                      type={category === "lab" ? "text" : "number"}
+                      step={category === "lab" ? undefined : "1"}
+                      min={category === "lab" ? undefined : "0"}
                       max={category === "lab" ? undefined : "10"}
-                      placeholder={category === "lab" ? "Valor" : intensityLabel}
+                      placeholder={category === "lab" ? "Valor numérico o texto" : intensityLabel}
                       value={selection.value}
                       onChange={(event) => updateField(item.id, "value", event.target.value)}
                     />
@@ -4225,7 +4240,7 @@ function LabEvolutionCharts({
         .filter((entry) => Array.isArray(entry.data.results))
         .flatMap((entry) => {
           const result = (entry.data.results as CatalogResult[]).find((row) => row.catalog_item_id === item.id)
-          if (!result) return []
+          if (!result || (!item.is_blood_pressure && result.value == null)) return []
           return [
             {
               date: formatDate(entry.occurred_at, timezone),
@@ -4243,7 +4258,7 @@ function LabEvolutionCharts({
     .filter((series) => series.points.length > 0)
 
   if (!series.length) {
-    return <EmptyModule text="Registra resultados para ver la evolución de cada prueba." />
+    return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
   }
 
   return (

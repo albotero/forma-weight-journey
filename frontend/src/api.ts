@@ -55,6 +55,7 @@ export type CatalogResult = {
   name: string
   unit: string | null
   value: number | null
+  text_value: string | null
   severity: number | null
   intensity: number | null
   systolic: number | null
