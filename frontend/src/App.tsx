@@ -4571,11 +4571,13 @@ function LabEvolutionCharts({
           stroke={color}
           strokeOpacity={0.3}
           strokeDasharray="4 3"
+          ifOverflow="extendDomain"
         />
       )
     }
-    if (min != null) return <ReferenceLine y={min} stroke={color} strokeDasharray="4 3" />
-    if (max != null) return <ReferenceLine y={max} stroke={color} strokeDasharray="4 3" />
+    // Recharts discards reference lines/areas outside the auto domain unless told to extend it
+    if (min != null) return <ReferenceLine y={min} stroke={color} strokeDasharray="4 3" ifOverflow="extendDomain" />
+    if (max != null) return <ReferenceLine y={max} stroke={color} strokeDasharray="4 3" ifOverflow="extendDomain" />
     return null
   }
 
