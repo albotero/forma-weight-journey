@@ -207,6 +207,9 @@
 .analysis-chart-panel {
   padding: 20px;
 }
+.analysis-chart-panel > .module-hint {
+  margin: 8px 0 0;
+}
 .analysis-delta {
   display: block;
   margin-top: 5px;

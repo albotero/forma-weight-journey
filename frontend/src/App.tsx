@@ -2616,6 +2616,15 @@ function ModuleWorkspace(props: {
         : catalogCategory === "lab"
           ? "labs"
           : undefined
+  const orderedCatalog =
+    catalogCategory === "lab"
+      ? [...catalog].sort(
+          (a, b) =>
+            Number(b.is_blood_pressure) - Number(a.is_blood_pressure) ||
+            a.sort_order - b.sort_order ||
+            a.name.localeCompare(b.name),
+        )
+      : catalog
 
   useEffect(() => {
     if (!catalogCategory) return
@@ -2672,16 +2681,16 @@ function ModuleWorkspace(props: {
 
   async function moveCatalogItem(item: CatalogItem, direction: "up" | "down") {
     if (!catalogCategory) return
-    const orderable = catalog.filter((entry) => !entry.is_blood_pressure)
+    const orderable = orderedCatalog.filter((entry) => !entry.is_blood_pressure)
     const index = orderable.findIndex((entry) => entry.id === item.id)
     const targetIndex = direction === "up" ? index - 1 : index + 1
     if (index < 0 || targetIndex < 0 || targetIndex >= orderable.length) return
     const reordered = [...orderable]
     const [moved] = reordered.splice(index, 1)
     reordered.splice(targetIndex, 0, moved)
-    const bloodPressureItem = catalog.find((entry) => entry.is_blood_pressure)
+    const bloodPressureItem = orderedCatalog.find((entry) => entry.is_blood_pressure)
     const fullOrder = bloodPressureItem ? [bloodPressureItem, ...reordered] : reordered
-    setCatalog(fullOrder)
+    setCatalog(fullOrder.map((entry, sortOrder) => ({ ...entry, sort_order: sortOrder })))
     try {
       const updated = await api<CatalogItem[]>(`/catalog/${catalogCategory}/order`, token, {
         method: "PUT",
@@ -3250,12 +3259,14 @@ function ModuleWorkspace(props: {
         <>
           {catalog.length > 0 && (
             <div className="catalog-chip-list">
-              {catalog.map((item) => {
+              {orderedCatalog.map((item) => {
                 const orderableIndex =
                   catalogCategory === "lab" && !item.is_blood_pressure
-                    ? catalog.filter((entry) => !entry.is_blood_pressure).findIndex((entry) => entry.id === item.id)
+                    ? orderedCatalog
+                        .filter((entry) => !entry.is_blood_pressure)
+                        .findIndex((entry) => entry.id === item.id)
                     : -1
-                const orderableCount = catalog.filter((entry) => !entry.is_blood_pressure).length
+                const orderableCount = orderedCatalog.filter((entry) => !entry.is_blood_pressure).length
                 return (
                   <span className="catalog-chip" key={item.id}>
                     {item.name}
@@ -3503,7 +3514,7 @@ function ModuleWorkspace(props: {
       {showCatalogEntryForm && catalogCategory && (
         <CatalogEntryEditor
           category={catalogCategory}
-          catalog={catalog}
+          catalog={orderedCatalog}
           entry={editingCatalogEntry ?? undefined}
           timezone={userTimezone}
           onClose={() => {
