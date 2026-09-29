@@ -4541,6 +4541,20 @@ function LabEvolutionCharts({
     return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
   }
 
+  const yDomain = (item: CatalogItem, points: (typeof series)[number]["points"]): [number, number] => {
+    const numericValues = item.is_blood_pressure
+      ? points.flatMap((point) => [point.systolic, point.diastolic, point.mean])
+      : points.map((point) => point.value)
+    const thresholds = item.is_blood_pressure
+      ? [item.normal_min, item.normal_max, item.diastolic_normal_min, item.diastolic_normal_max]
+      : [item.normal_min, item.normal_max]
+    const domainValues = [...numericValues, ...thresholds].filter((value): value is number => value != null)
+    const domainMin = Math.min(...domainValues)
+    const domainMax = Math.max(...domainValues)
+    const padding = Math.max((domainMax - domainMin) * 0.1, 1)
+    return [domainMin - padding, domainMax + padding]
+  }
+
   const rangeText = (min: number | null, max: number | null, unit: string | null) => {
     if (min != null && max != null) return `${formatDecimal(min)}–${formatDecimal(max)}${unit ? ` ${unit}` : ""}`
     if (max != null) return `hasta ${formatDecimal(max)}${unit ? ` ${unit}` : ""}`
@@ -4607,6 +4621,7 @@ function LabEvolutionCharts({
                   minTickGap={30}
                 />
                 <YAxis
+                  domain={yDomain(item, points)}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
