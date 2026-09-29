@@ -184,7 +184,8 @@ def test_email_change_requires_password_and_confirmation_and_revokes_sessions() 
         "username": new_email, "password": password,
     })
     assert new_login.status_code == 200
-    new_headers = {"Authorization": f"Bearer {new_login.json()['access_token']}"}
+    new_headers = {
+        "Authorization": f"Bearer {new_login.json()['access_token']}"}
     changed_account = client.get("/api/account", headers=new_headers).json()
     assert changed_account["email"] == new_email
     assert changed_account["pending_email"] is None
@@ -450,7 +451,8 @@ def test_verification_email_contains_expiring_fragment_link_and_date(monkeypatch
     monkeypatch.setattr(settings, "smtp_username", "")
     monkeypatch.setattr(settings, "smtp_from_email", "noreply@example.com")
     monkeypatch.setattr(settings, "smtp_use_ssl", False)
-    monkeypatch.setattr(settings, "public_app_url", "https://forma.example.com")
+    monkeypatch.setattr(settings, "public_app_url",
+                        "https://forma.example.com")
     sent = []
 
     class FakeSMTP:
@@ -470,11 +472,13 @@ def test_verification_email_contains_expiring_fragment_link_and_date(monkeypatch
             sent.append((self.tls_enabled, message))
 
     monkeypatch.setattr("app.password_reset_email.smtplib.SMTP", FakeSMTP)
-    send_email_verification_email("verify@example.com", "verify+/token", "signup")
+    send_email_verification_email(
+        "verify@example.com", "verify+/token", "signup")
 
     assert sent and sent[0][0]
     message = sent[0][1]
-    assert abs((datetime.now(timezone.utc) - parsedate_to_datetime(message["Date"])).total_seconds()) < 10
+    assert abs((datetime.now(timezone.utc) -
+               parsedate_to_datetime(message["Date"])).total_seconds()) < 10
     assert "https://forma.example.com/#verify?token=verify%2B%2Ftoken" in message.get_content()
 
 
@@ -578,6 +582,46 @@ def test_numeric_inputs_allow_two_decimals_and_reject_more() -> None:
     assert entry.status_code == 201
     assert client.post("/api/entries", headers=headers, json={
         "module": "activity", "title": "Caminata", "data": {"distance_km": 2.253}}).status_code == 422
+
+
+def test_activity_entries_support_single_activities_and_weekly_stats() -> None:
+    registered = client.post("/api/auth/register", json={
+        "email": "activity-types@example.com", "password": "activity-types-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    single = client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Bicicleta", "data": {
+            "entry_type": "single", "activity_type": "Bicicleta",
+            "duration_min": 45, "distance_km": 12.5, "calories_kcal": 320,
+        },
+    })
+    assert single.status_code == 201
+    assert single.json()["data"]["activity_type"] == "Bicicleta"
+
+    other = client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Senderismo", "data": {
+            "entry_type": "single", "activity_type": "Otro",
+            "other_activity": "Senderismo", "duration_min": 90,
+        },
+    })
+    assert other.status_code == 201
+
+    weekly = client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Resumen semanal", "data": {
+            "entry_type": "weekly", "weekly_calories_kcal": 2100,
+            "weekly_steps": 56000, "weekly_distance_km": 35.25,
+        },
+    })
+    assert weekly.status_code == 201
+    assert weekly.json()["data"]["weekly_steps"] == 56000
+
+    assert client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Vacío", "data": {"entry_type": "weekly"},
+    }).status_code == 422
+    assert client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Negativo", "data": {
+            "entry_type": "weekly", "weekly_steps": -1,
+        },
+    }).status_code == 422
 
 
 def test_composition_readings_are_returned_newest_first() -> None:

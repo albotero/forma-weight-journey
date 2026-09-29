@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+import math
 from typing import Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -229,6 +230,63 @@ class JournalEntryCreate(NumericPrecisionModel):
     title: str = Field(min_length=1, max_length=160)
     data: dict[str, object] = Field(default_factory=dict)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def activity_data_is_valid(self) -> "JournalEntryCreate":
+        if self.module != "activity" or "entry_type" not in self.data:
+            return self
+
+        entry_type = self.data["entry_type"]
+        if entry_type == "weekly":
+            fields = {
+                "weekly_calories_kcal": (0, 200000),
+                "weekly_steps": (0, 2000000),
+                "weekly_distance_km": (0, 10000),
+            }
+            values = [self.data.get(key) for key in fields]
+            if not any(value is not None for value in values):
+                raise ValueError(
+                    "At least one weekly activity total is required")
+            for key, (minimum, maximum) in fields.items():
+                value = self.data.get(key)
+                if value is None:
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                    raise ValueError(f"{key} must be a finite number")
+                if not minimum <= value <= maximum:
+                    raise ValueError(f"{key} is outside the supported range")
+                if key == "weekly_steps" and not isinstance(value, int):
+                    raise ValueError("weekly_steps must be a whole number")
+            return self
+
+        if entry_type != "single":
+            raise ValueError("entry_type must be 'single' or 'weekly'")
+        activity_type = self.data.get("activity_type")
+        choices = {"Caminata", "Correr", "Bicicleta", "Natación",
+                   "Entrenamiento de fuerza", "Yoga/Pilates", "Otro"}
+        if not isinstance(activity_type, str) or activity_type not in choices:
+            raise ValueError("Select a supported activity type")
+        if activity_type == "Otro":
+            other_activity = self.data.get("other_activity")
+            if not isinstance(other_activity, str) or not other_activity.strip() or len(other_activity) > 120:
+                raise ValueError("Describe the other activity")
+        fields = {
+            "duration_min": (0, 1440),
+            "distance_km": (0, 1000),
+            "calories_kcal": (0, 100000),
+        }
+        values = [self.data.get(key) for key in fields]
+        if not any(value is not None for value in values):
+            raise ValueError("At least one activity measurement is required")
+        for key, (minimum, maximum) in fields.items():
+            value = self.data.get(key)
+            if value is None:
+                continue
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{key} must be a finite number")
+            if not minimum <= value <= maximum:
+                raise ValueError(f"{key} is outside the supported range")
+        return self
 
 
 class JournalEntryOut(JournalEntryCreate):

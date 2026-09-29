@@ -102,6 +102,16 @@ type Section =
 type AuthMode = "login" | "register" | "forgot" | "reset" | "verify-request"
 type ModalType = "weight" | "dose" | "body" | "quick" | "medication" | null
 type CompositionValues = Omit<WeightEntry, "id" | "measured_at" | "weight_kg" | "source" | "notes">
+const activityTypes = [
+  "Caminata",
+  "Correr",
+  "Bicicleta",
+  "Natación",
+  "Entrenamiento de fuerza",
+  "Yoga/Pilates",
+  "Otro",
+] as const
+type ActivityType = (typeof activityTypes)[number]
 const WEB_NOTIFICATIONS_ENABLED_KEY = "forma:web-notifications-enabled"
 const NOTIFIED_REMINDERS_KEY = "forma:notified-reminders"
 const sectionPaths: Record<Section, string> = {
@@ -1216,12 +1226,8 @@ function AccountSettings({
     setError("")
     setSuccess("")
     try {
-      const message = await requestEmailChange(
-        token,
-        String(values.get("current_password")),
-        newEmail,
-      )
-      setAccount((current) => current ? { ...current, pending_email: newEmail } : current)
+      const message = await requestEmailChange(token, String(values.get("current_password")), newEmail)
+      setAccount((current) => (current ? { ...current, pending_email: newEmail } : current))
       setSuccess(message)
       form.reset()
     } catch (reason) {
@@ -1825,12 +1831,26 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
           {mode === "login" && (
             <>
               <div className="auth-switch">
-                <button type="button" onClick={() => { setMode("forgot"); setError(""); setSuccess("") }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("forgot")
+                    setError("")
+                    setSuccess("")
+                  }}
+                >
                   ¿Olvidaste tu contraseña?
                 </button>
               </div>
               <div className="auth-switch">
-                <button type="button" onClick={() => { setMode("verify-request"); setError(""); setSuccess("") }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode("verify-request")
+                    setError("")
+                    setSuccess("")
+                  }}
+                >
                   ¿No recibiste el correo de verificación?
                 </button>
               </div>
@@ -1841,7 +1861,11 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void requestEmailVerification(email).then(setSuccess).catch((reason: Error) => setError(reason.message))}
+                onClick={() =>
+                  void requestEmailVerification(email)
+                    .then(setSuccess)
+                    .catch((reason: Error) => setError(reason.message))
+                }
               >
                 Reenviar correo de verificación
               </button>
@@ -1911,8 +1935,12 @@ function EmailVerificationScreen({ token }: { token: string }) {
     <div className="auth-layout">
       <div className="auth-story">
         <div className="brand auth-brand">
-          <div className="brand-mark"><Activity size={20} /></div>
-          <span>forma<span className="brand-period">.</span></span>
+          <div className="brand-mark">
+            <Activity size={20} />
+          </div>
+          <span>
+            forma<span className="brand-period">.</span>
+          </span>
         </div>
         <div className="auth-story-copy">
           <div className="eyebrow">CUENTA PRIVADA</div>
@@ -2476,9 +2504,16 @@ const journalDefinitions: Record<
   activity: {
     title: "actividad",
     fields: [
+      { key: "entry_type", label: "Tipo de registro" },
+      { key: "activity_type", label: "Actividad" },
+      { key: "other_activity", label: "Otra actividad" },
       { key: "duration_min", label: "Duración (min)", type: "number" },
       { key: "distance_km", label: "Distancia (km)", type: "number" },
+      { key: "calories_kcal", label: "Calorías (kcal)", type: "number" },
       { key: "intensity", label: "Intensidad", options: ["Suave", "Moderada", "Intensa"] },
+      { key: "weekly_calories_kcal", label: "Calorías semanales (kcal)", type: "number" },
+      { key: "weekly_steps", label: "Pasos semanales", type: "number" },
+      { key: "weekly_distance_km", label: "Distancia semanal (km)", type: "number" },
     ],
   },
   labs: {
@@ -3132,7 +3167,11 @@ function ModuleWorkspace(props: {
                           <strong>
                             {module === "reminders" && key === "reminder_at"
                               ? formatDateTime(String(entry.data[key]), userTimezone)
-                              : String(entry.data[key])}
+                              : module === "activity" && key === "entry_type"
+                                ? entry.data.entry_type === "weekly"
+                                  ? "Estadísticas semanales"
+                                  : "Actividad individual"
+                                : String(entry.data[key])}
                           </strong>
                         </div>
                       ))}
@@ -3334,18 +3373,30 @@ function ModuleWorkspace(props: {
         </div>
       )}
 
-      {showEntryForm && module && (
-        <JournalEntryEditor
-          module={module}
-          entry={editingEntry ?? undefined}
-          timezone={userTimezone}
-          onClose={() => {
-            setShowEntryForm(false)
-            setEditingEntry(null)
-          }}
-          onSave={saveJournal}
-        />
-      )}
+      {showEntryForm &&
+        module &&
+        (module === "activity" ? (
+          <ActivityEntryEditor
+            entry={editingEntry ?? undefined}
+            timezone={userTimezone}
+            onClose={() => {
+              setShowEntryForm(false)
+              setEditingEntry(null)
+            }}
+            onSave={saveJournal}
+          />
+        ) : (
+          <JournalEntryEditor
+            module={module}
+            entry={editingEntry ?? undefined}
+            timezone={userTimezone}
+            onClose={() => {
+              setShowEntryForm(false)
+              setEditingEntry(null)
+            }}
+            onSave={saveJournal}
+          />
+        ))}
       {showCatalogEntryForm && catalogCategory && (
         <CatalogEntryEditor
           category={catalogCategory}
@@ -3446,6 +3497,266 @@ function EmptyModule({ text }: { text: string }) {
       <Activity size={20} />
       <span>{text}</span>
     </div>
+  )
+}
+
+function ActivityEntryEditor({
+  entry,
+  timezone,
+  onClose,
+  onSave,
+}: {
+  entry?: JournalEntry
+  timezone: string
+  onClose: () => void
+  onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
+}) {
+  const isLegacyEntry = Boolean(entry && !("entry_type" in entry.data))
+  const [entryType, setEntryType] = useState<"single" | "weekly">(() =>
+    entry?.data.entry_type === "weekly" ? "weekly" : "single",
+  )
+  const [activityType, setActivityType] = useState<ActivityType>(() => {
+    const savedType = entry?.data.activity_type
+    return activityTypes.includes(savedType as ActivityType)
+      ? (savedType as ActivityType)
+      : isLegacyEntry
+        ? "Otro"
+        : "Caminata"
+  })
+  const [otherActivity, setOtherActivity] = useState(() =>
+    String(entry?.data.other_activity ?? (isLegacyEntry ? entry?.title : "")),
+  )
+  const [occurredAt, setOccurredAt] = useState(() =>
+    dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
+  )
+  const [weekStart, setWeekStart] = useState(() => occurredAt.split("T")[0])
+  const [duration, setDuration] = useState(() => String(entry?.data.duration_min ?? ""))
+  const [distance, setDistance] = useState(() => String(entry?.data.distance_km ?? ""))
+  const [calories, setCalories] = useState(() => String(entry?.data.calories_kcal ?? ""))
+  const [intensity, setIntensity] = useState(() => String(entry?.data.intensity ?? ""))
+  const [weeklyCalories, setWeeklyCalories] = useState(() => String(entry?.data.weekly_calories_kcal ?? ""))
+  const [weeklySteps, setWeeklySteps] = useState(() => String(entry?.data.weekly_steps ?? ""))
+  const [weeklyDistance, setWeeklyDistance] = useState(() => String(entry?.data.weekly_distance_km ?? ""))
+  const [notes, setNotes] = useState(entry?.notes ?? "")
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const measurements =
+      entryType === "weekly" ? [weeklyCalories, weeklySteps, weeklyDistance] : [duration, distance, calories]
+    if (!measurements.some((value) => value.trim() !== "")) {
+      setError(
+        entryType === "weekly"
+          ? "Ingresa al menos un total semanal."
+          : "Ingresa al menos una medida de esta actividad.",
+      )
+      return
+    }
+    if (entryType === "single" && activityType === "Otro" && !otherActivity.trim()) {
+      setError("Describe la actividad seleccionada como Otro.")
+      return
+    }
+
+    const numberOrNull = (value: string) => (value.trim() === "" ? null : Number(value))
+    const data =
+      entryType === "weekly"
+        ? {
+            entry_type: "weekly",
+            weekly_calories_kcal: numberOrNull(weeklyCalories),
+            weekly_steps: numberOrNull(weeklySteps),
+            weekly_distance_km: numberOrNull(weeklyDistance),
+          }
+        : {
+            entry_type: "single",
+            activity_type: activityType,
+            other_activity: activityType === "Otro" ? otherActivity.trim() : null,
+            duration_min: numberOrNull(duration),
+            distance_km: numberOrNull(distance),
+            calories_kcal: numberOrNull(calories),
+            intensity: intensity || null,
+          }
+
+    setBusy(true)
+    setError("")
+    try {
+      await onSave({
+        module: "activity",
+        title:
+          entryType === "weekly" ? "Resumen semanal" : activityType === "Otro" ? otherActivity.trim() : activityType,
+        occurred_at: localDateTimeToIso(entryType === "weekly" ? `${weekStart}T00:00` : occurredAt, timezone),
+        notes: notes || null,
+        data,
+      })
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo guardar la actividad.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal
+      title={entry ? "Editar actividad" : "Registrar actividad"}
+      subtitle="Guarda una actividad individual o los totales de una semana."
+      onClose={onClose}
+    >
+      <form className="entry-form" onSubmit={(event) => void submit(event)}>
+        <div className="range-select" role="group" aria-label="Tipo de registro">
+          <button
+            type="button"
+            className={entryType === "single" ? "selected" : ""}
+            onClick={() => setEntryType("single")}
+          >
+            Actividad individual
+          </button>
+          <button
+            type="button"
+            className={entryType === "weekly" ? "selected" : ""}
+            onClick={() => setEntryType("weekly")}
+          >
+            Estadísticas semanales
+          </button>
+        </div>
+
+        {entryType === "single" ? (
+          <>
+            <label>
+              Actividad
+              <select value={activityType} onChange={(event) => setActivityType(event.target.value as ActivityType)}>
+                {activityTypes.map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
+              </select>
+            </label>
+            {activityType === "Otro" && (
+              <label>
+                ¿Qué actividad?
+                <input
+                  maxLength={120}
+                  required
+                  value={otherActivity}
+                  onChange={(event) => setOtherActivity(event.target.value)}
+                />
+              </label>
+            )}
+            <label>
+              Fecha y hora
+              <input
+                required
+                type="datetime-local"
+                value={occurredAt}
+                onChange={(event) => setOccurredAt(event.target.value)}
+              />
+            </label>
+            <div className="form-two-columns">
+              <label>
+                Duración (min)
+                <input
+                  type="number"
+                  min="0"
+                  max="1440"
+                  step="1"
+                  value={duration}
+                  onChange={(event) => setDuration(event.target.value)}
+                />
+              </label>
+              <label>
+                Distancia (km)
+                <input
+                  type="number"
+                  min="0"
+                  max="1000"
+                  step="0.01"
+                  value={distance}
+                  onChange={(event) => setDistance(event.target.value)}
+                />
+              </label>
+              <label>
+                Calorías (kcal)
+                <input
+                  type="number"
+                  min="0"
+                  max="100000"
+                  step="0.01"
+                  value={calories}
+                  onChange={(event) => setCalories(event.target.value)}
+                />
+              </label>
+              <label>
+                Intensidad
+                <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
+                  <option value="">Sin especificar</option>
+                  <option>Suave</option>
+                  <option>Moderada</option>
+                  <option>Intensa</option>
+                </select>
+              </label>
+            </div>
+          </>
+        ) : (
+          <>
+            <label>
+              Semana iniciada el
+              <input required type="date" value={weekStart} onChange={(event) => setWeekStart(event.target.value)} />
+            </label>
+            <div className="form-two-columns">
+              <label>
+                Calorías (kcal)
+                <input
+                  type="number"
+                  min="0"
+                  max="200000"
+                  step="0.01"
+                  value={weeklyCalories}
+                  onChange={(event) => setWeeklyCalories(event.target.value)}
+                />
+              </label>
+              <label>
+                Pasos
+                <input
+                  type="number"
+                  min="0"
+                  max="2000000"
+                  step="1"
+                  value={weeklySteps}
+                  onChange={(event) => setWeeklySteps(event.target.value)}
+                />
+              </label>
+              <label>
+                Distancia (km)
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.01"
+                  value={weeklyDistance}
+                  onChange={(event) => setWeeklyDistance(event.target.value)}
+                />
+              </label>
+            </div>
+          </>
+        )}
+        <label>
+          Notas <span className="optional">opcional</span>
+          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </label>
+        {error && (
+          <div className="error-banner" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="form-actions">
+          <button type="button" className="cancel-button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary-button" disabled={busy}>
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   )
 }
 
