@@ -4541,7 +4541,33 @@ function LabEvolutionCharts({
     return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
   }
 
-  const yDomain = (item: CatalogItem, points: (typeof series)[number]["points"]): [number, number] => {
+  // Rounds a raw step to 1/2/5 x a power of ten so ticks fall on regular values
+  const niceStep = (rawStep: number, round: boolean): number => {
+    if (rawStep <= 0) return 1
+    const exponent = Math.floor(Math.log10(rawStep))
+    const fraction = rawStep / 10 ** exponent
+    const niceFraction = round
+      ? fraction < 1.5
+        ? 1
+        : fraction < 3
+          ? 2
+          : fraction < 7
+            ? 5
+            : 10
+      : fraction <= 1
+        ? 1
+        : fraction <= 2
+          ? 2
+          : fraction <= 5
+            ? 5
+            : 10
+    return niceFraction * 10 ** exponent
+  }
+
+  const yAxis = (
+    item: CatalogItem,
+    points: (typeof series)[number]["points"],
+  ): { domain: [number, number]; ticks: number[] } => {
     const numericValues = item.is_blood_pressure
       ? points.flatMap((point) => [point.systolic, point.diastolic, point.mean])
       : points.map((point) => point.value)
@@ -4549,10 +4575,18 @@ function LabEvolutionCharts({
       ? [item.normal_min, item.normal_max, item.diastolic_normal_min, item.diastolic_normal_max]
       : [item.normal_min, item.normal_max]
     const domainValues = [...numericValues, ...thresholds].filter((value): value is number => value != null)
-    const domainMin = Math.min(...domainValues)
-    const domainMax = Math.max(...domainValues)
-    const padding = Math.max((domainMax - domainMin) * 0.1, 1)
-    return [domainMin - padding, domainMax + padding]
+    const rawMin = Math.max(Math.min(...domainValues), 0)
+    const rawMax = Math.max(...domainValues)
+    const padding = Math.max((rawMax - rawMin) * 0.1, 1)
+    const paddedMin = Math.max(rawMin - padding, 0)
+    const paddedMax = rawMax + padding
+    const targetTickCount = 5
+    const step = niceStep((paddedMax - paddedMin) / (targetTickCount - 1), true)
+    const niceMin = Math.max(Math.floor(paddedMin / step) * step, 0)
+    const niceMax = Math.ceil(paddedMax / step) * step
+    const tickCount = Math.round((niceMax - niceMin) / step) + 1
+    const ticks = Array.from({ length: tickCount }, (_, index) => Math.round((niceMin + index * step) * 1000) / 1000)
+    return { domain: [niceMin, niceMax], ticks }
   }
 
   const rangeText = (min: number | null, max: number | null, unit: string | null) => {
@@ -4597,7 +4631,9 @@ function LabEvolutionCharts({
 
   return (
     <div className="lab-charts-grid">
-      {series.map(({ item, points }) => (
+      {series.map(({ item, points }) => {
+        const { domain, ticks } = yAxis(item, points)
+        return (
         <div className="panel analysis-chart-panel" key={item.id}>
           <div className="panel-heading">
             <div>
@@ -4621,7 +4657,8 @@ function LabEvolutionCharts({
                   minTickGap={30}
                 />
                 <YAxis
-                  domain={yDomain(item, points)}
+                  domain={domain}
+                  ticks={ticks}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
@@ -4665,7 +4702,8 @@ function LabEvolutionCharts({
             </ResponsiveContainer>
           </div>
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
