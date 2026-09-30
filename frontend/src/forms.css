@@ -210,6 +210,27 @@
 .analysis-chart-panel > .module-hint {
   margin: 8px 0 0;
 }
+.lab-tooltip {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 24px #153b2b12;
+  background: var(--panel);
+  color: var(--text);
+  padding: 8px 11px;
+  font-size: 11px;
+}
+.lab-tooltip strong:first-child {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-weight: 650;
+}
+.lab-tooltip div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: space-between;
+}
 .analysis-delta {
   display: block;
   margin-top: 5px;
@@ -601,11 +622,17 @@
   font-size: 12px;
   font-weight: 600;
 }
-.catalog-chip[draggable="true"] {
+.catalog-chip-draggable {
   cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 .catalog-chip.dragging {
   opacity: 0.45;
+}
+.catalog-chip.drag-over {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
 }
 .catalog-chip-grip {
   color: var(--muted);

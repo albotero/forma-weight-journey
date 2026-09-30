@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
+  type TooltipProps,
   XAxis,
   YAxis,
 } from "recharts"
@@ -2616,6 +2617,7 @@ function ModuleWorkspace(props: {
   const [editingThresholdsItem, setEditingThresholdsItem] = useState<CatalogItem | null>(null)
   const [catalogChipsExpanded, setCatalogChipsExpanded] = useState(false)
   const [draggedCatalogId, setDraggedCatalogId] = useState<number | null>(null)
+  const [dragOverCatalogId, setDragOverCatalogId] = useState<number | null>(null)
   const catalogCategory: CatalogCategory | undefined =
     section === "Síntomas"
       ? "symptom"
@@ -3238,7 +3240,7 @@ function ModuleWorkspace(props: {
                         ({ key }) =>
                           entry.data[key] !== undefined && entry.data[key] !== null && entry.data[key] !== "",
                       )
-                      .map(({ key, label }) => (
+                      .map(({ key, label, type }) => (
                         <div key={key}>
                           <span>
                             {module === "reminders" && key === "reminder_at"
@@ -3256,7 +3258,9 @@ function ModuleWorkspace(props: {
                                 ? entry.data.entry_type === "weekly"
                                   ? "Estadísticas semanales"
                                   : "Actividad individual"
-                                : String(entry.data[key])}
+                                : type === "number"
+                                  ? formatDecimal(Number(entry.data[key]))
+                                  : String(entry.data[key])}
                           </strong>
                         </div>
                       ))}
@@ -3292,26 +3296,45 @@ function ModuleWorkspace(props: {
                 <div className="catalog-chip-list">
                   {orderedCatalog.map((item) => (
                     <span
-                      className={`catalog-chip${draggedCatalogId === item.id ? " dragging" : ""}`}
+                      className={[
+                        "catalog-chip",
+                        !item.is_blood_pressure && "catalog-chip-draggable",
+                        draggedCatalogId === item.id && "dragging",
+                        dragOverCatalogId === item.id && draggedCatalogId !== item.id && "drag-over",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                       key={item.id}
-                      draggable={!item.is_blood_pressure}
-                      onDragStart={(event) => {
+                      data-catalog-id={item.id}
+                      // Pointer Events (not HTML5 drag-and-drop) so reordering also works on touch devices
+                      onPointerDown={(event) => {
                         if (item.is_blood_pressure) return
                         setDraggedCatalogId(item.id)
-                        event.dataTransfer.effectAllowed = "move"
+                        event.currentTarget.setPointerCapture(event.pointerId)
                       }}
-                      onDragOver={(event) => {
-                        if (item.is_blood_pressure || draggedCatalogId == null) return
-                        event.preventDefault()
+                      onPointerMove={(event) => {
+                        if (draggedCatalogId !== item.id) return
+                        const hovered = document
+                          .elementFromPoint(event.clientX, event.clientY)
+                          ?.closest<HTMLElement>("[data-catalog-id]")
+                        setDragOverCatalogId(hovered ? Number(hovered.dataset.catalogId) : null)
                       }}
-                      onDrop={(event) => {
-                        event.preventDefault()
-                        if (draggedCatalogId != null && !item.is_blood_pressure) {
-                          void reorderCatalogItem(draggedCatalogId, item.id)
+                      onPointerUp={(event) => {
+                        event.currentTarget.releasePointerCapture(event.pointerId)
+                        if (
+                          draggedCatalogId != null &&
+                          dragOverCatalogId != null &&
+                          dragOverCatalogId !== draggedCatalogId
+                        ) {
+                          void reorderCatalogItem(draggedCatalogId, dragOverCatalogId)
                         }
                         setDraggedCatalogId(null)
+                        setDragOverCatalogId(null)
                       }}
-                      onDragEnd={() => setDraggedCatalogId(null)}
+                      onPointerCancel={() => {
+                        setDraggedCatalogId(null)
+                        setDragOverCatalogId(null)
+                      }}
                     >
                       {!item.is_blood_pressure && (
                         <GripVertical size={11} className="catalog-chip-grip" aria-hidden="true" />
@@ -3321,6 +3344,7 @@ function ModuleWorkspace(props: {
                         <button
                           type="button"
                           aria-label={`Definir rango normal de ${item.name}`}
+                          onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => setEditingThresholdsItem(item)}
                         >
                           <Settings size={11} />
@@ -3330,6 +3354,7 @@ function ModuleWorkspace(props: {
                         <button
                           type="button"
                           aria-label={`Quitar ${item.name}`}
+                          onPointerDown={(event) => event.stopPropagation()}
                           onClick={() => void removeCatalogItem(item)}
                         >
                           <X size={11} />
@@ -4651,9 +4676,20 @@ function LabEvolutionCharts({
   }
   const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
     status === false ? alteredColor : normalColor
-  const overallStatusColor = (statuses: (boolean | null)[], normalColor: string, alteredColor: string) => {
-    const known = statuses.filter((status): status is boolean => status != null)
-    return known.length && !known.every((status) => status) ? alteredColor : normalColor
+  // Splits a series into two arrays so a normal/altered segment can be drawn in different colors,
+  // duplicating the boundary value on both sides so the two colored lines meet without a gap
+  const splitByStatus = (values: (number | null)[], statuses: (boolean | null)[]) => {
+    const normal = values.map((value, index) => {
+      if (value == null) return null
+      if (statuses[index] === true || statuses[index - 1] === true) return value
+      return null
+    })
+    const altered = values.map((value, index) => {
+      if (value == null) return null
+      if (statuses[index] === false || statuses[index + 1] === false) return value
+      return null
+    })
+    return { normal, altered }
   }
   const statusDot =
     (color: (payload: { value: number | null }) => string) =>
@@ -4662,11 +4698,44 @@ function LabEvolutionCharts({
       if (!payload) return <circle cx={cx} cy={cy} r={0} />
       return <circle cx={cx} cy={cy} r={3.5} fill={color(payload)} stroke={color(payload)} />
     }
+  const labTooltip =
+    (unit: string | null) =>
+    ({ active, label, payload }: TooltipProps<number, string>) => {
+      if (!active || !payload?.length) return null
+      const visible = payload.filter(
+        (entry) => entry.dataKey !== "valueNormal" && entry.dataKey !== "valueAltered" && entry.value != null,
+      )
+      if (!visible.length) return null
+      return (
+        <div className="lab-tooltip">
+          <strong>{label}</strong>
+          {visible.map((entry) => (
+            <div key={String(entry.dataKey)}>
+              <span>{entry.name}</span>
+              <strong>
+                {formatDecimal(Number(entry.value))}
+                {unit ? ` ${unit}` : ""}
+              </strong>
+            </div>
+          ))}
+        </div>
+      )
+    }
 
   return (
     <div className="lab-charts-grid">
       {series.map(({ item, points }) => {
         const { domain, ticks } = yAxis(item, points)
+        const valueStatuses = points.map((point) => withinNormal(point.value, item.normal_min, item.normal_max))
+        const { normal: valueNormal, altered: valueAltered } = splitByStatus(
+          points.map((point) => point.value),
+          valueStatuses,
+        )
+        const chartData = points.map((point, index) => ({
+          ...point,
+          valueNormal: valueNormal[index],
+          valueAltered: valueAltered[index],
+        }))
         return (
           <div className="panel analysis-chart-panel" key={item.id}>
             <div className="panel-heading">
@@ -4681,7 +4750,7 @@ function LabEvolutionCharts({
             {normalRangeLabel(item) && <p className="module-hint">{normalRangeLabel(item)}</p>}
             <div className="chart-wrap">
               <ResponsiveContainer width="100%" height="100%">
-                <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                <RechartsLineChart data={chartData} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                   <XAxis
                     dataKey="date"
@@ -4698,10 +4767,10 @@ function LabEvolutionCharts({
                     tick={{ fill: "var(--muted)", fontSize: 11 }}
                     tickFormatter={(value) => formatAxisTick(Number(value))}
                   />
-                  <Tooltip />
+                  <Tooltip content={labTooltip(item.unit)} />
                   {item.is_blood_pressure ? (
                     <>
-                      {normalRangeGuides(item.normal_min, item.normal_max, "#c0554d")}
+                      {normalRangeGuides(item.normal_min, item.normal_max, "#ad8a50")}
                       {normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
                     </>
                   ) : (
@@ -4714,10 +4783,14 @@ function LabEvolutionCharts({
                         type="monotone"
                         dataKey="systolic"
                         name="Sistólica"
-                        stroke="#c0554d"
+                        stroke="#ad8a50"
                         strokeWidth={2.4}
                         dot={statusDot((payload) =>
-                          statusColor(withinNormal(payload.value, item.normal_min, item.normal_max), "#398766", "#c0554d"),
+                          statusColor(
+                            withinNormal(payload.value, item.normal_min, item.normal_max),
+                            "#398766",
+                            "#c0554d",
+                          ),
                         )}
                       />
                       <Line
@@ -4741,24 +4814,44 @@ function LabEvolutionCharts({
                         stroke="#7a54bf"
                         strokeWidth={2.4}
                         strokeDasharray="4 3"
-                        dot
+                        dot={{ fill: "#7a54bf", stroke: "#7a54bf", r: 3.5 }}
                       />
                     </>
                   ) : (
-                    <Line
-                      type="monotone"
-                      dataKey="value"
-                      name={item.name}
-                      stroke={overallStatusColor(
-                        points.map((point) => withinNormal(point.value, item.normal_min, item.normal_max)),
-                        "#398766",
-                        "#c0554d",
-                      )}
-                      strokeWidth={2.4}
-                      dot={statusDot((payload) =>
-                        statusColor(withinNormal(payload.value, item.normal_min, item.normal_max), "#398766", "#c0554d"),
-                      )}
-                    />
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="valueNormal"
+                        legendType="none"
+                        stroke="#398766"
+                        strokeWidth={2.4}
+                        dot={false}
+                        connectNulls={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="valueAltered"
+                        legendType="none"
+                        stroke="#c0554d"
+                        strokeWidth={2.4}
+                        dot={false}
+                        connectNulls={false}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        name={item.name}
+                        stroke="transparent"
+                        strokeWidth={0}
+                        dot={statusDot((payload) =>
+                          statusColor(
+                            withinNormal(payload.value, item.normal_min, item.normal_max),
+                            "#398766",
+                            "#c0554d",
+                          ),
+                        )}
+                      />
+                    </>
                   )}
                 </RechartsLineChart>
               </ResponsiveContainer>
