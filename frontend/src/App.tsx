@@ -1153,7 +1153,7 @@ export default function App() {
         ].map(({ label, icon: Icon }) => (
           <button
             key={label}
-            className={section === label ? "active" : ""}
+            className={label === "Registrar" ? "register-action" : section === label ? "active" : ""}
             onClick={() =>
               label === "Registrar" ? setModal("quick") : label === "Más" ? setMobileOpen(true) : setSection(label)
             }

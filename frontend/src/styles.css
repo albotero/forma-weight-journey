@@ -1664,7 +1664,7 @@ button {
   .mobile-bottom-nav button.active {
     color: #347a5b;
   }
-  .mobile-bottom-nav button:nth-child(2) {
+  .mobile-bottom-nav button.register-action {
     color: white;
     background: #347a5b;
     border-radius: 13px;
@@ -1674,10 +1674,10 @@ button {
     align-self: center;
     box-shadow: 0 4px 12px #347a5b45;
   }
-  .mobile-bottom-nav button:nth-child(2) span {
+  .mobile-bottom-nav button.register-action span {
     display: none;
   }
-  .mobile-bottom-nav button:nth-child(2) svg {
+  .mobile-bottom-nav button.register-action svg {
     width: 22px;
     height: 22px;
   }
