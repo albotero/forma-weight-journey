@@ -4697,10 +4697,42 @@ function LabEvolutionCharts({
   }
   const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
     status === false ? alteredColor : normalColor
-  // Linear estimate of where between two readings the value actually crosses a threshold
-  const crossingFraction = (from: number, to: number, threshold: number) => {
-    if (from === to) return 0.5
-    return Math.min(Math.max((threshold - from) / (to - from), 0), 1)
+  // Recharts draws type="monotone" curves with d3's curveMonotoneX, which fits a cubic Hermite
+  // spline through the points via Steffen's method. Reproduce those per-point tangents (assuming
+  // uniform category spacing) so the gradient crossing point matches the actual rendered curve.
+  const monotoneTangents = (values: number[]) => {
+    const n = values.length
+    const tangents = new Array(n).fill(0)
+    if (n < 2) return tangents
+    const secants = values.slice(1).map((value, index) => value - values[index])
+    for (let index = 1; index < n - 1; index += 1) {
+      const s0 = secants[index - 1]
+      const s1 = secants[index]
+      const p = (s0 + s1) / 2
+      const sign0 = s0 < 0 ? -1 : 1
+      const sign1 = s1 < 0 ? -1 : 1
+      tangents[index] = (sign0 + sign1) * Math.min(Math.abs(s0), Math.abs(s1), 0.5 * Math.abs(p)) || 0
+    }
+    tangents[0] = n > 2 ? (3 * secants[0] - tangents[1]) / 2 : secants[0]
+    tangents[n - 1] = n > 2 ? (3 * secants[n - 2] - tangents[n - 2]) / 2 : secants[0]
+    return tangents
+  }
+  const bezierValue = (c0: number, c1: number, c2: number, c3: number, u: number) => {
+    const inverse = 1 - u
+    return c0 * inverse ** 3 + 3 * c1 * inverse ** 2 * u + 3 * c2 * inverse * u ** 2 + c3 * u ** 3
+  }
+  // Bisection is safe here because monotone interpolation guarantees no overshoot between points
+  const solveBezierCrossing = (c0: number, c1: number, c2: number, c3: number, threshold: number) => {
+    const increasing = c3 >= c0
+    let lo = 0
+    let hi = 1
+    for (let iteration = 0; iteration < 30; iteration += 1) {
+      const mid = (lo + hi) / 2
+      const below = bezierValue(c0, c1, c2, c3, mid) < threshold
+      if (increasing === below) lo = mid
+      else hi = mid
+    }
+    return (lo + hi) / 2
   }
   const thresholdCrossed = (from: number, to: number, min: number | null, max: number | null) => {
     if (min != null && from < min !== to < min) return min
@@ -4716,6 +4748,8 @@ function LabEvolutionCharts({
     max: number | null,
   ) => {
     const statuses = points.map((point) => withinNormal(point.value, min, max))
+    const values = points.map((point) => point.value)
+    const tangents = monotoneTangents(values.map((value) => value ?? 0))
     const segmentCount = Math.max(points.length - 1, 1)
     const stops: { offset: number; color: string }[] = []
     for (let index = 0; index < segmentCount; index += 1) {
@@ -4723,14 +4757,20 @@ function LabEvolutionCharts({
       const endOffset = (index + 1) / segmentCount
       const startColor = statusColor(statuses[index] ?? null, "#398766", "#c0554d")
       const endColor = statusColor(statuses[index + 1] ?? statuses[index] ?? null, "#398766", "#c0554d")
-      const fromValue = points[index]?.value
-      const toValue = points[index + 1]?.value
+      const fromValue = values[index]
+      const toValue = values[index + 1]
       if (startColor === endColor || fromValue == null || toValue == null) {
         stops.push({ offset: startOffset, color: startColor }, { offset: endOffset, color: startColor })
         continue
       }
       const threshold = thresholdCrossed(fromValue, toValue, min, max)
-      const crossOffset = startOffset + (endOffset - startOffset) * crossingFraction(fromValue, toValue, threshold)
+      const dx = 1 / 3
+      const c0 = fromValue
+      const c1 = fromValue + dx * tangents[index]
+      const c2 = toValue - dx * tangents[index + 1]
+      const c3 = toValue
+      const crossFraction = solveBezierCrossing(c0, c1, c2, c3, threshold)
+      const crossOffset = startOffset + (endOffset - startOffset) * crossFraction
       stops.push(
         { offset: startOffset, color: startColor },
         { offset: crossOffset, color: startColor },
@@ -4863,9 +4903,7 @@ function LabEvolutionCharts({
                     </>
                   ) : (
                     <Line
-                      // Linear (not monotone) so the rendered path matches the linear
-                      // crossing-fraction math exactly, keeping the color transition on-point
-                      type="linear"
+                      type="monotone"
                       dataKey="value"
                       name={item.name}
                       stroke={`url(#${gradientId})`}
