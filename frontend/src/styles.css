@@ -746,12 +746,13 @@ button {
 }
 .lower-grid {
   display: grid;
-  grid-template-columns: 1.03fr 0.97fr;
+  grid-template-columns: minmax(0, 1.03fr) minmax(0, 0.97fr);
   gap: 15px;
 }
 .goals-panel,
 .recent-panel {
   min-height: 248px;
+  min-width: 0;
 }
 .goal-caption {
   font-size: 9px;

@@ -996,21 +996,7 @@ export default function App() {
                           icon: Ruler,
                           kind: "measurements",
                           date: item.measured_at,
-                          text:
-                            (
-                              [
-                                ["waist_cm", "Cintura"],
-                                ["hip_cm", "Cadera"],
-                                ["chest_cm", "Pecho"],
-                                ["neck_cm", "Cuello"],
-                                ["abdomen_cm", "Abdomen"],
-                                ["arm_cm", "Brazo"],
-                                ["thigh_cm", "Muslo"],
-                              ] as const
-                            )
-                              .filter(([key]) => item[key] != null)
-                              .map(([key, label]) => `${label} ${formatDecimal(item[key]!)} cm`)
-                              .join(" · ") || "Medidas corporales",
+                          text: summarizeBodyMeasurements(item),
                           sub: "Medidas",
                         })),
                         ...photos.map((item) => ({
@@ -1029,12 +1015,17 @@ export default function App() {
                           kind: item.module,
                           date: item.occurred_at,
                           text: Array.isArray(item.data.results)
-                            ? (item.data.results as CatalogResult[])
-                                .map(
-                                  (result) =>
-                                    `${result.name}: ${result.systolic != null ? `${result.systolic}/${result.diastolic}` : result.value != null ? formatDecimal(result.value) : (result.text_value ?? `${result.severity ?? result.intensity}/10`)}${result.unit ? ` ${result.unit}` : ""}`,
-                                )
-                                .join(" · ") || item.title
+                            ? (item.data.results as CatalogResult[]).length
+                              ? `${(item.data.results as CatalogResult[])
+                                  .slice(0, 2)
+                                  .map(
+                                    (result) =>
+                                      `${result.name}: ${result.systolic != null ? `${result.systolic}/${result.diastolic}` : result.value != null ? formatDecimal(result.value) : (result.text_value ?? `${result.severity ?? result.intensity}/10`)}${result.unit ? ` ${result.unit}` : ""}`,
+                                  )
+                                  .join(
+                                    " · ",
+                                  )}${item.data.results.length > 2 ? ` · +${item.data.results.length - 2} más` : ""}`
+                              : item.title
                             : item.module === "activity"
                               ? [
                                   item.title,
@@ -1070,7 +1061,9 @@ export default function App() {
                               <item.icon size={16} />
                             </div>
                             <div className="activity-copy">
-                              <strong title={item.text}>{item.text}</strong>
+                              <strong title={item.text}>
+                                {item.text.length > 72 ? `${item.text.slice(0, 69).trimEnd()}…` : item.text}
+                              </strong>
                               <span>{item.sub}</span>
                             </div>
                             <time>{formatDate(item.date, userTimezone)}</time>
@@ -3830,6 +3823,16 @@ const bodyFields = [
   ["arm_cm", "Brazo", "cm"],
   ["thigh_cm", "Muslo", "cm"],
 ] as const
+
+function summarizeBodyMeasurements(item: BodyMeasurementEntry) {
+  const values = bodyFields
+    .filter(([key]) => item[key] != null)
+    .map(([key, label, unit]) => `${label} ${formatDecimal(item[key]!)} ${unit}`)
+  return (
+    [...values.slice(0, 2), ...(values.length > 2 ? [`+${values.length - 2} más`] : [])].join(" · ") ||
+    "Medidas corporales"
+  )
+}
 
 function RecordActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   return (
