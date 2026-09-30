@@ -143,6 +143,7 @@ const pathSections: Record<string, Section> = Object.fromEntries(
 )
 const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Inicio", icon: Home },
+  { label: "Análisis", icon: LineChart },
   { label: "Peso", icon: Scale },
   { label: "Medicación", icon: Syringe },
   { label: "Medidas", icon: Ruler },
@@ -154,7 +155,6 @@ const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Objetivos", icon: Target },
   { label: "Revisiones", icon: CalendarDays },
   { label: "Recordatorios", icon: Bell },
-  { label: "Análisis", icon: LineChart },
   { label: "Historial", icon: Clock3 },
   { label: "Perfil y ajustes", icon: UserRoundCog },
 ]
@@ -332,6 +332,72 @@ export default function App() {
   const goals = [5, 10, 15, 20].map((percent) => ({ percent, weight: startingWeight * (1 - percent / 100) }))
   const progress = (goal: number) =>
     Math.max(0, Math.min(100, ((startingWeight - (currentWeight ?? startingWeight)) / (startingWeight - goal)) * 100))
+
+  const recordedWithin = (date: string, days: number) => {
+    const elapsed = Date.now() - new Date(date).getTime()
+    return elapsed >= 0 && elapsed <= days * 86400000
+  }
+  const recentSymptoms = journalEntries.filter(
+    (entry) => entry.module === "symptoms" && recordedWithin(entry.occurred_at, 7),
+  )
+  const weeklyCheckIn = recentSymptoms.some((entry) => entry.data.appetite != null && entry.data.satiety != null)
+  const weeklyChecklist = [
+    doses.some((item) => recordedWithin(item.administered_at, 7)),
+    journalEntries.some(
+      (entry) =>
+        entry.module === "labs" &&
+        recordedWithin(entry.occurred_at, 7) &&
+        Array.isArray(entry.data.results) &&
+        (entry.data.results as CatalogResult[]).some((result) => result.systolic != null),
+    ),
+    weeklyCheckIn,
+    recentSymptoms.some(
+      (entry) =>
+        (Array.isArray(entry.data.results) && (entry.data.results as CatalogResult[]).length > 0) ||
+        entry.data.tolerance != null,
+    ),
+    recentSymptoms.some((entry) => entry.data.hydration_l != null),
+    journalEntries.some((entry) => entry.module === "activity" && recordedWithin(entry.occurred_at, 7)),
+  ]
+  const monthlyWeights = sortedWeights.filter((item) => recordedWithin(item.measured_at, 28))
+  const monthlyChecklist = [
+    monthlyWeights.length >= 2,
+    bodyMeasurements.some((item) => item.waist_cm != null && recordedWithin(item.measured_at, 28)),
+    photos.some((item) => recordedWithin(item.taken_at, 28)),
+    monthlyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
+    journalEntries.some(
+      (entry) =>
+        entry.module === "symptoms" &&
+        recordedWithin(entry.occurred_at, 28) &&
+        ((Array.isArray(entry.data.results) && (entry.data.results as CatalogResult[]).length > 0) ||
+          entry.data.tolerance != null),
+    ),
+    doses.some((item) => new Date(item.administered_at).getTime() <= Date.now()),
+    journalEntries.some((entry) => entry.module === "goals" && recordedWithin(entry.occurred_at, 28)),
+  ]
+  const homeChecklist = [
+    {
+      label: "Cada día",
+      summary:
+        latestWeightEntry && recordedWithin(latestWeightEntry.measured_at, 1)
+          ? `Peso ${formatDecimal(latestWeightEntry.weight_kg)} kg`
+          : "Peso pendiente",
+      completed: latestWeightEntry && recordedWithin(latestWeightEntry.measured_at, 1) ? 1 : 0,
+      total: 1,
+    },
+    {
+      label: "Cada semana",
+      summary: "Seguimiento semanal",
+      completed: weeklyChecklist.filter(Boolean).length,
+      total: weeklyChecklist.length,
+    },
+    {
+      label: "Cada 4 semanas",
+      summary: "Seguimiento mensual",
+      completed: monthlyChecklist.filter(Boolean).length,
+      total: monthlyChecklist.length,
+    },
+  ]
 
   const notifications = useMemo(
     () =>
@@ -888,6 +954,19 @@ export default function App() {
                       Ver historial <ArrowRight size={14} />
                     </button>
                   </div>
+                  <div className="recent-checklist" aria-label="Checklist contextual">
+                    {homeChecklist.map(({ label, summary, completed, total }) => (
+                      <button key={label} type="button" onClick={() => setSection("Análisis")}>
+                        <span>
+                          <strong>{label}</strong>
+                          <small>{summary}</small>
+                        </span>
+                        <span className="followup-count">
+                          {completed}/{total}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                   {sortedWeights.length ||
                   doses.length ||
                   bodyMeasurements.length ||
@@ -1073,9 +1152,9 @@ export default function App() {
       <nav className="mobile-bottom-nav" aria-label="Navegación móvil">
         {[
           { label: "Inicio" as Section, icon: Home },
+          { label: "Análisis" as Section, icon: LineChart },
           { label: "Registrar" as const, icon: Plus },
           { label: "Historial" as Section, icon: Clock3 },
-          { label: "Análisis" as Section, icon: LineChart },
           { label: "Más" as const, icon: MoreHorizontal },
         ].map(({ label, icon: Icon }) => (
           <button

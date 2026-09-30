@@ -844,6 +844,42 @@ button {
 .activity-list {
   margin-top: 12px;
 }
+.recent-checklist {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+}
+.recent-checklist button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--text);
+  text-align: left;
+}
+.recent-checklist button > span:first-child {
+  min-width: 0;
+}
+.recent-checklist strong,
+.recent-checklist small {
+  display: inline;
+}
+.recent-checklist strong {
+  font-size: 10px;
+}
+.recent-checklist small {
+  margin-left: 8px;
+  color: var(--sub);
+  font-size: 9px;
+}
+.recent-checklist .followup-count {
+  flex: 0 0 auto;
+}
 .activity-row {
   height: 48px;
   display: flex;
