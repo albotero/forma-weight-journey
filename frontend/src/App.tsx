@@ -4676,17 +4676,13 @@ function LabEvolutionCharts({
   }
   const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
     status === false ? alteredColor : normalColor
-  // Splits a series into two arrays so a normal/altered segment can be drawn in different colors,
-  // duplicating the boundary value on both sides so the two colored lines meet without a gap
+  // Green only for genuinely normal points; red covers altered points plus one bridging
+  // point on each side so the two colored lines meet at the transition without a gap
   const splitByStatus = (values: (number | null)[], statuses: (boolean | null)[]) => {
-    const normal = values.map((value, index) => {
-      if (value == null) return null
-      if (statuses[index] === true || statuses[index - 1] === true) return value
-      return null
-    })
+    const normal = values.map((value, index) => (value != null && statuses[index] === true ? value : null))
     const altered = values.map((value, index) => {
       if (value == null) return null
-      if (statuses[index] === false || statuses[index + 1] === false) return value
+      if (statuses[index] === false || statuses[index - 1] === false || statuses[index + 1] === false) return value
       return null
     })
     return { normal, altered }
@@ -4698,8 +4694,17 @@ function LabEvolutionCharts({
       if (!payload) return <circle cx={cx} cy={cy} r={0} />
       return <circle cx={cx} cy={cy} r={3.5} fill={color(payload)} stroke={color(payload)} />
     }
+  // A fixed dot object without strokeDasharray, since Line spreads its own (possibly dashed)
+  // props into each dot and would otherwise leave a dashed ring around a solid-filled dot
+  const seriesDot = (color: string) => ({ fill: color, stroke: color, r: 3.5, strokeDasharray: "0" })
+  const seriesColor = (item: CatalogItem, dataKey: string, value: number | null) => {
+    if (dataKey === "systolic") return "#ad8a50"
+    if (dataKey === "diastolic") return "#3d6fb4"
+    if (dataKey === "mean") return "#7a54bf"
+    return statusColor(withinNormal(value, item.normal_min, item.normal_max), "#398766", "#c0554d")
+  }
   const labTooltip =
-    (unit: string | null) =>
+    (item: CatalogItem) =>
     ({ active, label, payload }: TooltipProps<number, string>) => {
       if (!active || !payload?.length) return null
       const visible = payload.filter(
@@ -4712,9 +4717,9 @@ function LabEvolutionCharts({
           {visible.map((entry) => (
             <div key={String(entry.dataKey)}>
               <span>{entry.name}</span>
-              <strong>
+              <strong style={{ color: seriesColor(item, String(entry.dataKey), Number(entry.value)) }}>
                 {formatDecimal(Number(entry.value))}
-                {unit ? ` ${unit}` : ""}
+                {item.unit ? ` ${item.unit}` : ""}
               </strong>
             </div>
           ))}
@@ -4767,7 +4772,7 @@ function LabEvolutionCharts({
                     tick={{ fill: "var(--muted)", fontSize: 11 }}
                     tickFormatter={(value) => formatAxisTick(Number(value))}
                   />
-                  <Tooltip content={labTooltip(item.unit)} />
+                  <Tooltip content={labTooltip(item)} />
                   {item.is_blood_pressure ? (
                     <>
                       {normalRangeGuides(item.normal_min, item.normal_max, "#ad8a50")}
@@ -4785,13 +4790,7 @@ function LabEvolutionCharts({
                         name="Sistólica"
                         stroke="#ad8a50"
                         strokeWidth={2.4}
-                        dot={statusDot((payload) =>
-                          statusColor(
-                            withinNormal(payload.value, item.normal_min, item.normal_max),
-                            "#398766",
-                            "#c0554d",
-                          ),
-                        )}
+                        dot={seriesDot("#ad8a50")}
                       />
                       <Line
                         type="monotone"
@@ -4799,13 +4798,7 @@ function LabEvolutionCharts({
                         name="Diastólica"
                         stroke="#3d6fb4"
                         strokeWidth={2.4}
-                        dot={statusDot((payload) =>
-                          statusColor(
-                            withinNormal(payload.value, item.diastolic_normal_min, item.diastolic_normal_max),
-                            "#398766",
-                            "#c0554d",
-                          ),
-                        )}
+                        dot={seriesDot("#3d6fb4")}
                       />
                       <Line
                         type="monotone"
@@ -4814,7 +4807,7 @@ function LabEvolutionCharts({
                         stroke="#7a54bf"
                         strokeWidth={2.4}
                         strokeDasharray="4 3"
-                        dot={{ fill: "#7a54bf", stroke: "#7a54bf", r: 3.5 }}
+                        dot={seriesDot("#7a54bf")}
                       />
                     </>
                   ) : (
