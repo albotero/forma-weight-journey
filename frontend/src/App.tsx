@@ -32,6 +32,7 @@ import {
   FileText,
   Footprints,
   Gauge,
+  GripVertical,
   HeartPulse,
   Home,
   KeyRound,
@@ -2613,6 +2614,8 @@ function ModuleWorkspace(props: {
   const [showCatalogEntryForm, setShowCatalogEntryForm] = useState(false)
   const [editingCatalogEntry, setEditingCatalogEntry] = useState<JournalEntry | null>(null)
   const [editingThresholdsItem, setEditingThresholdsItem] = useState<CatalogItem | null>(null)
+  const [catalogChipsExpanded, setCatalogChipsExpanded] = useState(false)
+  const [draggedCatalogId, setDraggedCatalogId] = useState<number | null>(null)
   const catalogCategory: CatalogCategory | undefined =
     section === "Síntomas"
       ? "symptom"
@@ -2692,17 +2695,8 @@ function ModuleWorkspace(props: {
     setCatalog((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)))
   }
 
-  async function moveCatalogItem(item: CatalogItem, direction: "up" | "down") {
+  async function persistCatalogOrder(fullOrder: CatalogItem[]) {
     if (!catalogCategory) return
-    const orderable = orderedCatalog.filter((entry) => !entry.is_blood_pressure)
-    const index = orderable.findIndex((entry) => entry.id === item.id)
-    const targetIndex = direction === "up" ? index - 1 : index + 1
-    if (index < 0 || targetIndex < 0 || targetIndex >= orderable.length) return
-    const reordered = [...orderable]
-    const [moved] = reordered.splice(index, 1)
-    reordered.splice(targetIndex, 0, moved)
-    const bloodPressureItem = orderedCatalog.find((entry) => entry.is_blood_pressure)
-    const fullOrder = bloodPressureItem ? [bloodPressureItem, ...reordered] : reordered
     setCatalog(fullOrder.map((entry, sortOrder) => ({ ...entry, sort_order: sortOrder })))
     try {
       const updated = await api<CatalogItem[]>(`/catalog/${catalogCategory}/order`, token, {
@@ -2713,6 +2707,19 @@ function ModuleWorkspace(props: {
     } catch (reason) {
       props.onError(reason instanceof Error ? reason.message : "No se pudo reordenar la lista")
     }
+  }
+
+  async function reorderCatalogItem(draggedId: number, targetId: number) {
+    if (!catalogCategory || draggedId === targetId) return
+    const orderable = orderedCatalog.filter((entry) => !entry.is_blood_pressure)
+    const fromIndex = orderable.findIndex((entry) => entry.id === draggedId)
+    const toIndex = orderable.findIndex((entry) => entry.id === targetId)
+    if (fromIndex < 0 || toIndex < 0) return
+    const reordered = [...orderable]
+    const [moved] = reordered.splice(fromIndex, 1)
+    reordered.splice(toIndex, 0, moved)
+    const bloodPressureItem = orderedCatalog.find((entry) => entry.is_blood_pressure)
+    await persistCatalogOrder(bloodPressureItem ? [bloodPressureItem, ...reordered] : reordered)
   }
 
   async function removeCatalogItem(item: CatalogItem) {
@@ -3271,60 +3278,68 @@ function ModuleWorkspace(props: {
       {catalogCategory && catalogModule && (
         <>
           {catalog.length > 0 && (
-            <div className="catalog-chip-list">
-              {orderedCatalog.map((item) => {
-                const orderableIndex =
-                  catalogCategory === "lab" && !item.is_blood_pressure
-                    ? orderedCatalog
-                        .filter((entry) => !entry.is_blood_pressure)
-                        .findIndex((entry) => entry.id === item.id)
-                    : -1
-                const orderableCount = orderedCatalog.filter((entry) => !entry.is_blood_pressure).length
-                return (
-                  <span className="catalog-chip" key={item.id}>
-                    {item.name}
-                    {orderableIndex >= 0 && (
-                      <>
+            <>
+              <button
+                type="button"
+                className="catalog-chip-toggle"
+                aria-expanded={catalogChipsExpanded}
+                onClick={() => setCatalogChipsExpanded((current) => !current)}
+              >
+                {catalogChipsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                {catalogChipsExpanded ? "Ocultar" : "Ver"} elementos de tu lista ({catalog.length})
+              </button>
+              {catalogChipsExpanded && (
+                <div className="catalog-chip-list">
+                  {orderedCatalog.map((item) => (
+                    <span
+                      className={`catalog-chip${draggedCatalogId === item.id ? " dragging" : ""}`}
+                      key={item.id}
+                      draggable={!item.is_blood_pressure}
+                      onDragStart={(event) => {
+                        if (item.is_blood_pressure) return
+                        setDraggedCatalogId(item.id)
+                        event.dataTransfer.effectAllowed = "move"
+                      }}
+                      onDragOver={(event) => {
+                        if (item.is_blood_pressure || draggedCatalogId == null) return
+                        event.preventDefault()
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault()
+                        if (draggedCatalogId != null && !item.is_blood_pressure) {
+                          void reorderCatalogItem(draggedCatalogId, item.id)
+                        }
+                        setDraggedCatalogId(null)
+                      }}
+                      onDragEnd={() => setDraggedCatalogId(null)}
+                    >
+                      {!item.is_blood_pressure && (
+                        <GripVertical size={11} className="catalog-chip-grip" aria-hidden="true" />
+                      )}
+                      {item.name}
+                      {catalogCategory === "lab" && (
                         <button
                           type="button"
-                          aria-label={`Subir ${item.name}`}
-                          disabled={orderableIndex === 0}
-                          onClick={() => void moveCatalogItem(item, "up")}
+                          aria-label={`Definir rango normal de ${item.name}`}
+                          onClick={() => setEditingThresholdsItem(item)}
                         >
-                          <ChevronUp size={11} />
+                          <Settings size={11} />
                         </button>
+                      )}
+                      {!item.is_blood_pressure && (
                         <button
                           type="button"
-                          aria-label={`Bajar ${item.name}`}
-                          disabled={orderableIndex === orderableCount - 1}
-                          onClick={() => void moveCatalogItem(item, "down")}
+                          aria-label={`Quitar ${item.name}`}
+                          onClick={() => void removeCatalogItem(item)}
                         >
-                          <ChevronDown size={11} />
+                          <X size={11} />
                         </button>
-                      </>
-                    )}
-                    {catalogCategory === "lab" && (
-                      <button
-                        type="button"
-                        aria-label={`Definir rango normal de ${item.name}`}
-                        onClick={() => setEditingThresholdsItem(item)}
-                      >
-                        <Settings size={11} />
-                      </button>
-                    )}
-                    {!item.is_blood_pressure && (
-                      <button
-                        type="button"
-                        aria-label={`Quitar ${item.name}`}
-                        onClick={() => void removeCatalogItem(item)}
-                      >
-                        <X size={11} />
-                      </button>
-                    )}
-                  </span>
-                )
-              })}
-            </div>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
           {section === "Laboratorios" && (
             <LabEvolutionCharts
@@ -4628,80 +4643,127 @@ function LabEvolutionCharts({
     if (max != null) return <ReferenceLine y={max} stroke={color} strokeDasharray="4 3" ifOverflow="extendDomain" />
     return null
   }
+  const withinNormal = (value: number | null, min: number | null, max: number | null) => {
+    if (value == null) return null
+    if (min != null && value < min) return false
+    if (max != null && value > max) return false
+    return true
+  }
+  const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
+    status === false ? alteredColor : normalColor
+  const overallStatusColor = (statuses: (boolean | null)[], normalColor: string, alteredColor: string) => {
+    const known = statuses.filter((status): status is boolean => status != null)
+    return known.length && !known.every((status) => status) ? alteredColor : normalColor
+  }
+  const statusDot =
+    (color: (payload: { value: number | null }) => string) =>
+    (dotProps: { cx?: number; cy?: number; payload?: { value: number | null } }) => {
+      const { cx = 0, cy = 0, payload } = dotProps
+      if (!payload) return <circle cx={cx} cy={cy} r={0} />
+      return <circle cx={cx} cy={cy} r={3.5} fill={color(payload)} stroke={color(payload)} />
+    }
 
   return (
     <div className="lab-charts-grid">
       {series.map(({ item, points }) => {
         const { domain, ticks } = yAxis(item, points)
         return (
-        <div className="panel analysis-chart-panel" key={item.id}>
-          <div className="panel-heading">
-            <div>
-              <div className="eyebrow">EVOLUCIÓN</div>
-              <h2>{item.name}</h2>
+          <div className="panel analysis-chart-panel" key={item.id}>
+            <div className="panel-heading">
+              <div>
+                <div className="eyebrow">EVOLUCIÓN</div>
+                <h2>{item.name}</h2>
+              </div>
+              <span className="goal-caption">
+                {points.length} {points.length === 1 ? "registro" : "registros"}
+              </span>
             </div>
-            <span className="goal-caption">
-              {points.length} {points.length === 1 ? "registro" : "registros"}
-            </span>
-          </div>
-          {normalRangeLabel(item) && <p className="module-hint">{normalRangeLabel(item)}</p>}
-          <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height="100%">
-              <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
-                <XAxis
-                  dataKey="date"
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "var(--muted)", fontSize: 11 }}
-                  minTickGap={30}
-                />
-                <YAxis
-                  domain={domain}
-                  ticks={ticks}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "var(--muted)", fontSize: 11 }}
-                  tickFormatter={(value) => formatAxisTick(Number(value))}
-                />
-                <Tooltip />
-                {item.is_blood_pressure ? (
-                  <>
-                    {normalRangeGuides(item.normal_min, item.normal_max, "#c0554d")}
-                    {normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
-                  </>
-                ) : (
-                  normalRangeGuides(item.normal_min, item.normal_max, "#398766")
-                )}
-                {item.is_blood_pressure ? (
-                  <>
-                    <Legend />
-                    <Line type="monotone" dataKey="systolic" name="Sistólica" stroke="#c0554d" strokeWidth={2.4} dot />
+            {normalRangeLabel(item) && <p className="module-hint">{normalRangeLabel(item)}</p>}
+            <div className="chart-wrap">
+              <ResponsiveContainer width="100%" height="100%">
+                <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
+                  <XAxis
+                    dataKey="date"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted)", fontSize: 11 }}
+                    minTickGap={30}
+                  />
+                  <YAxis
+                    domain={domain}
+                    ticks={ticks}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted)", fontSize: 11 }}
+                    tickFormatter={(value) => formatAxisTick(Number(value))}
+                  />
+                  <Tooltip />
+                  {item.is_blood_pressure ? (
+                    <>
+                      {normalRangeGuides(item.normal_min, item.normal_max, "#c0554d")}
+                      {normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
+                    </>
+                  ) : (
+                    normalRangeGuides(item.normal_min, item.normal_max, "#398766")
+                  )}
+                  {item.is_blood_pressure ? (
+                    <>
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="systolic"
+                        name="Sistólica"
+                        stroke="#c0554d"
+                        strokeWidth={2.4}
+                        dot={statusDot((payload) =>
+                          statusColor(withinNormal(payload.value, item.normal_min, item.normal_max), "#398766", "#c0554d"),
+                        )}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="diastolic"
+                        name="Diastólica"
+                        stroke="#3d6fb4"
+                        strokeWidth={2.4}
+                        dot={statusDot((payload) =>
+                          statusColor(
+                            withinNormal(payload.value, item.diastolic_normal_min, item.diastolic_normal_max),
+                            "#398766",
+                            "#c0554d",
+                          ),
+                        )}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="mean"
+                        name="Media"
+                        stroke="#7a54bf"
+                        strokeWidth={2.4}
+                        strokeDasharray="4 3"
+                        dot
+                      />
+                    </>
+                  ) : (
                     <Line
                       type="monotone"
-                      dataKey="diastolic"
-                      name="Diastólica"
-                      stroke="#3d6fb4"
+                      dataKey="value"
+                      name={item.name}
+                      stroke={overallStatusColor(
+                        points.map((point) => withinNormal(point.value, item.normal_min, item.normal_max)),
+                        "#398766",
+                        "#c0554d",
+                      )}
                       strokeWidth={2.4}
-                      dot
+                      dot={statusDot((payload) =>
+                        statusColor(withinNormal(payload.value, item.normal_min, item.normal_max), "#398766", "#c0554d"),
+                      )}
                     />
-                    <Line
-                      type="monotone"
-                      dataKey="mean"
-                      name="Media"
-                      stroke="#7a54bf"
-                      strokeWidth={2.4}
-                      strokeDasharray="4 3"
-                      dot
-                    />
-                  </>
-                ) : (
-                  <Line type="monotone" dataKey="value" name={item.name} stroke="#398766" strokeWidth={2.4} dot />
-                )}
-              </RechartsLineChart>
-            </ResponsiveContainer>
+                  )}
+                </RechartsLineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
         )
       })}
     </div>
