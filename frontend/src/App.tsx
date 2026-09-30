@@ -223,6 +223,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [modal, setModal] = useState<ModalType>(null)
+  const [pendingQuickSection, setPendingQuickSection] = useState<Section | null>(null)
   const [dark, setDark] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
@@ -982,6 +983,8 @@ export default function App() {
                 setModal("medication")
               }}
               onDelete={removeRecord}
+              autoOpenEntry={pendingQuickSection === section}
+              onAutoOpenHandled={() => setPendingQuickSection(null)}
             />
           )}
           {loading && (
@@ -1018,6 +1021,7 @@ export default function App() {
             if (target.modal) setModal(target.modal)
             else if (target.section) {
               setModal(null)
+              setPendingQuickSection(target.section)
               setSection(target.section)
             }
           }}
@@ -2592,6 +2596,8 @@ function ModuleWorkspace(props: {
   onEditDose: (entry: DoseEntry) => void
   onEditMedication: (entry: Medication) => void
   onDelete: (path: string) => Promise<void>
+  autoOpenEntry: boolean
+  onAutoOpenHandled: () => void
 }) {
   const { section, token, weights, doses, measurements, medications, entries, photos } = props
   const userTimezone = props.profile?.timezone ?? "America/Bogota"
@@ -2656,6 +2662,21 @@ function ModuleWorkspace(props: {
       active = false
     }
   }, [catalogCategory, token, props.onError])
+
+  useEffect(() => {
+    if (!props.autoOpenEntry) return
+    if (catalogCategory) {
+      setEditingCatalogEntry(null)
+      setShowCatalogEntryForm(true)
+    } else if (section === "Medidas") {
+      setEditingMeasurement(null)
+      setShowMeasurementForm(true)
+    } else if (module) {
+      setEditingEntry(null)
+      setShowEntryForm(true)
+    }
+    props.onAutoOpenHandled()
+  }, [props.autoOpenEntry, catalogCategory, section, module, props.onAutoOpenHandled])
 
   async function addCatalogItem(
     name: string,
@@ -4676,16 +4697,23 @@ function LabEvolutionCharts({
   }
   const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
     status === false ? alteredColor : normalColor
-  // Green only for genuinely normal points; red covers altered points plus one bridging
-  // point on each side so the two colored lines meet at the transition without a gap
-  const splitByStatus = (values: (number | null)[], statuses: (boolean | null)[]) => {
-    const normal = values.map((value, index) => (value != null && statuses[index] === true ? value : null))
-    const altered = values.map((value, index) => {
-      if (value == null) return null
-      if (statuses[index] === false || statuses[index - 1] === false || statuses[index + 1] === false) return value
-      return null
-    })
-    return { normal, altered }
+  // Builds a hard-stop gradient (each stop duplicated at its segment's start/end offset) so a
+  // single smooth curve can change solid color per segment instead of stitching separate lines
+  const segmentGradient = (gradientId: string, statuses: (boolean | null)[]) => {
+    const segmentCount = Math.max(statuses.length - 1, 1)
+    const stops: { offset: number; color: string }[] = []
+    for (let index = 0; index < segmentCount; index += 1) {
+      const altered = statuses[index] === false || statuses[index + 1] === false
+      const color = altered ? "#c0554d" : "#398766"
+      stops.push({ offset: index / segmentCount, color }, { offset: (index + 1) / segmentCount, color })
+    }
+    return (
+      <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+        {stops.map((stop, index) => (
+          <stop key={index} offset={stop.offset} stopColor={stop.color} />
+        ))}
+      </linearGradient>
+    )
   }
   const statusDot =
     (color: (payload: { value: number | null }) => string) =>
@@ -4707,9 +4735,7 @@ function LabEvolutionCharts({
     (item: CatalogItem) =>
     ({ active, label, payload }: TooltipProps<number, string>) => {
       if (!active || !payload?.length) return null
-      const visible = payload.filter(
-        (entry) => entry.dataKey !== "valueNormal" && entry.dataKey !== "valueAltered" && entry.value != null,
-      )
+      const visible = payload.filter((entry) => entry.value != null)
       if (!visible.length) return null
       return (
         <div className="lab-tooltip">
@@ -4732,15 +4758,7 @@ function LabEvolutionCharts({
       {series.map(({ item, points }) => {
         const { domain, ticks } = yAxis(item, points)
         const valueStatuses = points.map((point) => withinNormal(point.value, item.normal_min, item.normal_max))
-        const { normal: valueNormal, altered: valueAltered } = splitByStatus(
-          points.map((point) => point.value),
-          valueStatuses,
-        )
-        const chartData = points.map((point, index) => ({
-          ...point,
-          valueNormal: valueNormal[index],
-          valueAltered: valueAltered[index],
-        }))
+        const gradientId = `lab-gradient-${item.id}`
         return (
           <div className="panel analysis-chart-panel" key={item.id}>
             <div className="panel-heading">
@@ -4755,7 +4773,8 @@ function LabEvolutionCharts({
             {normalRangeLabel(item) && <p className="module-hint">{normalRangeLabel(item)}</p>}
             <div className="chart-wrap">
               <ResponsiveContainer width="100%" height="100%">
-                <RechartsLineChart data={chartData} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                  <defs>{!item.is_blood_pressure && segmentGradient(gradientId, valueStatuses)}</defs>
                   <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                   <XAxis
                     dataKey="date"
@@ -4811,40 +4830,20 @@ function LabEvolutionCharts({
                       />
                     </>
                   ) : (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="valueNormal"
-                        legendType="none"
-                        stroke="#398766"
-                        strokeWidth={2.4}
-                        dot={false}
-                        connectNulls={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="valueAltered"
-                        legendType="none"
-                        stroke="#c0554d"
-                        strokeWidth={2.4}
-                        dot={false}
-                        connectNulls={false}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="value"
-                        name={item.name}
-                        stroke="transparent"
-                        strokeWidth={0}
-                        dot={statusDot((payload) =>
-                          statusColor(
-                            withinNormal(payload.value, item.normal_min, item.normal_max),
-                            "#398766",
-                            "#c0554d",
-                          ),
-                        )}
-                      />
-                    </>
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      name={item.name}
+                      stroke={`url(#${gradientId})`}
+                      strokeWidth={2.4}
+                      dot={statusDot((payload) =>
+                        statusColor(
+                          withinNormal(payload.value, item.normal_min, item.normal_max),
+                          "#398766",
+                          "#c0554d",
+                        ),
+                      )}
+                    />
                   )}
                 </RechartsLineChart>
               </ResponsiveContainer>
