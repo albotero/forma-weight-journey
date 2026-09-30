@@ -4863,7 +4863,9 @@ function LabEvolutionCharts({
                     </>
                   ) : (
                     <Line
-                      type="monotone"
+                      // Linear (not monotone) so the rendered path matches the linear
+                      // crossing-fraction math exactly, keeping the color transition on-point
+                      type="linear"
                       dataKey="value"
                       name={item.name}
                       stroke={`url(#${gradientId})`}
