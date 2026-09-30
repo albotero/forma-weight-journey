@@ -3403,7 +3403,7 @@ function ModuleWorkspace(props: {
         <>
           <div className="record-list">
             {medications.map((item) => (
-              <article className="record-card" key={item.id}>
+              <article className="record-card medication-record" key={item.id}>
                 <div className="record-card-heading">
                   <div>
                     <strong>{item.name}</strong>
