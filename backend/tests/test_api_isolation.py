@@ -202,6 +202,7 @@ def test_registration_starts_without_assuming_medication_and_dose_is_calculated(
         "name": "Medicamento de prueba", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
     }).json()
+    assert medication["dosing_interval"] is None
 
     recorded = client.post("/api/doses", headers=headers,
                            json={"medication_id": medication["id"], "dose_mg": 5})
@@ -235,6 +236,26 @@ def test_medication_concentration_can_be_changed_and_is_user_scoped() -> None:
     assert forbidden.status_code == 404
 
 
+def test_medication_dosing_interval_is_optional_and_validated() -> None:
+    created = client.post("/api/auth/register", json={
+                          "email": "cadence-owner@example.com", "password": "cadence-password-123"})
+    headers = {"Authorization": f"Bearer {created.json()['access_token']}"}
+    payload = {"name": "Medicamento", "concentration_mg": 10,
+               "concentration_volume_ml": 0.5, "dosing_interval": "weekly"}
+    saved = client.post("/api/medications", headers=headers, json=payload)
+    assert saved.status_code == 201
+    assert saved.json()["dosing_interval"] == "weekly"
+    assert client.get("/api/medications",
+                      headers=headers).json()[0]["dosing_interval"] == "weekly"
+    updated = client.put(f"/api/medications/{saved.json()['id']}", headers=headers,
+                         json={**payload, "dosing_interval": "daily"})
+    assert updated.status_code == 200
+    assert updated.json()["dosing_interval"] == "daily"
+    invalid = client.put(f"/api/medications/{saved.json()['id']}", headers=headers,
+                         json={**payload, "dosing_interval": "hourly"})
+    assert invalid.status_code == 422
+
+
 def test_protected_endpoints_require_authentication() -> None:
     assert client.get("/api/weights").status_code == 401
 
@@ -250,6 +271,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     medication = client.post("/api/medications", headers=headers, json={
         "name": "Registro de prueba", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
+        "dosing_interval": "weekly",
     }).json()
     client.post("/api/medications", headers=other_headers, json={
         "name": "Otro medicamento", "concentration_mg": 10,
@@ -308,6 +330,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     assert len(weights) == 1 and weights[0]["weight_kg"] == 82.5
     restored_medication = client.get(
         "/api/medications", headers=headers).json()[0]
+    assert restored_medication["dosing_interval"] == "weekly"
     restored_dose = client.get("/api/doses", headers=headers).json()[0]
     assert restored_dose["medication_id"] == restored_medication["id"]
     restored_entry = client.get("/api/entries/labs", headers=headers).json()[0]

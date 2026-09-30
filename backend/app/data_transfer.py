@@ -142,7 +142,8 @@ def build_export(db: Session, user: User, storage_path: str) -> bytes:
             "key": medication_keys[row.id], "name": row.name, "active": row.active,
             "concentration_mg": row.concentration_mg,
             "concentration_volume_ml": row.concentration_volume_ml,
-            "units_per_ml": row.units_per_ml, "notes": row.notes,
+            "units_per_ml": row.units_per_ml, "dosing_interval": row.dosing_interval,
+            "notes": row.notes,
             "created_at": _iso(row.created_at),
         })
     for row in doses:
@@ -518,7 +519,8 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
                 user_id=user.id, name=row["name"], active=row["active"],
                 concentration_mg=row["concentration_mg"],
                 concentration_volume_ml=row["concentration_volume_ml"],
-                units_per_ml=row["units_per_ml"], notes=row["notes"],
+                units_per_ml=row["units_per_ml"], dosing_interval=row["dosing_interval"],
+                notes=row["notes"],
             )
             if row["created_at"] is not None:
                 medication.created_at = row["created_at"]

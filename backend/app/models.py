@@ -61,6 +61,8 @@ class Medication(Base):
     concentration_volume_ml: Mapped[float] = mapped_column(Float, default=0.5)
     units_per_ml: Mapped[float | None] = mapped_column(
         Float, default=100, nullable=True)
+    dosing_interval: Mapped[str | None] = mapped_column(
+        String(10), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now())

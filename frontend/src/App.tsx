@@ -161,8 +161,74 @@ const navigation: { label: Section; icon: typeof Home }[] = [
 const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
 const formatDecimal = (value: number) => new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
-const compactAxisNumber = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 1 })
-const formatAxisTick = (value: number) => {
+const niceAxis = (values: number[], paddingFloor = 1): { domain: [number, number]; ticks: number[] } => {
+  if (!values.length) return { domain: [0, 1], ticks: [0, 1] }
+  const minimum = Math.max(Math.min(...values), 0)
+  const maximum = Math.max(...values)
+  const padding = Math.max((maximum - minimum) * 0.1, paddingFloor)
+  const paddedMin = Math.max(minimum - padding, 0)
+  const paddedMax = maximum + padding
+  const rawStep = (paddedMax - paddedMin) / 4
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep))
+  const fraction = rawStep / magnitude
+  const step = (fraction < 1.5 ? 1 : fraction < 3 ? 2 : fraction < 7 ? 5 : 10) * magnitude
+  const lower = Math.max(Math.floor(paddedMin / step) * step, 0)
+  const upper = Math.ceil(paddedMax / step) * step
+  const ticks = Array.from({ length: Math.round((upper - lower) / step) + 1 }, (_, index) =>
+    Number((lower + index * step).toPrecision(12)),
+  )
+  return { domain: [lower, upper], ticks }
+}
+const bmiBands = [
+  { label: "Normal", from: 18.5, to: 25, color: "#4CD13D" },
+  { label: "Sobrepeso", from: 25, to: 30, color: "#EEF21B" },
+  { label: "Obesidad", from: 30, to: 40, color: "#FF6666" },
+  { label: "Obesidad mórbida", from: 40, to: Infinity, color: "#B13DD1" },
+] as const
+
+function bmiRangeAreas(heightCm: number | undefined, domain: [number, number]) {
+  if (!heightCm || heightCm <= 0) return null
+  const heightSquared = (heightCm / 100) ** 2
+  return bmiBands.map(({ label, from, to, color }) => {
+    const lower = Math.max(domain[0], from * heightSquared)
+    const upper = Math.min(domain[1], to * heightSquared)
+    return upper > lower ? (
+      <ReferenceArea
+        key={label}
+        y1={lower}
+        y2={upper}
+        fill={color}
+        fillOpacity={label === "Sobrepeso" ? 0.38 : 0.32}
+        stroke="none"
+      />
+    ) : null
+  })
+}
+
+function BmiRangeLegend() {
+  return (
+    <div className="bmi-range-legend">
+      {bmiBands.map(({ label, color }) => (
+        <span key={label}>
+          <i style={{ backgroundColor: color }} />
+          {label}
+        </span>
+      ))}
+    </div>
+  )
+}
+const estimatedNextDose = (medication: Medication, doses: DoseEntry[]) => {
+  if (!medication.dosing_interval) return null
+  const lastDose = doses.find(
+    (dose) => dose.medication_id === medication.id && new Date(dose.administered_at).getTime() <= Date.now(),
+  )
+  return lastDose
+    ? new Date(
+        new Date(lastDose.administered_at).getTime() + (medication.dosing_interval === "weekly" ? 7 : 1) * 86400000,
+      ).toISOString()
+    : null
+}
+const formatAxisTick = (value: number, step = 0.01) => {
   const absoluteValue = Math.abs(value)
   const units = [
     { threshold: 1e12, divisor: 1e12, suffix: "T" },
@@ -171,7 +237,11 @@ const formatAxisTick = (value: number) => {
     { threshold: 1e3, divisor: 1e3, suffix: "k" },
   ]
   const unit = units.find(({ threshold }) => absoluteValue >= threshold)
-  return unit ? `${compactAxisNumber.format(value / unit.divisor)}${unit.suffix}` : formatDecimal(value)
+  return unit
+    ? `${new Intl.NumberFormat("es-CO", { maximumFractionDigits: Math.min(8, Math.max(1, -Math.floor(Math.log10(step / unit.divisor)))) }).format(value / unit.divisor)}${unit.suffix}`
+    : new Intl.NumberFormat("es-CO", {
+        maximumFractionDigits: Math.min(8, Math.max(2, -Math.floor(Math.log10(step)))),
+      }).format(value)
 }
 const isNumericString = (raw: string) => /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(raw.trim())
 const formatDateTime = (value: string, timeZone = "America/Bogota") =>
@@ -317,10 +387,13 @@ export default function App() {
   const loss = currentWeight === undefined ? 0 : startingWeight - currentWeight
   const lossPercent = currentWeight === undefined ? 0 : (loss / startingWeight) * 100
   const bmiNow = currentWeight && profile ? currentWeight / (profile.height_cm / 100) ** 2 : null
-  const currentDose = doses[0]
   const userTimezone = profile?.timezone ?? "America/Bogota"
   const accountInitial = account?.email.trim().charAt(0).toLocaleUpperCase("es-CO") || "?"
   const activeMedication = medications.find((item) => item.active)
+  const currentDose = doses.find(
+    (item) => item.medication_id === activeMedication?.id && new Date(item.administered_at).getTime() <= Date.now(),
+  )
+  const nextDoseAt = activeMedication ? estimatedNextDose(activeMedication, doses) : null
   const chartData = useMemo(() => {
     const days =
       range === "30 días" ? 30 : range === "90 días" ? 90 : range === "6 meses" ? 183 : range === "1 año" ? 365 : 10000
@@ -332,6 +405,10 @@ export default function App() {
       })
       .map((item) => ({ date: formatDate(item.measured_at, userTimezone), peso: item.weight_kg }))
   }, [sortedWeights, range, userTimezone])
+  const weightAxis = niceAxis(
+    chartData.map((item) => item.peso),
+    2,
+  )
   const average7 = useMemo(() => {
     const recent = sortedWeights.filter((item) => {
       const elapsed = Date.now() - new Date(item.measured_at).getTime()
@@ -511,6 +588,7 @@ export default function App() {
     concentrationMg: number,
     volumeMl: number,
     unitsPerMl: number | null,
+    dosingInterval: Medication["dosing_interval"],
   ) {
     if (!token) return
     await api(`/medications/${medication.id}`, token, {
@@ -521,6 +599,7 @@ export default function App() {
         concentration_mg: concentrationMg,
         concentration_volume_ml: volumeMl,
         units_per_ml: unitsPerMl,
+        dosing_interval: dosingInterval,
       }),
     })
     await refresh(token)
@@ -813,6 +892,7 @@ export default function App() {
                               <stop offset="100%" stopColor="#6fb99c" stopOpacity={0.01} />
                             </linearGradient>
                           </defs>
+                          {bmiRangeAreas(profile?.height_cm, weightAxis.domain)}
                           <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                           <XAxis
                             dataKey="date"
@@ -823,7 +903,8 @@ export default function App() {
                             minTickGap={30}
                           />
                           <YAxis
-                            domain={["dataMin - 2", "dataMax + 2"]}
+                            domain={weightAxis.domain}
+                            ticks={weightAxis.ticks}
                             axisLine={false}
                             tickLine={false}
                             tick={{ fill: "var(--muted)", fontSize: 11 }}
@@ -860,6 +941,7 @@ export default function App() {
                     </span>
                     <span className="chart-note">Los cambios reflejan tus registros, no una recomendación médica.</span>
                   </div>
+                  {profile && <BmiRangeLegend />}
                 </div>
                 <div className="panel medication-panel">
                   <div className="panel-heading">
@@ -913,6 +995,12 @@ export default function App() {
                         <strong>
                           {(activeMedication.concentration_mg / activeMedication.concentration_volume_ml).toFixed(1)}{" "}
                           mg/mL{activeMedication.units_per_ml ? ` · U-100 habilitado` : ""}
+                        </strong>
+                        <span>Próxima dosis estimada</span>
+                        <strong>
+                          {nextDoseAt
+                            ? `${new Date(nextDoseAt).getTime() < Date.now() ? "Pendiente desde " : ""}${formatDateTime(nextDoseAt, userTimezone)}`
+                            : "Configura la frecuencia y registra una dosis"}
                         </strong>
                       </div>
                       <button className="outline-button full-button" onClick={() => setModal("dose")}>
@@ -1842,8 +1930,10 @@ function AuthScreen({ onAuthenticated }: { onAuthenticated: (token: string) => v
   const resetQuery = window.location.hash.split("?")[1] ?? ""
   const resetToken = new URLSearchParams(resetQuery).get("token")
   const [mode, setMode] = useState<AuthMode>(() => (resetToken ? "reset" : "login"))
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+  const [email, setEmail] = useState(() => (import.meta.env.DEV ? (import.meta.env.VITE_PREVIEW_EMAIL ?? "") : ""))
+  const [password, setPassword] = useState(() =>
+    import.meta.env.DEV ? (import.meta.env.VITE_PREVIEW_PASSWORD ?? "") : "",
+  )
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
   const [busy, setBusy] = useState(false)
@@ -2256,6 +2346,10 @@ function AnalysisWorkspace({
     date: formatDate(item.measured_at, profile?.timezone),
     peso: item.weight_kg,
   }))
+  const weightAxis = niceAxis(
+    chart.map((item) => item.peso),
+    2,
+  )
   const labEntries = pastEntries.filter((entry) => entry.module === "labs")
   const reviewEntries = pastEntries.filter((entry) => entry.module === "reviews")
   const recentSymptoms = symptoms.filter((entry) => isWithinDays(entry.occurred_at, 7))
@@ -2599,6 +2693,7 @@ function AnalysisWorkspace({
                     <stop offset="100%" stopColor="#6fb99c" stopOpacity={0.01} />
                   </linearGradient>
                 </defs>
+                {bmiRangeAreas(profile?.height_cm, weightAxis.domain)}
                 <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                 <XAxis
                   dataKey="date"
@@ -2608,7 +2703,8 @@ function AnalysisWorkspace({
                   minTickGap={30}
                 />
                 <YAxis
-                  domain={["dataMin - 2", "dataMax + 2"]}
+                  domain={weightAxis.domain}
+                  ticks={weightAxis.ticks}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
@@ -2628,6 +2724,7 @@ function AnalysisWorkspace({
         ) : (
           <EmptyModule text="Registra al menos un peso para ver su evolución." />
         )}
+        {chart.length > 0 && profile && <BmiRangeLegend />}
       </div>
       <h2 className="module-subheading">Cambio de composición entre las dos últimas lecturas</h2>
       {compositionChanges.length ? (
@@ -2783,6 +2880,13 @@ function ModuleWorkspace(props: {
   const compositionWeights = [...weights]
     .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
+  const photoGroups = Object.entries(
+    photos.reduce<Record<string, PhotoEntry[]>>((groups, photo) => {
+      const day = dateTimeInputValue(photo.taken_at, userTimezone).slice(0, 10)
+      ;(groups[day] ??= []).push(photo)
+      return groups
+    }, {}),
+  ).sort(([first], [second]) => second.localeCompare(first))
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null)
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingMeasurement, setEditingMeasurement] = useState<BodyMeasurementEntry | null>(null)
@@ -3060,6 +3164,7 @@ function ModuleWorkspace(props: {
           concentration_mg: Number(form.get("concentration_mg")),
           concentration_volume_ml: Number(form.get("concentration_volume_ml")),
           units_per_ml: form.get("units_per_ml") ? Number(form.get("units_per_ml")) : null,
+          dosing_interval: form.get("dosing_interval") || null,
         }),
       })
       setShowNewMedication(false)
@@ -3158,6 +3263,21 @@ function ModuleWorkspace(props: {
             Lecturas de báscula; son estimaciones del dispositivo, no mediciones diagnósticas. Todos los campos de
             composición son opcionales.
           </p>
+          <MetricTrendCharts
+            title="Composición corporal"
+            series={compositionFields.map(([key, label, unit]) => ({
+              label,
+              unit,
+              points: compositionWeights
+                .filter((item) => item[key] != null)
+                .sort((a, b) => a.measured_at.localeCompare(b.measured_at))
+                .map((item) => ({
+                  occurredAt: item.measured_at,
+                  date: formatDate(item.measured_at, userTimezone),
+                  value: Number(item[key]),
+                })),
+            }))}
+          />
           <div className="record-list">
             {compositionWeights.map((item) => (
               <article className="record-card" key={item.id}>
@@ -3230,36 +3350,53 @@ function ModuleWorkspace(props: {
       )}
 
       {section === "Medidas" && (
-        <div className="record-list">
-          {measurements.map((item) => (
-            <article className="record-card" key={item.id}>
-              <div className="record-card-heading">
-                <strong>{formatDateTime(item.measured_at, userTimezone)}</strong>
-                <RecordActions
-                  onEdit={() => {
-                    setEditingMeasurement(item)
-                    setShowMeasurementForm(true)
-                  }}
-                  onDelete={() => void props.onDelete(`/body-measurements/${item.id}`)}
-                />
-              </div>
-              <div className="composition-results">
-                {bodyFields
-                  .filter(([key]) => item[key] != null)
-                  .map(([key, label, unit]) => (
-                    <div key={key}>
-                      <span>{label}</span>
-                      <strong>
-                        {formatDecimal(Number(item[key]))} {unit}
-                      </strong>
-                    </div>
-                  ))}
-              </div>
-              {item.notes && <p>{item.notes}</p>}
-            </article>
-          ))}
-          {!measurements.length && <EmptyModule text="Registra medidas corporales para ver su evolución." />}
-        </div>
+        <>
+          <MetricTrendCharts
+            title="Medidas corporales"
+            series={bodyFields.map(([key, label, unit]) => ({
+              label,
+              unit,
+              points: measurements
+                .filter((item) => item[key] != null)
+                .sort((a, b) => a.measured_at.localeCompare(b.measured_at))
+                .map((item) => ({
+                  occurredAt: item.measured_at,
+                  date: formatDate(item.measured_at, userTimezone),
+                  value: Number(item[key]),
+                })),
+            }))}
+          />
+          <div className="record-list">
+            {measurements.map((item) => (
+              <article className="record-card" key={item.id}>
+                <div className="record-card-heading">
+                  <strong>{formatDateTime(item.measured_at, userTimezone)}</strong>
+                  <RecordActions
+                    onEdit={() => {
+                      setEditingMeasurement(item)
+                      setShowMeasurementForm(true)
+                    }}
+                    onDelete={() => void props.onDelete(`/body-measurements/${item.id}`)}
+                  />
+                </div>
+                <div className="composition-results">
+                  {bodyFields
+                    .filter(([key]) => item[key] != null)
+                    .map(([key, label, unit]) => (
+                      <div key={key}>
+                        <span>{label}</span>
+                        <strong>
+                          {formatDecimal(Number(item[key]))} {unit}
+                        </strong>
+                      </div>
+                    ))}
+                </div>
+                {item.notes && <p>{item.notes}</p>}
+              </article>
+            ))}
+            {!measurements.length && <EmptyModule text="Registra medidas corporales para ver su evolución." />}
+          </div>
+        </>
       )}
 
       {section === "Medicación" && (
@@ -3277,6 +3414,14 @@ function ModuleWorkspace(props: {
                       {item.concentration_mg} mg / {item.concentration_volume_ml} mL
                       {item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}
                     </p>
+                    {item.active && (
+                      <p>
+                        Próxima dosis estimada:{" "}
+                        {estimatedNextDose(item, doses)
+                          ? `${new Date(estimatedNextDose(item, doses)!).getTime() < Date.now() ? "pendiente desde " : ""}${formatDateTime(estimatedNextDose(item, doses)!, userTimezone)}`
+                          : "Configura la frecuencia y registra una dosis"}
+                      </p>
+                    )}
                   </div>
                   <div className="record-actions">
                     {item.active && (
@@ -3669,18 +3814,35 @@ function ModuleWorkspace(props: {
               {busy ? "Cargando…" : "Guardar foto privada"}
             </button>
           </form>
-          <div className="photo-grid">
-            {photos.map((photo) => (
-              <PhotoCard
-                key={photo.id}
-                photo={photo}
-                token={token}
-                timezone={userTimezone}
-                onRefresh={props.onRefresh}
-                onDelete={() => void props.onDelete(`/photos/${photo.id}`)}
-              />
-            ))}
-          </div>
+          {photoGroups.map(([day, dayPhotos]) => (
+            <section className="photo-collection" key={day}>
+              <div className="photo-collection-heading">
+                <h2>
+                  {new Intl.DateTimeFormat("es-CO", {
+                    day: "numeric",
+                    month: "long",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  }).format(new Date(`${day}T00:00:00Z`))}
+                </h2>
+                <span>
+                  {dayPhotos.length} {dayPhotos.length === 1 ? "foto" : "fotos"}
+                </span>
+              </div>
+              <div className="photo-grid">
+                {dayPhotos.map((photo) => (
+                  <PhotoCard
+                    key={photo.id}
+                    photo={photo}
+                    token={token}
+                    timezone={userTimezone}
+                    onRefresh={props.onRefresh}
+                    onDelete={() => void props.onDelete(`/photos/${photo.id}`)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
           {!photos.length && <EmptyModule text="Las fotos se almacenan de forma privada en tu cuenta." />}
         </>
       )}
@@ -3824,6 +3986,14 @@ function ModuleWorkspace(props: {
             <label>
               Unidades/mL <span className="optional">opcional</span>
               <input name="units_per_ml" type="number" min="0.01" step="0.01" />
+            </label>
+            <label>
+              Frecuencia <span className="optional">opcional</span>
+              <select name="dosing_interval" defaultValue="">
+                <option value="">Sin configurar</option>
+                <option value="daily">Diaria</option>
+                <option value="weekly">Semanal</option>
+              </select>
             </label>
             {error && <div className="error-banner">{error}</div>}
             <div className="form-actions">
@@ -4774,6 +4944,151 @@ function CatalogEntryEditor({
   )
 }
 
+function MetricTrendCharts({
+  series,
+  title,
+}: {
+  series: { label: string; unit: string; points: { occurredAt: string; date: string; value: number }[] }[]
+  title: string
+}) {
+  const [hidden, setHidden] = useState<string[]>([])
+  const populated = series.filter(({ points }) => points.length)
+  if (!populated.length) return null
+  const times = [...new Set(populated.flatMap(({ points }) => points.map(({ occurredAt }) => occurredAt)))].sort()
+  const chartData = times.map((occurredAt) => {
+    const row: Record<string, string | number | null> = {
+      occurredAt,
+      date: populated.flatMap(({ points }) => points).find((point) => point.occurredAt === occurredAt)!.date,
+    }
+    populated.forEach(({ points }, index) => {
+      const value = points.find((point) => point.occurredAt === occurredAt)?.value
+      row[`metric_${index}`] = value ?? null
+      row[`raw_${index}`] = value ?? null
+    })
+    return row
+  })
+  const metabolicIndex = title === "Composición corporal" ? populated.findIndex(({ unit }) => unit === "kcal") : -1
+  const values = chartData
+    .flatMap((row) =>
+      populated.flatMap(({ label }, index) =>
+        hidden.includes(label) || index === metabolicIndex ? [] : [row[`metric_${index}`]],
+      ),
+    )
+    .filter((value): value is number => typeof value === "number")
+  const { domain, ticks } = niceAxis(values, Math.max(0.01, Math.min(1, Math.max(...values) * 0.05)))
+  const tickStep = ticks.length > 1 ? ticks[1] - ticks[0] : 1
+  const metabolicValues =
+    metabolicIndex < 0 || hidden.includes(populated[metabolicIndex].label)
+      ? []
+      : chartData
+          .map((row) => row[`metric_${metabolicIndex}`])
+          .filter((value): value is number => typeof value === "number")
+  const metabolicAxis = metabolicValues.length ? niceAxis(metabolicValues, 20) : null
+  const metabolicTickStep =
+    metabolicAxis && metabolicAxis.ticks.length > 1 ? metabolicAxis.ticks[1] - metabolicAxis.ticks[0] : 1
+  const colors = [
+    "#398766",
+    "#3d6fb4",
+    "#c0554d",
+    "#8757a5",
+    "#ad8a50",
+    "#2b9096",
+    "#d47b45",
+    "#708f44",
+    "#c16b89",
+    "#566e9c",
+    "#927d61",
+  ]
+  return (
+    <div className="panel analysis-chart-panel trend-chart-panel">
+      <div className="panel-heading">
+        <div>
+          <div className="eyebrow">EVOLUCIÓN</div>
+          <h2>{title}</h2>
+        </div>
+        <span className="goal-caption">{metabolicIndex >= 0 ? "kcal · eje derecho" : "Valores registrados"}</span>
+      </div>
+      <div className="chart-wrap">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsLineChart data={chartData} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
+            <XAxis
+              dataKey="date"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "var(--muted)", fontSize: 11 }}
+              minTickGap={30}
+            />
+            <YAxis
+              yAxisId="values"
+              domain={domain}
+              ticks={ticks}
+              hide={!values.length}
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: "var(--muted)", fontSize: 11 }}
+              tickFormatter={(value) => formatAxisTick(Number(value), tickStep)}
+            />
+            {metabolicAxis && (
+              <YAxis
+                yAxisId="kcal"
+                orientation="right"
+                width={48}
+                domain={metabolicAxis.domain}
+                ticks={metabolicAxis.ticks}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fill: "var(--muted)", fontSize: 11 }}
+                tickFormatter={(value) => formatAxisTick(Number(value), metabolicTickStep)}
+              />
+            )}
+            <Tooltip
+              formatter={(_value, name, item) => {
+                const index = Number(String(item.dataKey).slice(7))
+                return [`${formatDecimal(Number(item.payload[`raw_${index}`]))} ${populated[index].unit}`, name]
+              }}
+            />
+            {populated.map(
+              ({ label }, index) =>
+                !hidden.includes(label) && (
+                  <Line
+                    key={label}
+                    type="monotone"
+                    dataKey={`metric_${index}`}
+                    yAxisId={index === metabolicIndex ? "kcal" : "values"}
+                    name={label}
+                    connectNulls
+                    stroke={colors[index % colors.length]}
+                    strokeWidth={2.2}
+                    dot={{ fill: colors[index % colors.length], stroke: colors[index % colors.length], r: 2.5 }}
+                  />
+                ),
+            )}
+          </RechartsLineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="trend-series-legend">
+        {populated.map(({ label, unit }, index) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={!hidden.includes(label)}
+            disabled={!hidden.includes(label) && hidden.length === populated.length - 1}
+            onClick={() =>
+              setHidden((current) =>
+                current.includes(label) ? current.filter((name) => name !== label) : [...current, label],
+              )
+            }
+          >
+            <i style={{ background: colors[index % colors.length] }} />
+            {label} ({unit})
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function LabEvolutionCharts({
   entries,
   catalog,
@@ -4810,29 +5125,6 @@ function LabEvolutionCharts({
     return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
   }
 
-  // Rounds a raw step to 1/2/5 x a power of ten so ticks fall on regular values
-  const niceStep = (rawStep: number, round: boolean): number => {
-    if (rawStep <= 0) return 1
-    const exponent = Math.floor(Math.log10(rawStep))
-    const fraction = rawStep / 10 ** exponent
-    const niceFraction = round
-      ? fraction < 1.5
-        ? 1
-        : fraction < 3
-          ? 2
-          : fraction < 7
-            ? 5
-            : 10
-      : fraction <= 1
-        ? 1
-        : fraction <= 2
-          ? 2
-          : fraction <= 5
-            ? 5
-            : 10
-    return niceFraction * 10 ** exponent
-  }
-
   const yAxis = (
     item: CatalogItem,
     points: (typeof series)[number]["points"],
@@ -4844,18 +5136,7 @@ function LabEvolutionCharts({
       ? [item.normal_min, item.normal_max, item.diastolic_normal_min, item.diastolic_normal_max]
       : [item.normal_min, item.normal_max]
     const domainValues = [...numericValues, ...thresholds].filter((value): value is number => value != null)
-    const rawMin = Math.max(Math.min(...domainValues), 0)
-    const rawMax = Math.max(...domainValues)
-    const padding = Math.max((rawMax - rawMin) * 0.1, 1)
-    const paddedMin = Math.max(rawMin - padding, 0)
-    const paddedMax = rawMax + padding
-    const targetTickCount = 5
-    const step = niceStep((paddedMax - paddedMin) / (targetTickCount - 1), true)
-    const niceMin = Math.max(Math.floor(paddedMin / step) * step, 0)
-    const niceMax = Math.ceil(paddedMax / step) * step
-    const tickCount = Math.round((niceMax - niceMin) / step) + 1
-    const ticks = Array.from({ length: tickCount }, (_, index) => Math.round((niceMin + index * step) * 1000) / 1000)
-    return { domain: [niceMin, niceMax], ticks }
+    return niceAxis(domainValues)
   }
 
   const rangeText = (min: number | null, max: number | null, unit: string | null) => {
@@ -5611,12 +5892,14 @@ function MedicationModal({
     concentrationMg: number,
     volumeMl: number,
     unitsPerMl: number | null,
+    dosingInterval: Medication["dosing_interval"],
   ) => Promise<void>
 }) {
   const [name, setName] = useState(medication.name)
   const [concentrationMg, setConcentrationMg] = useState(String(medication.concentration_mg))
   const [volumeMl, setVolumeMl] = useState(String(medication.concentration_volume_ml))
   const [unitsPerMl, setUnitsPerMl] = useState(medication.units_per_ml === null ? "" : String(medication.units_per_ml))
+  const [dosingInterval, setDosingInterval] = useState(medication.dosing_interval ?? "")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   async function submit(event: FormEvent) {
@@ -5630,6 +5913,7 @@ function MedicationModal({
         Number(concentrationMg),
         Number(volumeMl),
         unitsPerMl.trim() ? Number(unitsPerMl) : null,
+        dosingInterval ? (dosingInterval as Medication["dosing_interval"]) : null,
       )
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar la concentración")
@@ -5687,6 +5971,14 @@ function MedicationModal({
             />
             <span>U/mL</span>
           </div>
+        </label>
+        <label>
+          Frecuencia <span className="optional">opcional</span>
+          <select value={dosingInterval} onChange={(event) => setDosingInterval(event.target.value)}>
+            <option value="">Sin configurar</option>
+            <option value="daily">Diaria</option>
+            <option value="weekly">Semanal</option>
+          </select>
         </label>
         <p className="medical-note">
           Verifica la concentración en el envase con tu profesional de salud. La aplicación no valida ni recomienda una

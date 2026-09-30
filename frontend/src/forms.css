@@ -749,9 +749,45 @@
 }
 .lab-charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 16px;
   margin-bottom: 20px;
+}
+.trend-chart-panel {
+  margin-bottom: 20px;
+}
+.trend-chart-panel .chart-wrap {
+  height: 300px;
+}
+.trend-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 14px;
+  margin-top: 15px;
+}
+.trend-series-legend button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--sub);
+  font-size: 10px;
+  cursor: pointer;
+}
+.trend-series-legend button[aria-pressed="false"] {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.trend-series-legend button:disabled {
+  cursor: default;
+}
+.trend-series-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: 0 0 auto;
 }
 .entry-form textarea {
   min-height: 74px;
@@ -815,8 +851,25 @@
 }
 .photo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 190px), 1fr));
   gap: 13px;
+}
+.photo-collection {
+  margin-bottom: 20px;
+}
+.photo-collection-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.photo-collection-heading h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.photo-collection-heading span {
+  color: var(--sub);
+  font-size: 11px;
 }
 .photo-card {
   overflow: hidden;

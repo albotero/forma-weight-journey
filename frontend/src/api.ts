@@ -76,6 +76,7 @@ export type Medication = {
   concentration_mg: number
   concentration_volume_ml: number
   units_per_ml: number | null
+  dosing_interval: "daily" | "weekly" | null
 }
 export type DoseEntry = {
   id: number

@@ -141,6 +141,7 @@ class MedicationCreate(NumericPrecisionModel):
     concentration_mg: float = Field(gt=0, le=10000)
     concentration_volume_ml: float = Field(gt=0, le=1000)
     units_per_ml: float | None = Field(default=100, gt=0, le=10000)
+    dosing_interval: Literal["daily", "weekly"] | None = None
     notes: str | None = None
 
 
