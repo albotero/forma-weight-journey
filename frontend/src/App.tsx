@@ -4697,15 +4697,46 @@ function LabEvolutionCharts({
   }
   const statusColor = (status: boolean | null, normalColor: string, alteredColor: string) =>
     status === false ? alteredColor : normalColor
-  // Builds a hard-stop gradient (each stop duplicated at its segment's start/end offset) so a
-  // single smooth curve can change solid color per segment instead of stitching separate lines
-  const segmentGradient = (gradientId: string, statuses: (boolean | null)[]) => {
-    const segmentCount = Math.max(statuses.length - 1, 1)
+  // Linear estimate of where between two readings the value actually crosses a threshold
+  const crossingFraction = (from: number, to: number, threshold: number) => {
+    if (from === to) return 0.5
+    return Math.min(Math.max((threshold - from) / (to - from), 0), 1)
+  }
+  const thresholdCrossed = (from: number, to: number, min: number | null, max: number | null) => {
+    if (min != null && from < min !== to < min) return min
+    if (max != null && from > max !== to > max) return max
+    return (from + to) / 2
+  }
+  // Builds a hard-stop gradient so a single smooth curve can change solid color exactly where
+  // the value crosses the normal-range threshold, instead of at the data point marker
+  const segmentGradient = (
+    gradientId: string,
+    points: (typeof series)[number]["points"],
+    min: number | null,
+    max: number | null,
+  ) => {
+    const statuses = points.map((point) => withinNormal(point.value, min, max))
+    const segmentCount = Math.max(points.length - 1, 1)
     const stops: { offset: number; color: string }[] = []
     for (let index = 0; index < segmentCount; index += 1) {
-      const altered = statuses[index] === false || statuses[index + 1] === false
-      const color = altered ? "#c0554d" : "#398766"
-      stops.push({ offset: index / segmentCount, color }, { offset: (index + 1) / segmentCount, color })
+      const startOffset = index / segmentCount
+      const endOffset = (index + 1) / segmentCount
+      const startColor = statusColor(statuses[index] ?? null, "#398766", "#c0554d")
+      const endColor = statusColor(statuses[index + 1] ?? statuses[index] ?? null, "#398766", "#c0554d")
+      const fromValue = points[index]?.value
+      const toValue = points[index + 1]?.value
+      if (startColor === endColor || fromValue == null || toValue == null) {
+        stops.push({ offset: startOffset, color: startColor }, { offset: endOffset, color: startColor })
+        continue
+      }
+      const threshold = thresholdCrossed(fromValue, toValue, min, max)
+      const crossOffset = startOffset + (endOffset - startOffset) * crossingFraction(fromValue, toValue, threshold)
+      stops.push(
+        { offset: startOffset, color: startColor },
+        { offset: crossOffset, color: startColor },
+        { offset: crossOffset, color: endColor },
+        { offset: endOffset, color: endColor },
+      )
     }
     return (
       <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
@@ -4757,7 +4788,6 @@ function LabEvolutionCharts({
     <div className="lab-charts-grid">
       {series.map(({ item, points }) => {
         const { domain, ticks } = yAxis(item, points)
-        const valueStatuses = points.map((point) => withinNormal(point.value, item.normal_min, item.normal_max))
         const gradientId = `lab-gradient-${item.id}`
         return (
           <div className="panel analysis-chart-panel" key={item.id}>
@@ -4774,7 +4804,9 @@ function LabEvolutionCharts({
             <div className="chart-wrap">
               <ResponsiveContainer width="100%" height="100%">
                 <RechartsLineChart data={points} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
-                  <defs>{!item.is_blood_pressure && segmentGradient(gradientId, valueStatuses)}</defs>
+                  <defs>
+                    {!item.is_blood_pressure && segmentGradient(gradientId, points, item.normal_min, item.normal_max)}
+                  </defs>
                   <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                   <XAxis
                     dataKey="date"
