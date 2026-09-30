@@ -176,6 +176,12 @@ const formatAxisTick = (value: number) => {
 const isNumericString = (raw: string) => /^[+-]?(\d+(\.\d+)?|\.\d+)$/.test(raw.trim())
 const formatDateTime = (value: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(value))
+const weeklyActivityChecklistDate = (entry: JournalEntry) => {
+  if (entry.data.entry_type !== "weekly" || entry.data.week_end != null) return entry.occurred_at
+  const legacyWeekEnd = new Date(entry.occurred_at)
+  legacyWeekEnd.setUTCDate(legacyWeekEnd.getUTCDate() + 6)
+  return new Date(Math.min(legacyWeekEnd.getTime(), Date.now())).toISOString()
+}
 async function loadAllRecords<T>(path: string, token: string, pageSize = 500): Promise<T[]> {
   const records: T[] = []
   let offset = 0
@@ -215,6 +221,7 @@ export default function App() {
   const [doses, setDoses] = useState<DoseEntry[]>([])
   const [bodyMeasurements, setBodyMeasurements] = useState<BodyMeasurementEntry[]>([])
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([])
+  const [goalCatalog, setGoalCatalog] = useState<CatalogItem[]>([])
   const [photos, setPhotos] = useState<PhotoEntry[]>([])
   const [editingWeight, setEditingWeight] = useState<WeightEntry | null>(null)
   const [editingDose, setEditingDose] = useState<DoseEntry | null>(null)
@@ -242,6 +249,7 @@ export default function App() {
         doseData,
         measurementData,
         photoData,
+        goalCatalogData,
         ...moduleEntries
       ] = await Promise.all([
         api<Profile>("/profile", authToken),
@@ -251,6 +259,7 @@ export default function App() {
         loadAllRecords<DoseEntry>("/doses", authToken),
         loadAllRecords<BodyMeasurementEntry>("/body-measurements", authToken),
         api<PhotoEntry[]>("/photos", authToken),
+        api<CatalogItem[]>("/catalog/goal", authToken),
         ...(["symptoms", "activity", "labs", "goals", "reviews", "reminders"] as const).map((module) =>
           loadAllRecords<JournalEntry>(`/entries/${module}`, authToken),
         ),
@@ -262,6 +271,7 @@ export default function App() {
       setDoses(doseData)
       setBodyMeasurements(measurementData)
       setPhotos(photoData)
+      setGoalCatalog(goalCatalogData)
       setJournalEntries(moduleEntries.flat())
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Error de conexión")
@@ -357,7 +367,9 @@ export default function App() {
         entry.data.tolerance != null,
     ),
     recentSymptoms.some((entry) => entry.data.hydration_l != null),
-    journalEntries.some((entry) => entry.module === "activity" && recordedWithin(entry.occurred_at, 7)),
+    journalEntries.some(
+      (entry) => entry.module === "activity" && recordedWithin(weeklyActivityChecklistDate(entry), 7),
+    ),
   ]
   const monthlyWeights = sortedWeights.filter((item) => recordedWithin(item.measured_at, 28))
   const monthlyChecklist = [
@@ -373,7 +385,9 @@ export default function App() {
           entry.data.tolerance != null),
     ),
     doses.some((item) => new Date(item.administered_at).getTime() <= Date.now()),
-    journalEntries.some((entry) => entry.module === "goals" && recordedWithin(entry.occurred_at, 28)),
+    ...(goalCatalog.length
+      ? [journalEntries.some((entry) => entry.module === "goals" && recordedWithin(entry.occurred_at, 28))]
+      : []),
   ]
   const homeChecklist = [
     {
@@ -1110,6 +1124,7 @@ export default function App() {
               entries={journalEntries}
               photos={photos}
               profile={profile}
+              hasGoals={goalCatalog.length > 0}
               onNavigate={(target) => setSection(target)}
               onRefresh={() => refresh(token)}
               onError={setError}
@@ -2143,6 +2158,7 @@ function EmailVerificationScreen({ token }: { token: string }) {
 function AnalysisWorkspace({
   weights,
   profile,
+  hasGoals,
   doses,
   measurements,
   medications,
@@ -2153,6 +2169,7 @@ function AnalysisWorkspace({
 }: {
   weights: WeightEntry[]
   profile: Profile | null
+  hasGoals: boolean
   doses: DoseEntry[]
   measurements: BodyMeasurementEntry[]
   medications: Medication[]
@@ -2246,7 +2263,12 @@ function AnalysisWorkspace({
   const currentWaist = pastMeasurements.some((item) => item.waist_cm != null)
   const recentWaist = pastMeasurements.some((item) => item.waist_cm != null && isWithinDays(item.measured_at, 28))
   const hasBaselineLabs = labEntries.some((entry) => entry.data.phase === "Basal")
-  const hasPeriodicLabs = labEntries.some((entry) => entry.data.phase === "Seguimiento")
+  const hasPeriodicLabs = labEntries.some(
+    (entry) =>
+      isWithinDays(entry.occurred_at, 90) &&
+      Array.isArray(entry.data.results) &&
+      (entry.data.results as CatalogResult[]).some((result) => result.systolic == null),
+  )
   const hasRelevantHistory = reviewEntries.some((entry) => String(entry.data.relevant_history ?? "").trim())
   const hasRecentTreatmentReview = reviewEntries.some(
     (entry) => entry.data.review_type === "Tratamiento" && isWithinDays(entry.occurred_at, 90),
@@ -2337,7 +2359,9 @@ function AnalysisWorkspace({
         },
         {
           label: "Actividad",
-          done: pastEntries.some((entry) => entry.module === "activity" && isWithinDays(entry.occurred_at, 7)),
+          done: pastEntries.some(
+            (entry) => entry.module === "activity" && isWithinDays(weeklyActivityChecklistDate(entry), 7),
+          ),
           target: "Actividad" as Section,
         },
       ],
@@ -2382,11 +2406,15 @@ function AnalysisWorkspace({
           detail: currentDose && doseStartedAt ? `${formatDecimal(doseDays / 7)} semanas según registros` : undefined,
           target: "Medicación" as Section,
         },
-        {
-          label: "Revisión de objetivos",
-          done: pastEntries.some((entry) => entry.module === "goals" && isWithinDays(entry.occurred_at, 28)),
-          target: "Objetivos" as Section,
-        },
+        ...(hasGoals
+          ? [
+              {
+                label: "Revisión de objetivos",
+                done: pastEntries.some((entry) => entry.module === "goals" && isWithinDays(entry.occurred_at, 28)),
+                target: "Objetivos" as Section,
+              },
+            ]
+          : []),
       ],
     },
     {
@@ -2736,6 +2764,7 @@ function ModuleWorkspace(props: {
   entries: JournalEntry[]
   photos: PhotoEntry[]
   profile: Profile | null
+  hasGoals: boolean
   onNavigate: (target: Section) => void
   onRefresh: () => Promise<void>
   onError: (message: string) => void
@@ -2846,6 +2875,7 @@ function ModuleWorkspace(props: {
       }),
     })
     setCatalog((current) => [...current, created])
+    if (catalogCategory === "goal") await props.onRefresh()
   }
 
   async function updateCatalogThresholds(
@@ -2899,6 +2929,7 @@ function ModuleWorkspace(props: {
     try {
       await api<void>(`/catalog/${item.id}`, token, { method: "DELETE" })
       setCatalog((current) => current.filter((entry) => entry.id !== item.id))
+      if (catalogCategory === "goal") await props.onRefresh()
     } catch (reason) {
       props.onError(reason instanceof Error ? reason.message : "No se pudo quitar el elemento")
     }
@@ -3166,6 +3197,7 @@ function ModuleWorkspace(props: {
         <AnalysisWorkspace
           weights={weights}
           profile={props.profile}
+          hasGoals={props.hasGoals}
           doses={doses}
           measurements={measurements}
           medications={medications}
@@ -3885,7 +3917,13 @@ function ActivityEntryEditor({
   const [occurredAt, setOccurredAt] = useState(() =>
     dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
   )
-  const [weekStart, setWeekStart] = useState(() => occurredAt.split("T")[0])
+  const [weekEnd, setWeekEnd] = useState(() => {
+    if (entry?.data.entry_type !== "weekly" || entry.data.week_end != null) return occurredAt.split("T")[0]
+    const legacyEnd = new Date(`${occurredAt.split("T")[0]}T12:00:00Z`)
+    legacyEnd.setUTCDate(legacyEnd.getUTCDate() + 6)
+    const today = dateTimeInputValue(new Date().toISOString(), timezone).split("T")[0]
+    return legacyEnd.toISOString().split("T")[0] > today ? today : legacyEnd.toISOString().split("T")[0]
+  })
   const [duration, setDuration] = useState(() => String(entry?.data.duration_min ?? ""))
   const [distance, setDistance] = useState(() => String(entry?.data.distance_km ?? ""))
   const [calories, setCalories] = useState(() => String(entry?.data.calories_kcal ?? ""))
@@ -3919,6 +3957,7 @@ function ActivityEntryEditor({
       entryType === "weekly"
         ? {
             entry_type: "weekly",
+            week_end: weekEnd,
             weekly_calories_kcal: numberOrNull(weeklyCalories),
             weekly_steps: numberOrNull(weeklySteps),
             weekly_distance_km: numberOrNull(weeklyDistance),
@@ -3936,11 +3975,15 @@ function ActivityEntryEditor({
     setBusy(true)
     setError("")
     try {
+      const today = dateTimeInputValue(new Date().toISOString(), timezone)
       await onSave({
         module: "activity",
         title:
           entryType === "weekly" ? "Resumen semanal" : activityType === "Otro" ? otherActivity.trim() : activityType,
-        occurred_at: localDateTimeToIso(entryType === "weekly" ? `${weekStart}T00:00` : occurredAt, timezone),
+        occurred_at: localDateTimeToIso(
+          entryType === "weekly" ? (weekEnd === today.split("T")[0] ? today : `${weekEnd}T23:59`) : occurredAt,
+          timezone,
+        ),
         notes: notes || null,
         data,
       })
@@ -4054,8 +4097,14 @@ function ActivityEntryEditor({
         ) : (
           <>
             <label>
-              Semana iniciada el
-              <input required type="date" value={weekStart} onChange={(event) => setWeekStart(event.target.value)} />
+              Semana terminada el
+              <input
+                required
+                type="date"
+                max={dateTimeInputValue(new Date().toISOString(), timezone).split("T")[0]}
+                value={weekEnd}
+                onChange={(event) => setWeekEnd(event.target.value)}
+              />
             </label>
             <div className="form-two-columns">
               <label>
