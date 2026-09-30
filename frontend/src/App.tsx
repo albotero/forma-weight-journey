@@ -398,6 +398,7 @@ export default function App() {
       total: monthlyChecklist.length,
     },
   ]
+  const recentJournalEntries = journalEntries.filter((entry) => entry.module !== "reminders")
 
   const notifications = useMemo(
     () =>
@@ -970,7 +971,7 @@ export default function App() {
                   {sortedWeights.length ||
                   doses.length ||
                   bodyMeasurements.length ||
-                  journalEntries.length ||
+                  recentJournalEntries.length ||
                   photos.length ? (
                     <div className="activity-list">
                       {[
@@ -1020,7 +1021,7 @@ export default function App() {
                           text: item.caption?.trim() || "Foto registrada",
                           sub: "Fotos",
                         })),
-                        ...journalEntries.map((item) => ({
+                        ...recentJournalEntries.map((item) => ({
                           id: `e${item.id}`,
                           icon:
                             navigation.find(({ label }) => label === journalSectionLabels[item.module])?.icon ??
