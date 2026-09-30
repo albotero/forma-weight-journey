@@ -860,6 +860,9 @@ button {
   border-radius: 8px;
   display: grid;
   place-items: center;
+  flex: 0 0 29px;
+  background: var(--green-soft);
+  color: var(--green);
 }
 .activity-icon.weight {
   background: #edf5f0;
@@ -869,14 +872,24 @@ button {
   background: #f2eff8;
   color: #8b7bae;
 }
+.activity-icon.labs,
+.activity-icon.measurements,
+.activity-icon.photos {
+  background: var(--canvas);
+  color: #3d6fb4;
+}
 .activity-copy {
   display: flex;
   flex-direction: column;
   gap: 3px;
   flex: 1;
+  min-width: 0;
 }
 .activity-copy strong {
   font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .activity-copy span,
 .activity-row time {

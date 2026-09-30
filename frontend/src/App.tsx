@@ -888,22 +888,98 @@ export default function App() {
                       Ver historial <ArrowRight size={14} />
                     </button>
                   </div>
-                  {sortedWeights.length || doses.length ? (
+                  {sortedWeights.length ||
+                  doses.length ||
+                  bodyMeasurements.length ||
+                  journalEntries.length ||
+                  photos.length ? (
                     <div className="activity-list">
                       {[
                         ...sortedWeights.map((item) => ({
                           id: `w${item.id}`,
-                          kind: "weight" as const,
+                          icon: Scale,
+                          kind: "weight",
                           date: item.measured_at,
                           text: `${formatDecimal(item.weight_kg)} kg`,
-                          sub: "Peso registrado",
+                          sub: "Peso",
                         })),
                         ...doses.map((item) => ({
                           id: `d${item.id}`,
-                          kind: "dose" as const,
+                          icon: Syringe,
+                          kind: "dose",
                           date: item.administered_at,
-                          text: `${item.dose_mg} mg`,
-                          sub: "Dosis registrada",
+                          text: `${formatDecimal(item.dose_mg)} mg`,
+                          sub: "Medicación",
+                        })),
+                        ...bodyMeasurements.map((item) => ({
+                          id: `m${item.id}`,
+                          icon: Ruler,
+                          kind: "measurements",
+                          date: item.measured_at,
+                          text:
+                            (
+                              [
+                                ["waist_cm", "Cintura"],
+                                ["hip_cm", "Cadera"],
+                                ["chest_cm", "Pecho"],
+                                ["neck_cm", "Cuello"],
+                                ["abdomen_cm", "Abdomen"],
+                                ["arm_cm", "Brazo"],
+                                ["thigh_cm", "Muslo"],
+                              ] as const
+                            )
+                              .filter(([key]) => item[key] != null)
+                              .map(([key, label]) => `${label} ${formatDecimal(item[key]!)} cm`)
+                              .join(" · ") || "Medidas corporales",
+                          sub: "Medidas",
+                        })),
+                        ...photos.map((item) => ({
+                          id: `p${item.id}`,
+                          icon: UserRound,
+                          kind: "photos",
+                          date: item.taken_at,
+                          text: item.caption?.trim() || "Foto registrada",
+                          sub: "Fotos",
+                        })),
+                        ...journalEntries.map((item) => ({
+                          id: `e${item.id}`,
+                          icon:
+                            navigation.find(({ label }) => label === journalSectionLabels[item.module])?.icon ??
+                            FileText,
+                          kind: item.module,
+                          date: item.occurred_at,
+                          text: Array.isArray(item.data.results)
+                            ? (item.data.results as CatalogResult[])
+                                .map(
+                                  (result) =>
+                                    `${result.name}: ${result.systolic != null ? `${result.systolic}/${result.diastolic}` : result.value != null ? formatDecimal(result.value) : (result.text_value ?? `${result.severity ?? result.intensity}/10`)}${result.unit ? ` ${result.unit}` : ""}`,
+                                )
+                                .join(" · ") || item.title
+                            : item.module === "activity"
+                              ? [
+                                  item.title,
+                                  item.data.weekly_steps != null
+                                    ? `${formatDecimal(Number(item.data.weekly_steps))} pasos`
+                                    : item.data.duration_min != null
+                                      ? `${formatDecimal(Number(item.data.duration_min))} min`
+                                      : item.data.weekly_calories_kcal != null
+                                        ? `${formatDecimal(Number(item.data.weekly_calories_kcal))} kcal`
+                                        : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")
+                              : item.module === "symptoms"
+                                ? [
+                                    item.title,
+                                    item.data.appetite ? `Apetito: ${item.data.appetite}` : null,
+                                    item.data.tolerance ? `Tolerancia: ${item.data.tolerance}` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")
+                                : item.module === "reviews"
+                                  ? [item.title, item.data.review_type, item.data.provider].filter(Boolean).join(" · ")
+                                  : item.title,
+                          sub: journalSectionLabels[item.module],
                         })),
                       ]
                         .sort((a, b) => b.date.localeCompare(a.date))
@@ -911,10 +987,10 @@ export default function App() {
                         .map((item) => (
                           <div className="activity-row" key={item.id}>
                             <div className={`activity-icon ${item.kind}`}>
-                              {item.kind === "weight" ? <Scale size={16} /> : <Syringe size={16} />}
+                              <item.icon size={16} />
                             </div>
                             <div className="activity-copy">
-                              <strong>{item.text}</strong>
+                              <strong title={item.text}>{item.text}</strong>
                               <span>{item.sub}</span>
                             </div>
                             <time>{formatDate(item.date, userTimezone)}</time>
