@@ -778,6 +778,17 @@ def deactivate_medication(medication_id: int, user: User = Depends(current_user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.delete("/medications/{medication_id}/permanent", status_code=status.HTTP_204_NO_CONTENT)
+def delete_medication_permanently(medication_id: int, user: User = Depends(current_user), db: Session = Depends(get_db)) -> Response:
+    medication = db.scalar(select(Medication).where(
+        Medication.id == medication_id, Medication.user_id == user.id))
+    if medication is None:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    db.delete(medication)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.get("/weights", response_model=list[WeightOut])
 def list_weights(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[WeightMeasurement]:
     statement = select(WeightMeasurement).where(WeightMeasurement.user_id == user.id).order_by(

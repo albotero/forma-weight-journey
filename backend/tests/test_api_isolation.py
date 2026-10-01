@@ -256,6 +256,34 @@ def test_medication_dosing_interval_is_optional_and_validated() -> None:
     assert invalid.status_code == 422
 
 
+def test_medication_can_be_permanently_deleted_with_its_doses() -> None:
+    owner = client.post("/api/auth/register", json={
+                        "email": "delete-owner@example.com", "password": "delete-owner-password-123"})
+    other = client.post("/api/auth/register", json={
+                        "email": "delete-other@example.com", "password": "delete-other-password-123"})
+    owner_headers = {"Authorization": f"Bearer {owner.json()['access_token']}"}
+    other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    medication = client.post("/api/medications", headers=owner_headers, json={
+        "name": "Medicamento a eliminar", "concentration_mg": 10,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    }).json()
+    dose = client.post("/api/doses", headers=owner_headers,
+                       json={"medication_id": medication["id"], "dose_mg": 5})
+    assert dose.status_code == 201
+
+    forbidden = client.delete(
+        f"/api/medications/{medication['id']}/permanent", headers=other_headers)
+    assert forbidden.status_code == 404
+
+    deleted = client.delete(
+        f"/api/medications/{medication['id']}/permanent", headers=owner_headers)
+    assert deleted.status_code == 204
+    assert client.get("/api/medications", headers=owner_headers).json() == []
+    assert client.get("/api/doses", headers=owner_headers).json() == []
+    assert client.delete(
+        f"/api/medications/{medication['id']}/permanent", headers=owner_headers).status_code == 404
+
+
 def test_protected_endpoints_require_authentication() -> None:
     assert client.get("/api/weights").status_code == 401
 

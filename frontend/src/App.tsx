@@ -3463,6 +3463,22 @@ function ModuleWorkspace(props: {
                         Reactivar
                       </button>
                     )}
+                    <button
+                      className="small-action danger"
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `¿Eliminar "${item.name}" de forma permanente? Esto también elimina todas sus dosis registradas. Esta acción no se puede deshacer.`,
+                          )
+                        )
+                          return
+                        api(`/medications/${item.id}/permanent`, token, { method: "DELETE" })
+                          .then(props.onRefresh)
+                          .catch((e: Error) => props.onError(e.message))
+                      }}
+                    >
+                      Eliminar
+                    </button>
                   </div>
                 </div>
               </article>
@@ -5532,7 +5548,7 @@ function PhotoCard({
           <div className="photo-loading">Cargando foto…</div>
         )}
         <div>
-          <strong>{photo.caption || "Registro fotográfico"}</strong>
+          {photo.caption && <strong>{photo.caption}</strong>}
           <time>{formatDateTime(photo.taken_at, timezone)}</time>
           <button className="small-action" onClick={() => setEditing(true)}>
             Editar
