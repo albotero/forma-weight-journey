@@ -1,0 +1,305 @@
+@media (max-width: 1100px) {
+  .sidebar {
+    width: 218px;
+  }
+  .main-area {
+    margin-left: 218px;
+  }
+  .topbar {
+    padding: 0 28px;
+  }
+  .page-content {
+    padding: 31px 28px 42px;
+  }
+  .metric-card {
+    padding: 14px;
+  }
+  .content-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(260px, 1fr);
+  }
+  .range-select button {
+    padding: 5px 6px;
+    font-size: 8px;
+  }
+  .chart-note {
+    max-width: 180px;
+    text-align: right;
+    line-height: 1.4;
+  }
+}
+@media (max-width: 850px) {
+  .sidebar {
+    width: 235px;
+    transform: translateX(-100%);
+    transition: transform 0.22s;
+    z-index: 22;
+  }
+  .sidebar .privacy-card {
+    display: none;
+  }
+  .sidebar .workspace-label {
+    padding-top: 22px;
+  }
+  .sidebar .side-nav {
+    gap: 6px;
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+  .mobile-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: #10201877;
+    border: 0;
+    z-index: 21;
+  }
+  .main-area {
+    margin-left: 0;
+  }
+  .topbar {
+    height: 60px;
+    padding: 0 23px;
+  }
+  .mobile-menu {
+    display: grid;
+  }
+  .breadcrumb {
+    margin-right: auto;
+    margin-left: 12px;
+  }
+  .topbar-actions {
+    gap: 13px;
+  }
+  .today-label {
+    display: none;
+  }
+  .mobile-close {
+    display: grid;
+    margin-left: auto;
+  }
+  .brand {
+    padding: 0 7px;
+  }
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .content-grid {
+    grid-template-columns: minmax(0, 1.45fr) minmax(245px, 1fr);
+  }
+}
+@media (max-width: 650px) {
+  .topbar {
+    height: 56px;
+    padding: 0 17px;
+  }
+  .topbar-actions {
+    gap: 10px;
+  }
+  .page-content {
+    padding: 25px 16px 88px;
+  }
+  .welcome-row {
+    align-items: center;
+    margin-bottom: 19px;
+  }
+  .welcome-row h1 {
+    font-size: 23px;
+    letter-spacing: -0.8px;
+  }
+  .welcome-subtitle {
+    font-size: 10px;
+    max-width: 245px;
+    line-height: 1.5;
+    margin-top: 5px;
+  }
+  .welcome-row .primary-button {
+    width: 41px;
+    height: 41px;
+    padding: 0;
+    border-radius: 11px;
+    flex: none;
+  }
+  .welcome-row .primary-button span {
+    display: none;
+  }
+  .metric-grid {
+    gap: 9px;
+    margin-bottom: 11px;
+  }
+  .metric-card {
+    min-height: 112px;
+    padding: 12px;
+  }
+  .metric-top > span {
+    font-size: 8px;
+    letter-spacing: 0.7px;
+  }
+  .metric-icon {
+    width: 27px;
+    height: 27px;
+  }
+  .metric-value {
+    font-size: 25px;
+    margin-top: 5px;
+  }
+  .metric-foot {
+    font-size: 8px;
+    line-height: 1.25;
+  }
+  .content-grid,
+  .lower-grid {
+    grid-template-columns: 1fr;
+    gap: 11px;
+    margin-bottom: 11px;
+  }
+  .panel {
+    padding: 15px;
+  }
+  .chart-panel {
+    min-height: 318px;
+  }
+  .chart-wrap {
+    height: 220px;
+    margin-top: 12px;
+  }
+  .range-select button {
+    font-size: 8px;
+    padding: 5px;
+  }
+  .chart-legend {
+    align-items: flex-start;
+  }
+  .chart-note {
+    max-width: 155px;
+  }
+  .medication-panel {
+    min-height: initial;
+  }
+  .medication-name {
+    margin-top: 17px;
+  }
+  .dose-highlight {
+    margin-top: 13px;
+  }
+  .goals-panel,
+  .recent-panel {
+    min-height: initial;
+  }
+  .disclaimer {
+    margin-top: 11px;
+    padding: 11px;
+  }
+  .disclaimer p {
+    font-size: 8px;
+  }
+  .mobile-bottom-nav {
+    position: fixed;
+    display: flex;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 64px;
+    background: var(--panel);
+    border-top: 1px solid var(--line);
+    z-index: 10;
+    justify-content: space-around;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .mobile-bottom-nav button {
+    border: 0;
+    background: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 8px;
+    min-width: 57px;
+  }
+  .mobile-bottom-nav button.active {
+    color: #347a5b;
+  }
+  .mobile-bottom-nav button.register-action {
+    color: white;
+    background: #347a5b;
+    border-radius: 13px;
+    width: 48px;
+    height: 45px;
+    min-width: 48px;
+    align-self: center;
+    box-shadow: 0 4px 12px #347a5b45;
+  }
+  .mobile-bottom-nav button.register-action span {
+    display: none;
+  }
+  .mobile-bottom-nav button.register-action svg {
+    width: 22px;
+    height: 22px;
+  }
+  .auth-layout {
+    grid-template-columns: 1fr;
+    min-height: 100svh;
+  }
+  .auth-story {
+    min-height: 225px;
+    padding: 23px 25px 20px;
+  }
+  .auth-brand {
+    font-size: 21px;
+  }
+  .auth-story-copy {
+    margin: 27px 0 16px;
+  }
+  .auth-story-copy h1 {
+    font-size: 32px;
+    letter-spacing: -1.5px;
+    margin: 8px 0;
+  }
+  .auth-story-copy > p {
+    display: none;
+  }
+  .auth-points,
+  .auth-quote {
+    display: none;
+  }
+  .auth-form-side {
+    padding: 31px 24px;
+    align-items: start;
+  }
+  .auth-form {
+    max-width: 400px;
+    margin: 4vh auto;
+  }
+  .auth-form h2 {
+    font-size: 23px;
+  }
+  .placeholder-page h1 {
+    font-size: 25px;
+  }
+  .modal-card {
+    padding: 19px;
+  }
+  .mobile-backdrop {
+    display: block;
+  }
+}
+@media (max-width: 370px) {
+  .range-select button {
+    padding: 4px;
+    font-size: 7px;
+  }
+  .metric-card {
+    padding: 10px;
+  }
+  .metric-value {
+    font-size: 22px;
+  }
+  .welcome-row h1 {
+    font-size: 20px;
+  }
+  .chart-note {
+    display: none;
+  }
+}

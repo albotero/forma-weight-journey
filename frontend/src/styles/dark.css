@@ -1,0 +1,19 @@
+.dark .metric-icon.green,
+.dark .quick-option-icon.green {
+  background: #273c30;
+}
+.dark .metric-icon.blue,
+.dark .quick-option-icon.blue {
+  background: #283943;
+}
+.dark .metric-icon.purple,
+.dark .quick-option-icon.purple {
+  background: #352f41;
+}
+.dark .metric-icon.amber,
+.dark .quick-option-icon.amber {
+  background: #403a2b;
+}
+.dark .medication-symbol {
+  background: #352f41;
+}

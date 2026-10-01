@@ -1,0 +1,255 @@
+.mobile-menu,
+.mobile-close,
+.mobile-bottom-nav,
+.mobile-backdrop {
+  display: none;
+}
+.placeholder-page {
+  padding: 5px 0;
+}
+.placeholder-page > p {
+  color: var(--sub);
+  font-size: 12px;
+}
+.placeholder-card {
+  margin-top: 28px;
+  max-width: 550px;
+  padding: 32px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.placeholder-icon {
+  width: 43px;
+  height: 43px;
+  background: var(--green-soft);
+  color: #418260;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+}
+.placeholder-card h2 {
+  font:
+    650 18px Manrope,
+    sans-serif;
+  margin: 20px 0 8px;
+}
+.placeholder-card p {
+  font-size: 12px;
+  color: var(--sub);
+  line-height: 1.7;
+}
+.placeholder-card .outline-button {
+  margin-top: 10px;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #17231db0;
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  z-index: 20;
+}
+.modal-card {
+  width: min(100%, 430px);
+  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--panel);
+  border-radius: 15px;
+  padding: 22px;
+  box-shadow: 0 24px 80px #06150c35;
+  animation: modal-in 0.16s ease-out;
+}
+.modal-card-wide {
+  width: min(100%, 620px);
+}
+@keyframes modal-in {
+  from {
+    transform: translateY(7px);
+    opacity: 0.6;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 22px;
+}
+.modal-heading h2 {
+  font:
+    700 19px Manrope,
+    sans-serif;
+  margin: 0;
+  letter-spacing: -0.5px;
+}
+.modal-heading p {
+  font-size: 11px;
+  color: var(--sub);
+  margin: 5px 0 0;
+}
+.modal-heading .icon-button {
+  border: 0;
+  background: var(--canvas);
+}
+.entry-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.entry-form label,
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+.optional {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.entry-form input,
+.entry-form select,
+.auth-form input {
+  height: 42px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0 12px;
+  outline: none;
+  font-size: 12px;
+}
+.entry-form input:focus,
+.entry-form select:focus,
+.auth-form input:focus {
+  border-color: #68a583;
+  box-shadow: 0 0 0 3px #6daa8520;
+}
+.input-with-unit {
+  position: relative;
+}
+.input-with-unit input {
+  width: 100%;
+  padding-right: 43px;
+  font:
+    600 16px Manrope,
+    sans-serif;
+}
+.input-with-unit span {
+  position: absolute;
+  right: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--muted);
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 3px;
+}
+.cancel-button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: var(--sub);
+}
+.dose-calculation {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+.dose-calculation > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  padding: 10px;
+  border-radius: 8px;
+}
+.dose-calculation span {
+  font-size: 9px;
+  color: var(--muted);
+}
+.dose-calculation strong {
+  font-size: 12px;
+}
+.medical-note {
+  font-size: 9px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: -7px 0 0;
+}
+.quick-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+.quick-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  text-align: left;
+  color: var(--sub);
+}
+.quick-option:hover {
+  border-color: #9ec9ad;
+  background: #f8fbf8;
+}
+.dark .quick-option:hover {
+  background: #27342c;
+}
+.quick-option > strong {
+  font-size: 11px;
+  color: var(--text);
+  flex: 1;
+}
+.quick-option > svg {
+  width: 14px;
+}
+.quick-option-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+}
+.quick-option-icon.green {
+  color: #438362;
+  background: #eaf4ee;
+}
+.quick-option-icon.purple {
+  color: #8973a6;
+  background: #f1edf7;
+}
+.quick-option-icon.blue {
+  color: #638a9c;
+  background: #edf4f6;
+}
+.quick-option-icon.rose {
+  color: #b2767b;
+  background: #f8eef0;
+}
+.quick-option-icon.amber {
+  color: #aa8a4f;
+  background: #f8f3e8;
+}

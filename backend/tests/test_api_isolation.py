@@ -16,7 +16,7 @@ from app.main import app
 from app.models import JournalEntry, PasswordResetToken, RefreshSession, TelegramConnection, User
 from app.password_reset_email import send_email_verification_email, send_password_reset_email
 from app.security import hash_password_reset_token
-from app.routers import api as api_routes
+from app.routers import auth as auth_routes
 
 engine = create_engine(
     "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -44,7 +44,7 @@ def capture_verification_email(email: str, token: str, purpose: str) -> None:
     verification_emails[email] = (token, purpose)
 
 
-api_routes.send_email_verification_email = capture_verification_email
+auth_routes.send_email_verification_email = capture_verification_email
 
 
 class VerificationAwareTestClient(TestClient):
@@ -380,7 +380,7 @@ def test_password_reset_is_generic_hashed_single_use_and_revokes_sessions(monkey
                         "https://forma.example.com")
     sent: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "app.routers.api.send_password_reset_email",
+        "app.routers.auth.send_password_reset_email",
         lambda email, token: sent.append((email, token)),
     )
     old_password = "recovery-old-password-123"
@@ -436,7 +436,7 @@ def test_password_reset_rejects_expired_token_and_requires_mail_configuration(mo
                         "https://forma.example.com")
     sent: list[str] = []
     monkeypatch.setattr(
-        "app.routers.api.send_password_reset_email",
+        "app.routers.auth.send_password_reset_email",
         lambda _email, token: sent.append(token),
     )
     client.post("/api/auth/register", json={
@@ -725,7 +725,7 @@ def test_telegram_pairing_links_private_chat_once(monkeypatch) -> None:
     monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
     monkeypatch.setattr(settings, "telegram_bot_username", "forma_test_bot")
     monkeypatch.setattr(settings, "telegram_webhook_secret", "pairing-secret")
-    monkeypatch.setattr("app.routers.api.send_telegram_message", fake_send)
+    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-pairing@example.com", "password": "telegram-pairing-password-123"})
     headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
@@ -759,7 +759,7 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
     monkeypatch.setattr(settings, "telegram_webhook_secret", "due-secret")
     monkeypatch.setattr("app.telegram.SessionLocal", TestingSession)
     monkeypatch.setattr("app.telegram.send_reminder_message", fake_send)
-    monkeypatch.setattr("app.routers.api.answer_callback_query", fake_answer)
+    monkeypatch.setattr("app.routers.telegram.answer_callback_query", fake_answer)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-due@example.com", "password": "telegram-due-password-123"})
     token = registered.json()["access_token"]
@@ -979,7 +979,7 @@ def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None
         return True
 
     monkeypatch.setattr(settings, "telegram_webhook_secret", "command-secret")
-    monkeypatch.setattr("app.routers.api.send_telegram_message", fake_send)
+    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-commands@example.com", "password": "telegram-commands-password-123"})
     token = registered.json()["access_token"]

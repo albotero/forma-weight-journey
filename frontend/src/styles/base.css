@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "DM Sans", sans-serif;
+  color: #24312b;
+  background: #f6f8f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  font-smooth: always;
+  font-weight: 400;
+  --canvas: #f6f8f6;
+  --panel: #fff;
+  --text: #24312b;
+  --sub: #7a8780;
+  --muted: #9ba69f;
+  --line: #edf0ed;
+  --green: #347a5b;
+  --green-soft: #eaf4ef;
+  --shadow: 0 3px 14px rgba(38, 65, 51, 0.035);
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--canvas);
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.app-shell {
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--text);
+  --canvas: #f6f8f6;
+  --panel: #fff;
+  --text: #26342c;
+  --sub: #7b8780;
+  --muted: #a0aaa3;
+  --line: #edf0ed;
+  --shadow: 0 3px 14px rgba(38, 65, 51, 0.035);
+}
+.app-shell.dark {
+  --canvas: #151c19;
+  --panel: #202a25;
+  --text: #e6eee8;
+  --sub: #9eaaa2;
+  --muted: #758179;
+  --line: #303c35;
+  --green-soft: #263d32;
+  --shadow: 0 3px 14px #0003;
+}
+.sidebar {
+  width: 246px;
+  position: fixed;
+  inset: 0 auto 0 0;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 24px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 11px;
+  color: var(--text);
+  font:
+    800 24px Manrope,
+    sans-serif;
+  letter-spacing: -1.2px;
+}
