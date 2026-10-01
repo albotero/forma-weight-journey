@@ -5951,7 +5951,7 @@ function MedicationModal({
               <input
                 required
                 type="number"
-                min="0.001"
+                min="0.01"
                 step="0.01"
                 value={concentrationMg}
                 onChange={(event) => setConcentrationMg(event.target.value)}
@@ -5965,7 +5965,7 @@ function MedicationModal({
               <input
                 required
                 type="number"
-                min="0.001"
+                min="0.01"
                 step="0.01"
                 value={volumeMl}
                 onChange={(event) => setVolumeMl(event.target.value)}
@@ -5979,7 +5979,7 @@ function MedicationModal({
           <div className="input-with-unit">
             <input
               type="number"
-              min="0.001"
+              min="0.01"
               step="0.01"
               value={unitsPerMl}
               onChange={(event) => setUnitsPerMl(event.target.value)}
