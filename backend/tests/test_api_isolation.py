@@ -850,7 +850,10 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     assert listed.status_code == 200
     automatic = {entry["data"]["auto_key"]: entry for entry in listed.json(
     ) if entry["data"].get("auto_generated")}
-    assert set(automatic) == {"dose", "weight", "composition", "measurements"}
+    assert set(automatic) == {
+        "dose", "weight", "composition", "measurements", "blood_pressure",
+        "symptoms", "activity",
+    }
     assert automatic["dose"]["data"]["source_record_id"] == dose.json()["id"]
     assert automatic["dose"]["data"]["source_recorded_at"].startswith(dose.json()[
                                                                       "administered_at"])
@@ -860,6 +863,8 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
         "id"]
     assert automatic["measurements"]["data"]["source_record_id"] == measurements.json()[
         "id"]
+    assert automatic["blood_pressure"]["data"]["source_signature"] == "pending"
+    assert automatic["symptoms"]["data"]["source_signature"] == "pending"
     original_reminder_id = automatic["weight"]["id"]
     original_date = automatic["weight"]["data"]["reminder_at"]
     composition_reminder = automatic["composition"]
@@ -929,8 +934,10 @@ def test_automatic_reminder_tracks_latest_blood_pressure_lab_entry() -> None:
     headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
 
     without_bp = client.get("/api/entries/reminders", headers=headers)
-    assert "blood_pressure" not in {
-        entry["data"].get("auto_key") for entry in without_bp.json()}
+    pending_bp = next(
+        entry for entry in without_bp.json() if entry["data"].get("auto_key") == "blood_pressure")
+    assert pending_bp["data"]["source_signature"] == "pending"
+    assert pending_bp["data"]["source_record_id"] is None
 
     lab_entry = client.post("/api/entries", headers=headers, json={
         "module": "labs", "title": "Presión arterial", "data": {
@@ -946,6 +953,7 @@ def test_automatic_reminder_tracks_latest_blood_pressure_lab_entry() -> None:
     assert "blood_pressure" in automatic
     assert automatic["blood_pressure"]["data"]["source_record_id"] == lab_entry.json()[
         "id"]
+    assert automatic["blood_pressure"]["data"]["source_signature"] != "pending"
 
 
 def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable() -> None:

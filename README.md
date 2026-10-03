@@ -36,13 +36,27 @@ Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend po
 - **Medidas, actividad, revisiones y recordatorios:** registros con fecha/hora, campos relevantes, notas y operaciones de edición/eliminación. Actividad grafica los totales semanales de pasos, kcal y km en series con escalas independientes.
 - **Fotos:** cargas privadas JPEG/PNG/WebP de hasta 10 MB, aisladas por usuario, con descripción y fecha editable.
 - **Medicación e historial:** permite añadir/editar concentraciones, archivar o reactivar medicamentos y editar/eliminar dosis; archivar conserva el historial relacionado. Las cuentas nuevas empiezan sin medicamentos; cada persona registra solo los tratamientos que usa.
-- Los recordatorios manuales y automáticos aparecen en Recordatorios; Historial solo muestra registros realizados y excluye los recordatorios. Los manuales respetan la fecha y hora elegidas y permiten cambiar su repetición (no repetir, diario, semanal o mensual). Los automáticos tienen frecuencia fija: dosis (una semana después de la última dosis de una medicación activa), peso (un día), presión arterial (una semana después del último resultado registrado), composición corporal (un mes después de una lectura que incluya composición) y medidas corporales (un mes después de la última medición). Se programan a la hora local configurada en Perfil y ajustes (05:00 por defecto), no a la hora del último registro; el aviso indica la fecha y hora de ese registro anterior. La hora y zona horaria son configurables por cuenta. Los automáticos se pueden activar/desactivar, pero no editar ni borrar. Si varios vencen juntos y Telegram está vinculado, se agrupan en un mensaje; el botón **Ya lo cumplí** los marca como realizados y pregunta si quieres enviar el dato por el chat. Cada usuario vincula su chat privado con un enlace de un solo uso que caduca en 15 minutos.
+- Los recordatorios manuales y automáticos aparecen en Recordatorios; Historial solo muestra registros realizados y excluye los recordatorios. Los manuales respetan la fecha y hora elegidas y permiten cambiar su repetición (no repetir, diario, semanal o mensual). Los automáticos tienen frecuencia fija: dosis (una semana después de la última dosis de una medicación activa), peso (un día), presión arterial (una semana después del último resultado registrado), seguimiento de síntomas (una semana después de registrar síntomas, tolerancia, hidratación o el check-in de apetito y saciedad), actividad (una semana después del último registro), composición corporal (un mes después de una lectura que incluya composición) y medidas corporales (un mes después de la última medición). Los avisos de seguimiento de síntomas se agrupan en un único recordatorio semanal. Si todavía no hay un registro que sirva de referencia, se programa un aviso inicial; el de dosis solo existe mientras haya una medicación activa. Se programan a la hora local configurada en Perfil y ajustes (05:00 por defecto), no a la hora del último registro; cuando hay una referencia, el aviso indica la fecha y hora de ese registro. La hora y zona horaria son configurables por cuenta. Los automáticos se pueden activar/desactivar, pero no editar ni borrar. Si varios vencen juntos y Telegram está vinculado, se agrupan en un mensaje; el botón **Ya lo cumplí** los marca como realizados y pregunta si quieres enviar el dato por el chat. Cada usuario vincula su chat privado con un enlace de un solo uso que caduca en 15 minutos.
 - **Notificaciones:** el centro bajo la campana muestra recordatorios vencidos y avisos de checklist para el peso diario y la confirmación de medicamentos activos. Se pueden activar notificaciones nativas del navegador desde Perfil y ajustes. Requieren permiso y que la app esté abierta; la preferencia y los IDs ya avisados se guardan en ese navegador. No son notificaciones push y no llegan cuando la app está cerrada. Para avisos fuera de la app, usa Telegram.
 - **Análisis y seguimiento:** reúne checklists contextuales previos al inicio, semanales, cada cuatro semanas y periódicos. El estado solo indica si hay datos guardados; no valida su vigencia ni la idoneidad clínica. Los resúmenes de dosis describen el tiempo desde los registros disponibles, tendencia de peso y tolerancia/síntomas documentados; nunca indican subir, bajar, iniciar o suspender dosis.
 
 Las sesiones se restauran mediante un refresh token aleatorio almacenado como hash en la base de datos. El navegador solo recibe la cookie segura; los refresh tokens rotan y el cierre de sesión revoca la sesión del servidor.
 
 ## Desarrollo local
+
+### Vista previa autenticada con SQLite
+
+Para iniciar rápidamente una instancia local con datos persistentes y autenticación ya preparada, ejecuta desde la raíz del repositorio:
+
+```sh
+bash scripts/local-preview.sh
+```
+
+El script aplica las migraciones y arranca el backend con recarga automática en `http://127.0.0.1:8000` y Vite en `http://127.0.0.1:5173`. Usa SQLite en `storage/local-preview/preview.sqlite` y guarda las fotos bajo `storage/local-preview/storage/`; ambos directorios son locales e ignorados por Git. Al detener Vite con Ctrl+C, también se detiene el backend.
+
+La vista previa requiere el entorno Python ejecutable `.venv/bin/python`, la base SQLite `storage/local-preview/preview.sqlite` y las credenciales de desarrollo en `frontend/.env.development.local`. No crees ni publiques esas credenciales o los datos locales. Este script solo escucha en `127.0.0.1`: es para desarrollo local, no para desplegar ni exponer la aplicación.
+
+### Desarrollo con PostgreSQL
 
 **PostgreSQL local** (desde la raíz del workspace, después de configurar `.env`):
 

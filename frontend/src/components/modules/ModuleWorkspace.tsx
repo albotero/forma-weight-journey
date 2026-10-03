@@ -768,7 +768,11 @@ export function ModuleWorkspace(props: {
                       <strong>{entry.title}</strong>
                       <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
                       {module === "reminders" && entry.data.auto_generated === true && (
-                        <span className="record-status">Automático · basado en tu último registro</span>
+                        <span className="record-status">
+                          {entry.data.source_recorded_at
+                            ? "Automático · basado en tu último registro"
+                            : "Automático · pendiente de registro"}
+                        </span>
                       )}
                       {module === "reminders" && typeof entry.data.last_sent_epoch === "number" && (
                         <span

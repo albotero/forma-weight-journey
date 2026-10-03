@@ -11,6 +11,8 @@ AUTO_REMINDERS: tuple[tuple[str, str, int, str], ...] = (
     ("dose", "Checklist semanal: dosis registrada", 1, "week"),
     ("weight", "Checklist diario: registrar peso", 1, "day"),
     ("blood_pressure", "Checklist semanal: presión arterial", 1, "week"),
+    ("symptoms", "Checklist semanal: síntomas, hidratación y apetito", 1, "week"),
+    ("activity", "Checklist semanal: actividad", 1, "week"),
     ("composition", "Checklist mensual: composición corporal", 1, "month"),
     ("measurements", "Checklist mensual: medidas corporales", 1, "month"),
 )
@@ -71,23 +73,40 @@ def _latest_sources(db: Session, user_id: int) -> dict[str, tuple[int, datetime]
         .limit(1)
     )
     latest_blood_pressure = None
+    latest_symptom_tracking = None
+    latest_activity = None
     for entry in db.scalars(
         select(JournalEntry)
-        .where(JournalEntry.user_id == user_id, JournalEntry.module == "labs")
+        .where(
+            JournalEntry.user_id == user_id,
+            JournalEntry.module.in_(("labs", "symptoms", "activity")),
+        )
         .order_by(JournalEntry.occurred_at.desc(), JournalEntry.id.desc())
     ).all():
         results = entry.data.get("results") if entry.data else None
-        if isinstance(results, list) and any(
+        if entry.module == "labs" and latest_blood_pressure is None and isinstance(results, list) and any(
             isinstance(result, dict) and result.get("systolic") is not None for result in results
         ):
             latest_blood_pressure = entry
-            break
+        elif entry.module == "symptoms":
+            data = entry.data or {}
+            has_checkin = data.get("appetite") is not None and data.get(
+                "satiety") is not None
+            has_symptoms = (isinstance(results, list) and len(
+                results) > 0) or data.get("tolerance") is not None
+            has_hydration = data.get("hydration_l") is not None
+            if latest_symptom_tracking is None and (has_checkin or has_symptoms or has_hydration):
+                latest_symptom_tracking = entry
+        elif entry.module == "activity" and latest_activity is None:
+            latest_activity = entry
     return {
         "dose": (latest_dose.id, latest_dose.administered_at) if latest_dose else None,
         "weight": (latest_weight.id, latest_weight.measured_at) if latest_weight else None,
         "composition": (latest_composition.id, latest_composition.measured_at) if latest_composition else None,
         "measurements": (latest_measurement.id, latest_measurement.measured_at) if latest_measurement else None,
         "blood_pressure": (latest_blood_pressure.id, latest_blood_pressure.occurred_at) if latest_blood_pressure else None,
+        "symptoms": (latest_symptom_tracking.id, latest_symptom_tracking.occurred_at) if latest_symptom_tracking else None,
+        "activity": (latest_activity.id, latest_activity.occurred_at) if latest_activity else None,
     }
 
 
@@ -115,10 +134,74 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
         for entry in existing
         if entry.data and entry.data.get("auto_generated") is True
     }
+    configured_keys = {key for key, _title, _delay, _unit in AUTO_REMINDERS}
+    for key, reminder in auto_entries.items():
+        if key in configured_keys:
+            continue
+        data = dict(reminder.data or {})
+        if not data.get("user_disabled"):
+            data["enabled"] = "No"
+            data["system_disabled_reason"] = "replaced"
+        reminder.data = data
+
+    has_active_medication = db.scalar(
+        select(Medication.id).where(
+            Medication.user_id == user.id,
+            Medication.active.is_(True),
+        ).limit(1)
+    ) is not None
     for key, title, delay, unit in AUTO_REMINDERS:
         source = sources[key]
         reminder = auto_entries.get(key)
+        if reminder is not None and reminder.title != title:
+            reminder.title = title
         if source is None:
+            if reminder is None:
+                if key == "dose" and not has_active_medication:
+                    continue
+                scheduled = _next_date(
+                    datetime.now(timezone.utc), delay, unit, zone, reminder_time)
+                reminder = JournalEntry(
+                    user_id=user.id,
+                    module="reminders",
+                    occurred_at=scheduled,
+                    title=title,
+                    data={
+                        "auto_generated": True,
+                        "auto_key": key,
+                        "source_record_id": None,
+                        "source_signature": "pending",
+                        "source_recorded_at": None,
+                        "reminder_at": scheduled.isoformat(),
+                        "repeat": "No repetir",
+                        "enabled": "Sí",
+                    },
+                )
+                db.add(reminder)
+                continue
+            data = dict(reminder.data or {})
+            if data.get("source_signature") == "pending":
+                if key == "dose" and not has_active_medication:
+                    if not data.get("source_missing"):
+                        data["source_missing"] = True
+                        if not data.get("user_disabled"):
+                            data["enabled"] = "No"
+                            data["system_disabled_reason"] = "source_missing"
+                        reminder.data = data
+                elif data.get("system_disabled_reason") == "source_missing":
+                    data.pop("source_missing", None)
+                    data.pop("system_disabled_reason", None)
+                    if not data.get("user_disabled"):
+                        data["enabled"] = "Sí"
+                    scheduled = _next_date(
+                        datetime.now(timezone.utc), delay, unit, zone, reminder_time)
+                    data["reminder_at"] = scheduled.isoformat()
+                    data.pop("last_sent_epoch", None)
+                    data.pop("completed_reminder_epoch", None)
+                    data.pop("completed_at", None)
+                    reminder.data = data
+                    reminder.occurred_at = scheduled
+                continue
             if reminder is not None:
                 data = dict(reminder.data)
                 if not data.get("source_missing"):

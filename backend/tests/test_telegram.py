@@ -1,7 +1,13 @@
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
 from app.automatic_reminders import _next_date
+from app.database import Base
+from app.models import JournalEntry, Medication, User
 from app.telegram import next_occurrence, parse_scheduled_at, reminder_is_enabled
 
 
@@ -44,6 +50,109 @@ def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:
         "dose": (1, "week"),
         "weight": (1, "day"),
         "blood_pressure": (1, "week"),
+        "symptoms": (1, "week"),
+        "activity": (1, "week"),
         "composition": (1, "month"),
         "measurements": (1, "month"),
     }
+
+
+def test_automatic_reminder_sources_cover_the_weekly_checklist() -> None:
+    from app.automatic_reminders import _latest_sources
+
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        user = User(email="checklist@example.com", password_hash="unused")
+        db.add(user)
+        db.flush()
+        occurred_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
+        entries = [
+            JournalEntry(user_id=user.id, module="labs", title="Presión", occurred_at=occurred_at,
+                         data={"results": [{"systolic": 120, "diastolic": 80}]}),
+            JournalEntry(user_id=user.id, module="symptoms", title="Check-in", occurred_at=occurred_at,
+                         data={"appetite": "Sin cambios", "satiety": "Sin cambios", "hydration_l": 2}),
+            JournalEntry(user_id=user.id, module="symptoms", title="Síntoma", occurred_at=occurred_at,
+                         data={"results": [{"name": "Náuseas"}]}),
+            JournalEntry(user_id=user.id, module="activity", title="Actividad", occurred_at=occurred_at,
+                         data={"entry_type": "single", "duration_min": 30}),
+        ]
+        db.add_all(entries)
+        db.flush()
+
+        sources = _latest_sources(db, user.id)
+
+        assert sources["blood_pressure"] == (entries[0].id, occurred_at)
+        assert sources["symptoms"] == (entries[2].id, occurred_at)
+        assert sources["activity"] == (entries[3].id, occurred_at)
+
+
+def test_automatic_reminders_are_created_before_the_first_record() -> None:
+    from app.automatic_reminders import AUTO_REMINDERS, sync_automatic_reminders
+
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        user = User(email="pending-checklist@example.com",
+                    password_hash="unused")
+        db.add(user)
+        db.flush()
+        medication = Medication(user_id=user.id, name="Tratamiento")
+        db.add(medication)
+        db.commit()
+
+        sync_automatic_reminders(db, user)
+
+        reminders = db.query(JournalEntry).filter_by(
+            user_id=user.id, module="reminders").all()
+        assert {entry.data["auto_key"] for entry in reminders} == {
+            key for key, _title, _delay, _unit in AUTO_REMINDERS
+        }
+        assert all(entry.data["source_signature"] ==
+                   "pending" for entry in reminders)
+        assert all(entry.data["enabled"] == "Sí" for entry in reminders)
+
+        medication.active = False
+        db.commit()
+        sync_automatic_reminders(db, user)
+        dose_reminder = db.query(JournalEntry).filter_by(
+            user_id=user.id, module="reminders").filter(
+                JournalEntry.data["auto_key"].as_string() == "dose").one()
+        assert dose_reminder.data["enabled"] == "No"
+        assert dose_reminder.data["source_missing"] is True
+
+        medication.active = True
+        db.commit()
+        sync_automatic_reminders(db, user)
+        assert dose_reminder.data["enabled"] == "Sí"
+        assert "source_missing" not in dose_reminder.data
+
+
+def test_retired_symptom_reminders_are_disabled() -> None:
+    from app.automatic_reminders import sync_automatic_reminders
+
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        user = User(email="retired-checklist@example.com",
+                    password_hash="unused")
+        db.add(user)
+        db.flush()
+        old_reminders = [
+            JournalEntry(
+                user_id=user.id,
+                module="reminders",
+                occurred_at=datetime(2026, 10, 1, tzinfo=timezone.utc),
+                title=key,
+                data={"auto_generated": True, "auto_key": key, "enabled": "Sí"},
+            )
+            for key in ("weekly_checkin", "hydration")
+        ]
+        db.add_all(old_reminders)
+        db.commit()
+
+        sync_automatic_reminders(db, user)
+
+        assert all(entry.data["enabled"] == "No" for entry in old_reminders)
+        assert all(entry.data["system_disabled_reason"]
+                   == "replaced" for entry in old_reminders)
