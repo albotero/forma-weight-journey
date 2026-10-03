@@ -23,28 +23,11 @@ Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAP
 ## Docker
 
 1. Copia `.env.example` como `.env`. Define `APP_DOMAIN` y usa el mismo origen HTTPS en `CORS_ORIGINS` y `PUBLIC_APP_URL`. Para la contraseña de PostgreSQL usa una cadena aleatoria URL-safe (letras, números, `-` y `_`) porque Compose la incorpora a la URL de conexión. No publiques `.env`.
-2. Crea en Cloudflare un API Token limitado a la zona `albotero.com` con permiso **Zone / DNS / Edit**. En el servidor, ejecuta `mkdir -p secrets && chmod 700 secrets`, guarda `dns_cloudflare_api_token = TU_TOKEN` en `secrets/cloudflare.ini`, ejecuta `chmod 600 secrets/cloudflare.ini` y no lo guardes en Git ni lo compartas.
-3. Ejecuta una vez desde la raíz para emitir el certificado Let's Encrypt por DNS-01 (no requiere abrir la app a Internet):
+2. Este despliegue utiliza el certificado SSL ya emitido para `APP_DOMAIN`; debe estar disponible en el volumen Docker `letsencrypt`, que Nginx monta en `/etc/letsencrypt`. No es necesario emitir un certificado nuevo para instalar o actualizar la aplicación. El servicio Certbot renueva el certificado existente y requiere que la credencial de Cloudflare de renovación ya esté configurada en `secrets/cloudflare.ini`; no la guardes en Git.
+3. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS.
+4. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
 
-   ```sh
-   docker compose run --rm --entrypoint certbot certbot certonly \\
-       --dns-cloudflare \\
-       --dns-cloudflare-credentials /run/secrets/cloudflare.ini \\
-       --dns-cloudflare-propagation-seconds 60 \\
-       --agree-tos --register-unsafely-without-email --non-interactive \\
-      -d forma.albotero.com
-   ```
-
-4. Si cambiaste `APP_DOMAIN`, reemplaza `forma.albotero.com` en los pasos de emisión y permisos por ese mismo hostname. Permite al grupo de Nginx leer la clave privada (el worker no corre como root) y restringe su modo:
-
-   ```sh
-   docker compose run --rm --entrypoint sh certbot -c 'chgrp 101 /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/live/forma.albotero.com/privkey.pem && chmod 710 /etc/letsencrypt/live /etc/letsencrypt/archive && chmod 640 /etc/letsencrypt/live/forma.albotero.com/privkey.pem'
-   ```
-
-5. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS; Certbot renueva el certificado automáticamente y vuelve a aplicar permisos restringidos a la clave.
-6. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
-
-Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por una red privada; ni la API ni la base de datos publican puertos directamente. El backend tiene una red de salida para conectar con servicios externos como Telegram. Sin Telegram, puedes limitar HTTPS a la LAN. **Los webhooks de Telegram requieren que `PUBLIC_APP_URL/api/telegram/webhook` sea accesible desde los servidores de Telegram por HTTPS**; el Compose de este repositorio no configura un túnel. Si el sitio debe seguir siendo LAN-only, configura por separado un túnel/reverse proxy seguro para esa ruta; no expongas directamente backend ni PostgreSQL. La validación DNS-01 no crea esa ruta de entrada. No publiques `.env` ni `secrets/cloudflare.ini`.
+Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por una red privada; ni la API ni la base de datos publican puertos directamente. El backend tiene una red de salida para conectar con servicios externos como Telegram. Sin Telegram, puedes limitar HTTPS a la LAN. **Los webhooks de Telegram requieren que `PUBLIC_APP_URL/api/telegram/webhook` sea accesible desde los servidores de Telegram por HTTPS**; el Compose de este repositorio no configura un túnel. Si el sitio debe seguir siendo LAN-only, configura por separado un túnel/reverse proxy seguro para esa ruta; no expongas directamente backend ni PostgreSQL. No publiques `.env` ni `secrets/cloudflare.ini`.
 
 ## Módulos de seguimiento
 
