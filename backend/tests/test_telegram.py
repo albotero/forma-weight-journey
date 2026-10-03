@@ -26,11 +26,13 @@ def test_reminder_enabled_accepts_form_values() -> None:
 def test_automatic_reminder_offsets_use_calendar_time_in_profile_timezone() -> None:
     source = datetime(2026, 3, 7, 17, 30, tzinfo=timezone.utc)
     assert _next_date(source, 1, "day", ZoneInfo("America/New_York")) == datetime(
-        2026, 3, 8, 16, 30, tzinfo=timezone.utc)
+        2026, 3, 8, 9, 0, tzinfo=timezone.utc)
     assert _next_date(source, 1, "week", ZoneInfo("America/New_York")) == datetime(
-        2026, 3, 14, 16, 30, tzinfo=timezone.utc)
+        2026, 3, 14, 9, 0, tzinfo=timezone.utc)
+    assert _next_date(source, 1, "day", ZoneInfo("America/New_York"), "07:30") == datetime(
+        2026, 3, 8, 11, 30, tzinfo=timezone.utc)
     assert _next_date(datetime(2026, 1, 31, 17, 30, tzinfo=timezone.utc), 1, "month", ZoneInfo("UTC")) == datetime(
-        2026, 2, 28, 17, 30, tzinfo=timezone.utc)
+        2026, 2, 28, 5, 0, tzinfo=timezone.utc)
 
 
 def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:

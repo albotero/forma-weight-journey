@@ -102,6 +102,7 @@ export function AccountSettings({
           height_cm: Number(values.get("height_cm")),
           initial_weight_kg: Number(values.get("initial_weight_kg")),
           timezone: String(values.get("timezone")),
+          reminder_time: String(values.get("reminder_time")),
           birth_date: values.get("birth_date") ? String(values.get("birth_date")) : null,
         }),
       })
@@ -298,6 +299,10 @@ export function AccountSettings({
                         </option>
                       ))}
                     </select>
+                  </label>
+                  <label>
+                    Hora de recordatorios
+                    <input name="reminder_time" type="time" defaultValue={profile.reminder_time} required />
                   </label>
                   <div className="form-actions">
                     <button className="primary-button" disabled={savingProfile}>

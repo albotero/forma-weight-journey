@@ -93,6 +93,7 @@ export type Profile = {
   height_cm: number
   initial_weight_kg: number
   timezone: string
+  reminder_time: string
   birth_date: string | null
   medications_reviewed: boolean
 }

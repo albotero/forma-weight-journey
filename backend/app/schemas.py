@@ -100,6 +100,8 @@ class ProfileUpdate(NumericPrecisionModel):
     height_cm: float = Field(gt=0, le=260)
     initial_weight_kg: float = Field(gt=0, le=500)
     timezone: str = Field(default="America/Bogota", max_length=64)
+    reminder_time: str = Field(
+        default="05:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     birth_date: str | None = None
 
     @field_validator("timezone")

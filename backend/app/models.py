@@ -38,6 +38,8 @@ class UserProfile(Base):
     height_cm: Mapped[float] = mapped_column(Float, default=180)
     initial_weight_kg: Mapped[float] = mapped_column(Float, default=106)
     timezone: Mapped[str] = mapped_column(String(64), default="America/Bogota")
+    reminder_time: Mapped[str] = mapped_column(
+        String(5), default="05:00", server_default="05:00")
     medications_reviewed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
     medications_reviewed_signature: Mapped[str | None] = mapped_column(

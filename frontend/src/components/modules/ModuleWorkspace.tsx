@@ -20,7 +20,7 @@ import {
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDateTime } from "../../lib/format"
-import { estimatedNextDose, compositionFields } from "../../lib/records"
+import { estimatedNextDose, compositionFields, weeklyActivityChecklistDate } from "../../lib/records"
 import { AnalysisWorkspace } from "../analysis/AnalysisWorkspace"
 import { RecordActions, EmptyModule } from "../common/Empty"
 import { journalModuleBySection, journalDefinitions, journalSectionLabels } from "./journalDefinitions"
@@ -64,6 +64,14 @@ export function ModuleWorkspace(props: {
   const compositionWeights = [...weights]
     .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
+  const weeklyActivityEntries = entries
+    .filter((entry) => entry.module === "activity" && entry.data.entry_type === "weekly")
+    .sort((a, b) => weeklyActivityChecklistDate(a).localeCompare(weeklyActivityChecklistDate(b)))
+  const weeklyActivityMetrics = [
+    { key: "weekly_steps", label: "Pasos", unit: "pasos" },
+    { key: "weekly_calories_kcal", label: "Calorías", unit: "kcal" },
+    { key: "weekly_distance_km", label: "Distancia", unit: "km" },
+  ] as const
   const photoGroups = Object.entries(
     photos.reduce<Record<string, PhotoEntry[]>>((groups, photo) => {
       const day = dateTimeInputValue(photo.taken_at, userTimezone).slice(0, 10)
@@ -725,6 +733,28 @@ export function ModuleWorkspace(props: {
               )}
             </div>
           )}
+          {module === "activity" && weeklyActivityEntries.length > 0 && (
+            <div className="activity-weekly-charts">
+              {weeklyActivityMetrics.map(({ key, label, unit }) => {
+                const points = weeklyActivityEntries
+                  .filter((entry) => entry.data[key] != null)
+                  .map((entry) => ({
+                    occurredAt: weeklyActivityChecklistDate(entry),
+                    date: formatDate(weeklyActivityChecklistDate(entry), userTimezone),
+                    value: Number(entry.data[key]),
+                  }))
+                if (!points.length) return null
+                return (
+                  <MetricTrendCharts
+                    key={key}
+                    title={`${label} semanales`}
+                    hideLegend
+                    series={[{ label, unit, points }]}
+                  />
+                )
+              })}
+            </div>
+          )}
           {module === "symptoms" && <h2 className="module-subheading">Check-ins semanales</h2>}
           <div className="record-list">
             {entries
@@ -785,7 +815,10 @@ export function ModuleWorkspace(props: {
                     {journalDefinitions[module].fields
                       .filter(
                         ({ key }) =>
-                          entry.data[key] !== undefined && entry.data[key] !== null && entry.data[key] !== "",
+                          entry.data[key] !== undefined &&
+                          entry.data[key] !== null &&
+                          entry.data[key] !== "" &&
+                          !(module === "reminders" && entry.data.auto_generated === true && key === "repeat"),
                       )
                       .map(({ key, label, type }) => (
                         <div key={key}>
@@ -1077,17 +1110,19 @@ export function ModuleWorkspace(props: {
               },
               remove: () => props.onDelete(`/body-measurements/${item.id}`),
             })),
-            ...entries.map((item) => ({
-              id: `e-${item.id}`,
-              date: item.occurred_at,
-              title: item.title,
-              label: journalSectionLabels[item.module],
-              edit: () => {
-                setEditingEntry(item)
-                setShowEntryForm(true)
-              },
-              remove: () => props.onDelete(`/entries/${item.id}`),
-            })),
+            ...entries
+              .filter((item) => item.module !== "reminders")
+              .map((item) => ({
+                id: `e-${item.id}`,
+                date: item.occurred_at,
+                title: item.title,
+                label: journalSectionLabels[item.module],
+                edit: () => {
+                  setEditingEntry(item)
+                  setShowEntryForm(true)
+                },
+                remove: () => props.onDelete(`/entries/${item.id}`),
+              })),
           ]
             .sort((a, b) => b.date.localeCompare(a.date))
             .map((item) => (

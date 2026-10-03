@@ -756,6 +756,21 @@
 .trend-chart-panel {
   margin-bottom: 20px;
 }
+.activity-weekly-charts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.activity-weekly-charts .trend-chart-panel {
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 14px;
+}
+.activity-weekly-charts .trend-chart-panel .chart-wrap {
+  height: 230px;
+  margin-top: 12px;
+}
 .trend-chart-panel .chart-wrap {
   height: 300px;
 }

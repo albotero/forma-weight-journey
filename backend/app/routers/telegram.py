@@ -11,7 +11,13 @@ from app.config import settings
 from app.database import get_db
 from app.dependencies import current_user
 from app.models import JournalEntry, TelegramConnection, User
-from app.telegram import answer_callback_query, connection_status, handle_telegram_command, send_telegram_message
+from app.telegram import (
+    answer_callback_query,
+    connection_status,
+    handle_telegram_command,
+    send_reminder_followup,
+    send_telegram_message,
+)
 from app.routers.common import utc_datetime, utc_now
 
 router = APIRouter()
@@ -75,11 +81,23 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
             "chat") if isinstance(message, dict) else None
         parts = callback_data.split(":") if isinstance(
             callback_data, str) else []
-        if (isinstance(callback_id, str) and len(parts) == 3 and parts[0] == "done"
+        if (isinstance(callback_id, str) and parts and parts[0] == "dismiss"
+                and len(parts) == 2):
+            await answer_callback_query(callback_id, "De acuerdo.")
+            return {"ok": True}
+        if (isinstance(callback_id, str) and parts and parts[0] in {"done", "capture"}
+                and (len(parts) == 2 or (parts[0] == "done" and len(parts) == 3))
                 and isinstance(callback_chat, dict) and callback_chat.get("type") == "private"):
             try:
-                entry_id, occurrence = int(parts[1]), int(parts[2])
+                if len(parts) == 2:
+                    entry_ids = None
+                    occurrence = int(parts[1])
+                else:
+                    entry_ids = [int(value) for value in parts[1].split(",")]
+                    occurrence = int(parts[2])
                 chat_id = str(callback_chat["id"])
+                if entry_ids is not None and (not entry_ids or len(set(entry_ids)) != len(entry_ids)):
+                    raise ValueError
             except (ValueError, KeyError):
                 await answer_callback_query(callback_id, "Este botón no es válido.")
                 return {"ok": True}
@@ -88,26 +106,57 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
             if connection is None:
                 await answer_callback_query(callback_id, "Este chat no está vinculado a Forma.")
                 return {"ok": True}
-            entry = db.scalar(select(JournalEntry).where(
-                JournalEntry.id == entry_id,
+            reminder_query = select(JournalEntry).where(
                 JournalEntry.module == "reminders",
                 JournalEntry.user_id == connection.user_id,
-            ))
-            if entry is None:
+            )
+            if entry_ids is not None:
+                reminder_query = reminder_query.where(
+                    JournalEntry.id.in_(entry_ids))
+            entries = db.scalars(reminder_query).all()
+            if entry_ids is None:
+                entries = [entry for entry in entries if (
+                    entry.data or {}).get("last_sent_epoch") == occurrence]
+            entries_by_id = {entry.id: entry for entry in entries}
+            if not entries_by_id or (entry_ids is not None and len(entries_by_id) != len(entry_ids)):
                 await answer_callback_query(callback_id, "No se encontró este recordatorio vinculado a tu cuenta.")
                 return {"ok": True}
-            data = dict(entry.data or {})
-            if data.get("last_sent_epoch") != occurrence:
-                await answer_callback_query(callback_id, "Este aviso ya venció; revisa el recordatorio más reciente.")
-                return {"ok": True}
-            if data.get("completed_reminder_epoch") == occurrence:
-                await answer_callback_query(callback_id, "Ya quedó marcado como cumplido.")
-                return {"ok": True}
-            data["completed_reminder_epoch"] = occurrence
-            data["completed_at"] = utc_now().isoformat()
-            entry.data = data
-            db.commit()
-            await answer_callback_query(callback_id, "¡Listo! Recordatorio marcado como cumplido.")
+            if parts[0] == "done":
+                for entry in entries_by_id.values():
+                    data = dict(entry.data or {})
+                    if data.get("last_sent_epoch") != occurrence:
+                        await answer_callback_query(callback_id, "Este aviso ya venció; revisa el recordatorio más reciente.")
+                        return {"ok": True}
+                    if data.get("completed_reminder_epoch") != occurrence:
+                        data["completed_reminder_epoch"] = occurrence
+                        data["completed_at"] = utc_now().isoformat()
+                        entry.data = data
+                db.commit()
+                await answer_callback_query(callback_id, "¡Listo! Recordatorios marcados como cumplidos.")
+                await send_reminder_followup(chat_id, occurrence)
+            else:
+                if any((entry.data or {}).get("completed_reminder_epoch") != occurrence for entry in entries_by_id.values()):
+                    await answer_callback_query(callback_id, "Confirma primero que ya resolviste el recordatorio.")
+                    return {"ok": True}
+                keys = {str((entry.data or {}).get("auto_key"))
+                        for entry in entries_by_id.values()}
+                examples = []
+                if "weight" in keys:
+                    examples.append("/peso 82.5")
+                if "dose" in keys:
+                    examples.append("/dosis 2.5")
+                if "blood_pressure" in keys:
+                    examples.append("/presion 120/80")
+                if "measurements" in keys:
+                    examples.append("/cintura 90")
+                if "composition" in keys:
+                    examples.append(
+                        "La composición corporal se registra desde la app.")
+                if not examples:
+                    examples = ["/peso 82.5", "/dosis 2.5",
+                                "/cintura 90", "/presion 120/80"]
+                await answer_callback_query(callback_id, "Envíame el dato por este chat.")
+                await send_telegram_message(chat_id, "Envíame el dato con el comando correspondiente:\n" + "\n".join(examples))
         return {"ok": True}
 
     message = update.get("message") if isinstance(update, dict) else None

@@ -128,6 +128,7 @@ def build_export(db: Session, user: User, storage_path: str) -> bytes:
             "height_cm": profile.height_cm,
             "initial_weight_kg": profile.initial_weight_kg,
             "timezone": profile.timezone,
+            "reminder_time": profile.reminder_time,
         },
         "medications": [],
         "doses": [],

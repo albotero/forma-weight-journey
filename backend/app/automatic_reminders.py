@@ -20,7 +20,7 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
-def _next_date(source: datetime, delay: int, unit: str, zone: ZoneInfo) -> datetime:
+def _next_date(source: datetime, delay: int, unit: str, zone: ZoneInfo, reminder_time: str = "05:00") -> datetime:
     local = _utc(source).astimezone(zone)
     if unit == "day":
         result = local + timedelta(days=delay)
@@ -32,7 +32,8 @@ def _next_date(source: datetime, delay: int, unit: str, zone: ZoneInfo) -> datet
         month = zero_month + 1
         day = min(local.day, calendar.monthrange(year, month)[1])
         result = local.replace(year=year, month=month, day=day)
-    return result.astimezone(timezone.utc)
+    hour, minute = (int(part) for part in reminder_time.split(":"))
+    return result.replace(hour=hour, minute=minute, second=0, microsecond=0).astimezone(timezone.utc)
 
 
 def _latest_sources(db: Session, user_id: int) -> dict[str, tuple[int, datetime] | None]:
@@ -96,6 +97,7 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
     profile = db.scalar(select(UserProfile).where(
         UserProfile.user_id == user.id))
     timezone_name = profile.timezone if profile else "America/Bogota"
+    reminder_time = profile.reminder_time if profile else "05:00"
     try:
         zone = ZoneInfo(timezone_name)
     except (ZoneInfoNotFoundError, ValueError):
@@ -129,7 +131,7 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
 
         source_id, source_time = source
         source_signature = f"{source_id}:{_utc(source_time).isoformat()}"
-        scheduled = _next_date(source_time, delay, unit, zone)
+        scheduled = _next_date(source_time, delay, unit, zone, reminder_time)
         if reminder is None:
             reminder = JournalEntry(
                 user_id=user.id,
@@ -141,6 +143,7 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
                     "auto_key": key,
                     "source_record_id": source_id,
                     "source_signature": source_signature,
+                    "source_recorded_at": _utc(source_time).isoformat(),
                     "reminder_at": scheduled.isoformat(),
                     "repeat": "No repetir",
                     "enabled": "Sí",
@@ -150,10 +153,15 @@ def sync_automatic_reminders(db: Session, user: User) -> None:
             continue
 
         data = dict(reminder.data or {})
+        source_recorded_at = _utc(source_time).isoformat()
+        if data.get("source_recorded_at") != source_recorded_at:
+            data["source_recorded_at"] = source_recorded_at
+            reminder.data = data
         if data.get("source_signature") != source_signature:
             data.update({
                 "source_record_id": source_id,
                 "source_signature": source_signature,
+                "source_recorded_at": _utc(source_time).isoformat(),
                 "reminder_at": scheduled.isoformat(),
                 "repeat": "No repetir",
                 "enabled": "Sí",

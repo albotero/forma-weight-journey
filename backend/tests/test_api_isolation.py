@@ -725,7 +725,8 @@ def test_telegram_pairing_links_private_chat_once(monkeypatch) -> None:
     monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
     monkeypatch.setattr(settings, "telegram_bot_username", "forma_test_bot")
     monkeypatch.setattr(settings, "telegram_webhook_secret", "pairing-secret")
-    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr(
+        "app.routers.telegram.send_telegram_message", fake_send)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-pairing@example.com", "password": "telegram-pairing-password-123"})
     headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
@@ -746,20 +747,28 @@ def test_telegram_pairing_links_private_chat_once(monkeypatch) -> None:
 
 
 def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
-    sent: list[tuple[str, str, int, datetime]] = []
+    sent: list[tuple[str, str, datetime]] = []
+    followups: list[tuple[str, list[int], int]] = []
 
-    async def fake_send(chat_id: str, text: str, entry_id: int, scheduled_at: datetime) -> bool:
-        sent.append((chat_id, text, entry_id, scheduled_at))
+    async def fake_send(chat_id: str, text: str, scheduled_at: datetime) -> bool:
+        sent.append((chat_id, text, scheduled_at))
         return True
 
     async def fake_answer(_callback_id: str, _text: str) -> bool:
+        return True
+
+    async def fake_followup(chat_id: str, occurrence: int) -> bool:
+        followups.append((chat_id, occurrence))
         return True
 
     monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
     monkeypatch.setattr(settings, "telegram_webhook_secret", "due-secret")
     monkeypatch.setattr("app.telegram.SessionLocal", TestingSession)
     monkeypatch.setattr("app.telegram.send_reminder_message", fake_send)
-    monkeypatch.setattr("app.routers.telegram.answer_callback_query", fake_answer)
+    monkeypatch.setattr(
+        "app.routers.telegram.send_reminder_followup", fake_followup)
+    monkeypatch.setattr(
+        "app.routers.telegram.answer_callback_query", fake_answer)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-due@example.com", "password": "telegram-due-password-123"})
     token = registered.json()["access_token"]
@@ -767,9 +776,19 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
     due_time = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
     reminder = client.post("/api/entries", headers=headers, json={
         "module": "reminders", "title": "Recordar cita", "occurred_at": due_time,
-        "data": {"reminder_at": due_time, "repeat": "No repetir", "enabled": "Sí"},
+        "data": {
+            "reminder_at": due_time,
+            "repeat": "No repetir",
+            "enabled": "Sí",
+            "source_recorded_at": "2026-09-30T11:45:00+00:00",
+        },
     })
     assert reminder.status_code == 201
+    second_reminder = client.post("/api/entries", headers=headers, json={
+        "module": "reminders", "title": "Recordar control", "occurred_at": due_time,
+        "data": {"reminder_at": due_time, "repeat": "No repetir", "enabled": "Sí"},
+    })
+    assert second_reminder.status_code == 201
     with TestingSession() as db:
         user = db.scalar(select(User).where(
             User.email == "telegram-due@example.com"))
@@ -780,22 +799,26 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
     from app.telegram import dispatch_due_reminders
 
     asyncio.run(dispatch_due_reminders())
-    assert sent and sent[0][0] == "13579"
-    assert "Recordatorio: Recordar cita" in sent[0][1]
-    occurrence = int(sent[0][3].timestamp())
+    assert len(sent) == 1 and sent[0][0] == "13579"
+    assert "Recordar cita" in sent[0][1] and "Recordar control" in sent[0][1]
+    assert "Último registro: 30/09/2026 06:45" in sent[0][1]
+    occurrence = int(sent[0][2].timestamp())
+    entry_ids = [reminder.json()["id"], second_reminder.json()["id"]]
     callback = {"callback_query": {
         "id": "callback-123",
-        "data": f"done:{sent[0][2]}:{occurrence}",
+        "data": f"done:{occurrence}",
         "message": {"chat": {"id": 13579, "type": "private"}},
     }}
     response = client.post("/api/telegram/webhook", headers={
         "X-Telegram-Bot-Api-Secret-Token": "due-secret"}, json=callback)
     assert response.status_code == 200
     with TestingSession() as db:
-        saved = db.get(JournalEntry, reminder.json()["id"])
-        assert saved is not None and saved.data["enabled"] == "No"
-        assert saved.data["completed_reminder_epoch"] == occurrence
-        assert saved.data["completed_at"]
+        for entry_id in entry_ids:
+            saved = db.get(JournalEntry, entry_id)
+            assert saved is not None and saved.data["enabled"] == "No"
+            assert saved.data["completed_reminder_epoch"] == occurrence
+            assert saved.data["completed_at"]
+    assert followups == [("13579", occurrence)]
 
 
 def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting() -> None:
@@ -829,6 +852,8 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     ) if entry["data"].get("auto_generated")}
     assert set(automatic) == {"dose", "weight", "composition", "measurements"}
     assert automatic["dose"]["data"]["source_record_id"] == dose.json()["id"]
+    assert automatic["dose"]["data"]["source_recorded_at"].startswith(dose.json()[
+                                                                      "administered_at"])
     assert automatic["weight"]["data"]["source_record_id"] == weight.json()[
         "id"]
     assert automatic["composition"]["data"]["source_record_id"] == weight.json()[
@@ -866,13 +891,16 @@ def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting(
     assert client.delete(
         f"/api/entries/{original_reminder_id}", headers=headers).status_code == 409
 
-    client.post("/api/weights", headers=headers, json={"weight_kg": 79.5})
+    latest_weight = client.post(
+        "/api/weights", headers=headers, json={"weight_kg": 79.5})
     refreshed = client.get("/api/entries/reminders", headers=headers).json()
     weight_reminder = next(
         entry for entry in refreshed if entry["data"].get("auto_key") == "weight")
     assert weight_reminder["id"] == original_reminder_id
     assert weight_reminder["data"]["enabled"] == "Sí"
-    assert weight_reminder["data"]["reminder_at"] != original_date
+    assert weight_reminder["data"]["source_record_id"] == latest_weight.json()[
+        "id"]
+    assert weight_reminder["data"]["reminder_at"] == original_date
 
 
 def test_lab_results_accept_text_values_alongside_numeric_ones() -> None:
@@ -955,9 +983,11 @@ def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable
         "height_cm": profile["height_cm"],
         "initial_weight_kg": profile["initial_weight_kg"],
         "timezone": "America/New_York",
+        "reminder_time": "07:30",
         "birth_date": profile["birth_date"],
     })
     assert changed_profile.status_code == 200
+    assert changed_profile.json()["reminder_time"] == "07:30"
     reactivated = client.put(f"/api/medications/{medication['id']}", headers=headers, json={
         "name": medication["name"], "active": True,
         "concentration_mg": medication["concentration_mg"],
@@ -970,7 +1000,7 @@ def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable
     dose_reminder_after = next(
         entry for entry in resynced if entry["id"] == dose_reminder["id"])
     assert dose_reminder_after["data"]["enabled"] == "No"
-    assert dose_reminder_after["data"]["reminder_at"] == "2026-03-08T16:30:00+00:00"
+    assert dose_reminder_after["data"]["reminder_at"] == "2026-03-08T11:30:00+00:00"
     assert dose_reminder_after["data"].get("source_missing") is None
 
 
@@ -979,7 +1009,8 @@ def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None
         return True
 
     monkeypatch.setattr(settings, "telegram_webhook_secret", "command-secret")
-    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr(
+        "app.routers.telegram.send_telegram_message", fake_send)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-commands@example.com", "password": "telegram-commands-password-123"})
     token = registered.json()["access_token"]
