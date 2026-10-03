@@ -28,9 +28,6 @@
   }
 }
 @media (max-width: 850px) {
-  .activity-weekly-charts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   .sidebar {
     width: 235px;
     transform: translateX(-100%);
@@ -92,9 +89,6 @@
   }
 }
 @media (max-width: 650px) {
-  .activity-weekly-charts {
-    grid-template-columns: 1fr;
-  }
   .topbar {
     height: 56px;
     padding: 0 17px;
