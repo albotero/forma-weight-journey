@@ -13,7 +13,7 @@ AUTO_REMINDERS: tuple[tuple[str, str, int, str], ...] = (
     ("blood_pressure", "Checklist semanal: presión arterial", 1, "week"),
     ("symptoms", "Checklist semanal: síntomas, hidratación y apetito", 1, "week"),
     ("activity", "Checklist semanal: actividad", 1, "week"),
-    ("composition", "Checklist mensual: composición corporal", 1, "month"),
+    ("composition", "Checklist semanal: composición corporal", 1, "week"),
     ("measurements", "Checklist mensual: medidas corporales", 1, "month"),
 )
 

@@ -41,7 +41,7 @@ def test_automatic_reminder_offsets_use_calendar_time_in_profile_timezone() -> N
         2026, 2, 28, 5, 0, tzinfo=timezone.utc)
 
 
-def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:
+def test_automatic_reminder_policy_uses_one_week_for_composition() -> None:
     from app.automatic_reminders import AUTO_REMINDERS
 
     policy = {key: (delay, unit)
@@ -52,7 +52,7 @@ def test_automatic_reminder_policy_uses_one_month_for_composition() -> None:
         "blood_pressure": (1, "week"),
         "symptoms": (1, "week"),
         "activity": (1, "week"),
-        "composition": (1, "month"),
+        "composition": (1, "week"),
         "measurements": (1, "month"),
     }
 

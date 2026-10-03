@@ -62,7 +62,7 @@ import { EmailVerificationScreen } from "./components/auth/EmailVerificationScre
 import { EmptyInline, EmptyChart } from "./components/common/Empty"
 import { journalSectionLabels } from "./components/modules/journalDefinitions"
 import { ModuleWorkspace } from "./components/modules/ModuleWorkspace"
-import { summarizeBodyMeasurements } from "./components/modules/bodyMeasurements"
+import { bodyFields, summarizeBodyMeasurements } from "./components/modules/bodyMeasurements"
 import { QuickModal } from "./components/modals/QuickModal"
 import { WeightModal } from "./components/modals/WeightModal"
 import { DoseModal } from "./components/modals/DoseModal"
@@ -218,6 +218,7 @@ export default function App() {
   const recentSymptoms = journalEntries.filter(
     (entry) => entry.module === "symptoms" && recordedWithin(entry.occurred_at, 7),
   )
+  const weeklyWeights = sortedWeights.filter((item) => recordedWithin(item.measured_at, 7))
   const weeklyCheckIn = recentSymptoms.some((entry) => entry.data.appetite != null && entry.data.satiety != null)
   const weeklyChecklist = [
     doses.some((item) => recordedWithin(item.administered_at, 7)),
@@ -238,13 +239,15 @@ export default function App() {
     journalEntries.some(
       (entry) => entry.module === "activity" && recordedWithin(weeklyActivityChecklistDate(entry), 7),
     ),
+    weeklyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
   ]
   const monthlyWeights = sortedWeights.filter((item) => recordedWithin(item.measured_at, 28))
   const monthlyChecklist = [
     monthlyWeights.length >= 2,
-    bodyMeasurements.some((item) => item.waist_cm != null && recordedWithin(item.measured_at, 28)),
+    bodyMeasurements.some(
+      (item) => recordedWithin(item.measured_at, 28) && bodyFields.some(([key]) => item[key] != null),
+    ),
     photos.some((item) => recordedWithin(item.taken_at, 28)),
-    monthlyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
     journalEntries.some(
       (entry) =>
         entry.module === "symptoms" &&

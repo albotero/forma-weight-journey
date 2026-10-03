@@ -1,84 +1,272 @@
 # Forma · seguimiento personal
 
-Aplicación web privada y mobile-first para organizar registros personales de peso y tratamiento. **No diagnostica ni prescribe.** No cambia dosis y no sustituye el criterio de un profesional de salud.
+Aplicación web privada para organizar registros de peso, composición corporal y seguimiento de tratamientos. Puedes usarla desde el navegador del móvil o escritorio, o desplegar una instancia propia.
 
-> La aplicación permite organizar registros personales. Incluye composición de báscula, peso, medidas, medicación/dosis, síntomas, actividad, laboratorios, fotos privadas, objetivos, revisiones, recordatorios por Telegram, análisis e historial. No diagnostica ni prescribe.
+## ¿Solo quieres usar Forma?
 
-## Arquitectura
+Abre [https://forma.albotero.com](https://forma.albotero.com) para usar la instancia disponible. Crea una cuenta y confirma tu correo; no necesitas clonar este repositorio ni configurar un servidor o dominio propio.
 
-```text
-Navegador móvil/desktop → React + TypeScript + Vite → FastAPI REST / OpenAPI
-                                                  └→ PostgreSQL
-```
+> [!IMPORTANT]
+> Forma organiza datos y muestra tendencias descriptivas. No diagnostica, no prescribe ni recomienda iniciar, cambiar o suspender tratamientos.
 
-- **Frontend:** React, TypeScript estricto, Vite, Tailwind, React Router, Recharts y Lucide.
-- **Backend:** FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, JWT de corta duración y contraseñas con Argon2.
-- **Persistencia:** PostgreSQL. El token de acceso vive en memoria; una cookie `Secure`, `HttpOnly`, `SameSite=Strict` mantiene una sesión revocable de 30 días y restaura la sesión al volver a abrir la app. Las fotos se guardan como archivos privados bajo `storage/`.
-- **Aislamiento:** las consultas de registros siempre se limitan al usuario autenticado. Fechas se normalizan a UTC; el perfil parte de `America/Bogota`. Los formularios de peso y dosis proponen la fecha/hora actual y permiten editarla antes de guardar.
+## ¿Quieres desplegar tu propia instancia?
 
-## Requisitos
+Sigue las instrucciones de [instalación](#instalar-tu-propia-instancia). Para publicarla en Internet necesitas un dominio que controles y debes configurar DNS, HTTPS, correo y secretos para ese dominio. No uses los valores de ejemplo como si fueran los del autor del proyecto.
 
-- Docker Engine + Docker Compose plugin **o** Node.js 22+, Python 3.11+ y PostgreSQL 16+.
+## Contenido
 
-## Docker
+- [Qué puedes hacer](#qué-puedes-hacer)
+- [Instalar tu propia instancia](#instalar-tu-propia-instancia)
+- [Usar la aplicación](#usar-la-aplicación)
+- [Telegram](#telegram)
+- [Copias de seguridad](#copias-de-seguridad)
+- [Desarrollo y pruebas](#desarrollo-y-pruebas)
+- [Arquitectura y seguridad](#arquitectura-y-seguridad)
 
-1. Copia `.env.example` como `.env`. Define `APP_DOMAIN` y usa el mismo origen HTTPS en `CORS_ORIGINS` y `PUBLIC_APP_URL`. Para la contraseña de PostgreSQL usa una cadena aleatoria URL-safe (letras, números, `-` y `_`) porque Compose la incorpora a la URL de conexión. No publiques `.env`.
-2. Este despliegue utiliza el certificado SSL ya emitido para `APP_DOMAIN`; debe estar disponible en el volumen Docker `letsencrypt`, que Nginx monta en `/etc/letsencrypt`. No es necesario emitir un certificado nuevo para instalar o actualizar la aplicación. El servicio Certbot renueva el certificado existente y requiere que la credencial de Cloudflare de renovación ya esté configurada en `secrets/cloudflare.ini`; no la guardes en Git.
-3. Ejecuta `docker compose up --build -d` desde la raíz. Nginx sirve HTTPS en el puerto 443 y redirige HTTP a HTTPS.
-4. Abre `https://forma.albotero.com`; la API se sirve en el mismo origen bajo `/api` y OpenAPI está en `/docs`.
+## Qué puedes hacer
 
-Solo el frontend publica HTTP/HTTPS al host. Nginx reenvía `/api` al backend por una red privada; ni la API ni la base de datos publican puertos directamente. El backend tiene una red de salida para conectar con servicios externos como Telegram. Sin Telegram, puedes limitar HTTPS a la LAN. **Los webhooks de Telegram requieren que `PUBLIC_APP_URL/api/telegram/webhook` sea accesible desde los servidores de Telegram por HTTPS**; el Compose de este repositorio no configura un túnel. Si el sitio debe seguir siendo LAN-only, configura por separado un túnel/reverse proxy seguro para esa ruta; no expongas directamente backend ni PostgreSQL. No publiques `.env` ni `secrets/cloudflare.ini`.
+| Área               | Uso                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------ |
+| Peso y composición | Registra peso y métricas opcionales de báscula; consulta gráficos de evolución.                  |
+| Medidas corporales | Registra cintura, cuello, pecho, abdomen, cadera, brazo y muslo.                                 |
+| Seguimiento        | Guarda síntomas, actividad, presión arterial, laboratorios, objetivos y revisiones.              |
+| Tratamiento        | Mantén tu lista de medicamentos y registra dosis. La aplicación no sugiere dosis.                |
+| Recordatorios      | Crea avisos manuales o usa los checklists automáticos; opcionalmente recibe avisos por Telegram. |
+| Fotos              | Guarda imágenes privadas asociadas a tu cuenta.                                                  |
+| Datos              | Exporta o restaura los registros de tu cuenta.                                                   |
 
-## Módulos de seguimiento
+## Instalar tu propia instancia
 
-- **Composición:** cada lectura de peso acepta opcionalmente grasa corporal, masa libre de grasa, grasa subcutánea, índice de grasa visceral, agua corporal, músculo esquelético, masa muscular, masa ósea, proteína, metabolismo basal y edad metabólica. Son estimaciones reportadas por la báscula; se guardan junto con el peso, la fecha/hora, y pueden editarse o borrarse.
-- **Síntomas, objetivos y laboratorios:** catálogos personales permiten seleccionar varios elementos al registrar; síntomas y objetivos admiten intensidad de 0 a 10. Presión arterial está incluida como prueba protegida y guarda sistólica, diastólica y su media calculada. La app muestra gráficos de evolución para cada prueba.
-- **Medidas, actividad, revisiones y recordatorios:** registros con fecha/hora, campos relevantes, notas y operaciones de edición/eliminación. Actividad grafica los totales semanales de pasos, kcal y km en series con escalas independientes.
-- **Fotos:** cargas privadas JPEG/PNG/WebP de hasta 10 MB, aisladas por usuario, con descripción y fecha editable.
-- **Medicación e historial:** permite añadir/editar concentraciones, archivar o reactivar medicamentos y editar/eliminar dosis; archivar conserva el historial relacionado. Las cuentas nuevas empiezan sin medicamentos; cada persona registra solo los tratamientos que usa.
-- Los recordatorios manuales y automáticos aparecen en Recordatorios; Historial solo muestra registros realizados y excluye los recordatorios. Los manuales respetan la fecha y hora elegidas y permiten cambiar su repetición (no repetir, diario, semanal o mensual). Los automáticos tienen frecuencia fija: dosis (una semana después de la última dosis de una medicación activa), peso (un día), presión arterial (una semana después del último resultado registrado), seguimiento de síntomas (una semana después de registrar síntomas, tolerancia, hidratación o el check-in de apetito y saciedad), actividad (una semana después del último registro), composición corporal (un mes después de una lectura que incluya composición) y medidas corporales (un mes después de la última medición). Los avisos de seguimiento de síntomas se agrupan en un único recordatorio semanal. Si todavía no hay un registro que sirva de referencia, se programa un aviso inicial; el de dosis solo existe mientras haya una medicación activa. Se programan a la hora local configurada en Perfil y ajustes (05:00 por defecto), no a la hora del último registro; cuando hay una referencia, el aviso indica la fecha y hora de ese registro. La hora y zona horaria son configurables por cuenta. Los automáticos se pueden activar/desactivar, pero no editar ni borrar. Si varios vencen juntos y Telegram está vinculado, se agrupan en un mensaje; el botón **Ya lo cumplí** los marca como realizados y pregunta si quieres enviar el dato por el chat. Cada usuario vincula su chat privado con un enlace de un solo uso que caduca en 15 minutos.
-- **Notificaciones:** el centro bajo la campana muestra recordatorios vencidos y avisos de checklist para el peso diario y la confirmación de medicamentos activos. Se pueden activar notificaciones nativas del navegador desde Perfil y ajustes. Requieren permiso y que la app esté abierta; la preferencia y los IDs ya avisados se guardan en ese navegador. No son notificaciones push y no llegan cuando la app está cerrada. Para avisos fuera de la app, usa Telegram.
-- **Análisis y seguimiento:** reúne checklists contextuales previos al inicio, semanales, cada cuatro semanas y periódicos. El estado solo indica si hay datos guardados; no valida su vigencia ni la idoneidad clínica. Los resúmenes de dosis describen el tiempo desde los registros disponibles, tendencia de peso y tolerancia/síntomas documentados; nunca indican subir, bajar, iniciar o suspender dosis.
+### Antes de empezar
 
-Las sesiones se restauran mediante un refresh token aleatorio almacenado como hash en la base de datos. El navegador solo recibe la cookie segura; los refresh tokens rotan y el cierre de sesión revoca la sesión del servidor.
+| Requisito                                         | Para qué                                                                  |
+| ------------------------------------------------- | ------------------------------------------------------------------------- |
+| Servidor Linux con Docker Engine y Docker Compose | Ejecutar los servicios.                                                   |
+| Dominio propio, por ejemplo `app.example.com`     | Acceder a tu instancia con HTTPS.                                         |
+| Registro DNS A/AAAA apuntando al servidor         | Dirigir el dominio al host.                                               |
+| Certificado TLS para ese dominio                  | Nginx espera un certificado antes de iniciar HTTPS.                       |
+| SMTP                                              | Verificación de correo, cambio de dirección y recuperación de contraseña. |
+| Token de Cloudflare                               | La renovación automática incluida usa el desafío DNS de Cloudflare.       |
 
-## Desarrollo local
+La configuración no depende de `forma.albotero.com`. Sustituye `app.example.com` por tu propio nombre en todos los pasos. Si tu DNS no está en Cloudflare, adapta el servicio Certbot y su método de renovación antes de desplegar.
 
-### Vista previa autenticada con SQLite
+Crea un registro DNS A (y AAAA si tu servidor ofrece IPv6) para `app.example.com`, apuntando a la IP pública del servidor. Permite tráfico entrante en los puertos 80 y 443; no abras los puertos de PostgreSQL ni del backend.
 
-Para iniciar rápidamente una instancia local con datos persistentes y autenticación ya preparada, ejecuta desde la raíz del repositorio:
+### 1. Configura dominio y secretos
+
+Clona el repositorio en el servidor y crea tus archivos locales de configuración:
 
 ```sh
-bash scripts/local-preview.sh
+cp .env.example .env
+mkdir -p secrets
+chmod 700 secrets
 ```
 
-El script aplica las migraciones y arranca el backend con recarga automática en `http://127.0.0.1:8000` y Vite en `http://127.0.0.1:5173`. Usa SQLite en `storage/local-preview/preview.sqlite` y guarda las fotos bajo `storage/local-preview/storage/`; ambos directorios son locales e ignorados por Git. Al detener Vite con Ctrl+C, también se detiene el backend.
+Edita `.env`. `APP_DOMAIN` es solo el hostname; `PUBLIC_APP_URL` y `CORS_ORIGINS` llevan el origen HTTPS completo.
 
-La vista previa requiere el entorno Python ejecutable `.venv/bin/python`, la base SQLite `storage/local-preview/preview.sqlite` y las credenciales de desarrollo en `frontend/.env.development.local`. No crees ni publiques esas credenciales o los datos locales. Este script solo escucha en `127.0.0.1`: es para desarrollo local, no para desplegar ni exponer la aplicación.
+| Variable            | Ejemplo                          | Nota                                                                   |
+| ------------------- | -------------------------------- | ---------------------------------------------------------------------- |
+| `APP_DOMAIN`        | `app.example.com`                | Sin `https://` ni ruta.                                                |
+| `PUBLIC_APP_URL`    | `https://app.example.com`        | Debe ser accesible públicamente para correo y Telegram.                |
+| `CORS_ORIGINS`      | `https://app.example.com`        | Origen del frontend; sin barra final.                                  |
+| `POSTGRES_PASSWORD` | salida de `openssl rand -hex 24` | Valor hexadecimal aleatorio para evitar escapes en la URL de conexión. |
+| `SECRET_KEY`        | salida de `openssl rand -hex 32` | Secreto exclusivo; no uses el valor de ejemplo.                        |
+| `TIMEZONE`          | `America/Bogota`                 | Zona horaria inicial; cada usuario puede elegir la suya.               |
+| `SMTP_*`            | datos de tu proveedor            | Necesario para entregar verificación y recuperación de cuenta.         |
 
-### Desarrollo con PostgreSQL
+Configura SMTP antes de abrir el registro de cuentas. Una cuenta nueva debe confirmar su correo antes de iniciar sesión.
 
-**PostgreSQL local** (desde la raíz del workspace, después de configurar `.env`):
+Para crear el token de Cloudflare, usa permisos de lectura de zona y edición DNS. Guarda las credenciales en `secrets/cloudflare.ini` y protege el archivo:
+
+```ini
+dns_cloudflare_api_token = TU_TOKEN_DE_CLOUDFLARE
+```
+
+```sh
+chmod 600 secrets/cloudflare.ini
+```
+
+No subas `.env` ni `secrets/cloudflare.ini` a Git ni los compartas en mensajes.
+
+### 2. Emite el certificado inicial
+
+El Compose de este repositorio **no emite el certificado inicial**: Nginx requiere que ya exista en el volumen Docker `letsencrypt`. El servicio Certbot renueva certificados existentes usando Cloudflare.
+
+Cuando el DNS ya apunte al servidor, ejecuta desde la raíz del repositorio y reemplaza dominio y correo:
+
+```sh
+docker compose run --rm --entrypoint certbot certbot certonly \
+    --dns-cloudflare \
+    --dns-cloudflare-credentials /run/secrets/cloudflare.ini \
+    --cert-name app.example.com \
+    -d app.example.com \
+    --agree-tos --non-interactive -m admin@example.com
+```
+
+Si ya existe un certificado válido en el volumen `letsencrypt` para el mismo `APP_DOMAIN`, puedes omitir este paso.
+
+### 3. Comprueba y arranca los servicios
+
+Valida la configuración y construye los contenedores:
+
+```sh
+docker compose config -q
+docker compose up --build -d
+docker compose ps
+```
+
+El backend aplica las migraciones de base de datos al iniciar. La aplicación quedará en `https://app.example.com`; la documentación OpenAPI está en `/docs`.
+
+Para revisar el arranque:
+
+```sh
+docker compose logs -f backend frontend
+```
+
+> [!NOTE]
+> Solo Nginx publica puertos al host. El backend y PostgreSQL permanecen en redes Docker privadas. No abras ni publiques sus puertos directamente.
+
+### Actualizar una instalación
+
+Después de obtener una versión nueva del código:
+
+```sh
+git pull --ff-only
+docker compose config -q
+docker compose up --build -d
+docker compose ps
+```
+
+Haz primero una copia de seguridad, especialmente antes de cambios de esquema o actualizaciones mayores.
+
+## Usar la aplicación
+
+### Primera cuenta
+
+1. Abre el dominio que configuraste y crea una cuenta con una contraseña de al menos 12 caracteres.
+2. Confirma el correo desde el mensaje de verificación.
+3. En **Perfil y ajustes**, revisa zona horaria, altura y peso inicial.
+4. Añade una medicación solo si forma parte de tu tratamiento real; la aplicación no crea medicamentos ni indica cantidades automáticamente.
+5. Registra datos desde la sección correspondiente. Puedes corregir o eliminar registros propios.
+
+### Secciones principales
+
+| Sección       | Qué registrar                                                                     |
+| ------------- | --------------------------------------------------------------------------------- |
+| Peso          | Peso, fecha y hora; las métricas de composición son opcionales.                   |
+| Composición   | Evolución de métricas estimadas por la báscula.                                   |
+| Medidas       | Cintura, cuello, pecho, abdomen, cadera, brazo y muslo.                           |
+| Síntomas      | Elementos de tu catálogo, intensidad, tolerancia, hidratación y check-in semanal. |
+| Actividad     | Actividad individual o totales semanales de pasos, calorías y distancia.          |
+| Laboratorios  | Resultados de laboratorio y presión arterial.                                     |
+| Medicación    | Medicamentos activos/archivados e historial de dosis.                             |
+| Análisis      | Tendencias descriptivas y checklists contextuales.                                |
+| Recordatorios | Recordatorios manuales y automáticos.                                             |
+
+### Checklists y recordatorios
+
+Los checklists muestran si hay datos registrados en el periodo; **no validan vigencia ni idoneidad clínica**.
+
+| Frecuencia                   | Elementos orientativos                                                                                                                        |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Diario                       | Peso.                                                                                                                                         |
+| Semanal                      | Dosis (si hay medicación activa), presión arterial, síntomas y tolerancia, apetito y saciedad, hidratación, actividad y composición corporal. |
+| Cada 4 semanas               | Tendencia de peso, medidas corporales, fotos, síntomas, tratamiento y objetivos cuando correspondan.                                          |
+| Según indicación profesional | Laboratorios y revisiones clínicas.                                                                                                           |
+
+Los recordatorios automáticos se crean aunque todavía no exista un registro de referencia, salvo el de dosis, que requiere una medicación activa. Cuando hay un registro, el siguiente aviso se calcula desde su fecha. Se envían a la hora local configurada en el perfil (05:00 por defecto). Puedes activarlos o desactivarlos, pero no editar su texto ni eliminarlos.
+
+Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notificaciones del navegador requieren permiso y que la aplicación esté abierta; no son notificaciones push.
+
+### Cuenta y privacidad de datos
+
+- Las cuentas nuevas requieren verificación de correo. Los enlaces de verificación vencen a las 24 horas; los de recuperación de contraseña, a los 30 minutos.
+- Exportar/restaurar está en **Perfil y ajustes → Exportar y restaurar datos**. La restauración reemplaza los datos de esa cuenta, acepta solo una exportación del mismo correo y revoca sesiones y la vinculación con Telegram.
+- Fotos admitidas: JPEG, PNG y WebP, hasta 10 MB. Se guardan fuera del directorio público y solo se sirven mediante la API autenticada.
+- Los datos de salud son sensibles. Protege la cuenta, el servidor y las copias de seguridad.
+
+## Telegram
+
+Telegram es opcional. Para habilitarlo, configura `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` y un `TELEGRAM_WEBHOOK_SECRET` aleatorio en `.env`, y usa una `PUBLIC_APP_URL` pública con HTTPS. Al iniciar el backend se registra el webhook. Telegram debe poder acceder a:
+
+```text
+https://app.example.com/api/telegram/webhook
+```
+
+Vincula el chat privado desde **Recordatorios → Vincular Telegram**. Solo se procesan comandos explícitos en el chat privado vinculado. `/ayuda` muestra la lista.
+
+| Comando         | Ejemplo                                    | Resultado                                                      |
+| --------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| `/peso`         | `/peso 82.35`                              | Registra peso en kg.                                           |
+| `/composicion`  | `/composicion 82.35 grasa=24.5 agua=50`    | Registra peso y uno o más campos de composición.               |
+| `/medidas`      | `/medidas cintura=90 cuello=38 cadera=100` | Registra una o más medidas en cm.                              |
+| `/cintura`      | `/cintura 90`                              | Atajo compatible para registrar cintura.                       |
+| `/sintoma`      | `/sintoma 5 náuseas`                       | Registra un síntoma con intensidad de 0 a 10.                  |
+| `/presion`      | `/presion 120/80`                          | Registra sistólica y diastólica en mmHg.                       |
+| `/dosis`        | `/dosis 2.5`                               | Registra lo indicado si hay exactamente un medicamento activo. |
+| `/recordatorio` | `/recordatorio AAAA-MM-DD HH:MM texto`     | Crea un aviso futuro en la hora local del perfil.              |
+
+Campos aceptados por `/composicion`:
+
+| Campo                                                          | Unidad / rango máximo  |
+| -------------------------------------------------------------- | ---------------------- |
+| `grasa`, `grasa_subcutanea`, `musculo_esqueletico`, `proteina` | Porcentaje, 0–100      |
+| `masa_libre`, `masa_muscular`                                  | kg, hasta 500          |
+| `grasa_visceral`                                               | Índice, hasta 1000     |
+| `agua`                                                         | Porcentaje, 0–100      |
+| `masa_osea`                                                    | kg, hasta 100          |
+| `metabolismo_basal`                                            | kcal, hasta 20000      |
+| `edad_metabolica`                                              | Años, entero hasta 150 |
+
+El peso es obligatorio para `/composicion`, porque la base de datos guarda estas métricas en una lectura de peso. Todos los campos adicionales son opcionales; puedes usar espacios o punto y coma para separarlos y `=` o `:` entre nombre y valor.
+
+El bot comprueba mensajes cada 30 segundos y omite recordatorios con más de dos minutos de retraso. Los avisos que vencen a la vez se agrupan. El botón **Ya lo cumplí** confirma el aviso y permite enviar el dato por el chat. Mantén una sola réplica del backend: un reinicio durante un envío puede ocasionar una repetición.
+
+## Copias de seguridad
+
+La exportación desde la app no sustituye las copias del servidor. Guarda tanto PostgreSQL como `storage/`, que contiene las fotos.
+
+Con los valores predeterminados (`tracker`), crea una copia de la base así:
+
+```sh
+docker compose exec -T postgres pg_dump -U tracker tracker > backup.sql
+```
+
+Restaura sobre una base vacía:
+
+```sh
+docker compose exec -T postgres psql -U tracker tracker < backup.sql
+```
+
+Si cambiaste `POSTGRES_USER` o `POSTGRES_DB`, sustituye los valores del comando. Cifra las copias fuera del servidor y prueba la restauración periódicamente. No almacenes `backup.sql` ni fotos en un directorio público.
+
+## Desarrollo y pruebas
+
+### Vista previa local
+
+`scripts/local-preview.sh` inicia una vista previa que ya debe estar preparada. Requiere `.venv/bin/python`, `storage/local-preview/preview.sqlite` y `frontend/.env.development.local`; aplica migraciones, inicia FastAPI en `http://127.0.0.1:8000` y Vite en `http://127.0.0.1:5173`. La base y las fotos se conservan bajo `storage/local-preview/`. El script no crea usuarios, credenciales ni datos de demostración. Detén ambos procesos con Ctrl+C.
+
+### Entorno de desarrollo
+
+Requisitos: Node.js 22 o superior, Python 3.11 o superior y PostgreSQL 16 o superior. Para backend con PostgreSQL local, configura `.env` y arranca la base:
 
 ```sh
 docker compose up -d postgres
 ```
 
-El servicio crea la base y el usuario indicados por `POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`. Configura `DATABASE_URL` del backend con esos mismos valores y `localhost:5432`; no uses la contraseña de ejemplo en un entorno real.
-
-**Backend** (desde `backend/`):
+Desde `backend/`, crea el entorno e inicia la API:
 
 ```sh
 python -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]' alembic
-export DATABASE_URL='postgresql+psycopg://tracker:tracker@localhost:5432/tracker'
-export SECRET_KEY='local-development-secret-replace-before-deploying'
+export DATABASE_URL='postgresql+psycopg://tracker:TU_PASSWORD@localhost:5432/tracker'
+export SECRET_KEY="$(openssl rand -hex 32)"
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-**Frontend** (desde `frontend/`):
+En otra terminal, desde `frontend/`:
 
 ```sh
 npm install
@@ -86,48 +274,44 @@ cp .env.example .env
 npm run dev
 ```
 
-Vite arranca en `http://localhost:5173` y reenvía `/api` al backend local en `http://localhost:8000`. Para cuentas nuevas la contraseña debe tener al menos 12 caracteres. El perfil inicial propone 180 cm, 106 kg y zona `America/Bogota`; actualiza altura y peso inicial en Perfil y ajustes. No se crea automáticamente una medicación: registra el medicamento y la concentración reales antes de cargar dosis. Las equivalencias se calculan dinámicamente; U-100 es opcional.
+Vite usa `http://localhost:5173` y envía `/api` al backend en `http://localhost:8000`. Para correo, añade la configuración SMTP al entorno del backend.
 
-## Migraciones
+### Migraciones y pruebas
 
-`alembic upgrade head` aplica la revisión inicial. Para la siguiente revisión de esquema: `alembic revision --autogenerate -m 'descripcion'` y revisa siempre el script generado antes de aplicarlo.
-
-## Pruebas y build
+El contenedor backend ejecuta `alembic upgrade head` al iniciar. Para crear una migración durante el desarrollo, desde `backend/`:
 
 ```sh
-cd backend && pip install -e '.[dev]' alembic && pytest
-cd frontend && npm test && npm run build && npm run lint
+alembic revision --autogenerate -m "descripcion"
 ```
 
-Las pruebas backend cubren cálculos, aislamiento de cuentas, exportación/restauración de datos, recuperación de contraseñas, migraciones, recordatorios y Telegram. Las pruebas frontend cubren conversiones de fecha/hora y las reglas de elegibilidad, destino y deduplicación de notificaciones.
+Revisa siempre el archivo generado antes de aplicarlo. Ejecuta las verificaciones desde la raíz:
 
-## Privacidad y seguridad
+```sh
+(cd backend && pip install -e '.[dev]' alembic && pytest)
+(cd frontend && npm test && npm run build && npm run lint)
+```
 
-- API protegida con token JWT de expiración corta y Argon2id para contraseñas.
-- Límite de solicitudes por dirección de cliente para registro e inicio de sesión (10/min), confirmación de correo y recuperación (10/h), reenvío de verificación, solicitud de recuperación y cambio de correo (5/h), cambio de contraseña (5/min). Nginx sobrescribe `X-Real-IP`; no expongas el backend directamente. Al escalar, configura un almacenamiento compartido para los límites.
-- El token de acceso solo vive en memoria; al recargar, la app intenta restaurar la sesión con la cookie segura y rotatoria de refresh. Los registros se guardan en PostgreSQL; solo preferencias de notificaciones e IDs de avisos ya mostrados se guardan en el almacenamiento local del navegador.
-- No hay analytics externos. Telegram usa un bot configurado por el administrador, vinculación individual de un solo uso y secreto verificado para el webhook. Los avisos incluyen el título y, para los automáticos, la fecha/hora del registro anterior; evita incluir información médica sensible en títulos o datos enviados al chat.
-- Los enlaces de recuperación se envían por SMTP, vencen en 30 minutos, se almacenan como hash y se consumen una sola vez. El cambio de contraseña incrementa la versión de autenticación y revoca tokens de acceso y sesiones persistentes.
-- Las cuentas nuevas deben confirmar por correo antes de iniciar sesión; los enlaces de verificación vencen en 24 horas y son de un solo uso. El cambio de correo conserva la dirección actual hasta confirmar la nueva y luego revoca las sesiones.
-- Las fotos se guardan en el volumen local `./storage`, fuera del directorio público y protegidas por la API autenticada. Restringe el acceso al host y cifra las copias fuera del servidor.
-- Limita el acceso de red, usa HTTPS, rota secretos, actualiza dependencias y limita intentos mediante proxy/WAF antes de exponer el servicio públicamente. La protección contra fuerza bruta distribuida aún no está implementada.
+## Arquitectura y seguridad
 
-## Recuperar acceso
+```text
+Navegador
+    │ HTTPS
+    ▼
+Nginx / frontend ── /api por red privada ──> FastAPI ──> PostgreSQL
+                                                                └──────> storage/ (fotos)
+```
 
-Configura SMTP en `.env` para habilitar verificación de cuenta, cambio de correo y **¿Olvidaste tu contraseña?**. Las cuentas nuevas deben verificar su correo antes de iniciar sesión. En Perfil y ajustes se puede solicitar un cambio de correo, que solo se aplica después de confirmar el enlace enviado a la nueva dirección. El ejemplo usa `mail.albotero.com`, STARTTLS en el puerto `587` y `noreply-forma@albotero.com` como remitente. Si el servidor requiere autenticación, establece `SMTP_USERNAME` y `SMTP_PASSWORD` localmente; no guardes la contraseña en Git. Para SSL implícito usa el puerto `465` con `SMTP_USE_SSL=true`. En producción, `PUBLIC_APP_URL` debe ser la URL HTTPS pública. Para una prueba local, configúrala solo en el proceso backend como `http://localhost:5173` para que el enlace abra el frontend local; no uses esa dirección en producción. Los endpoints quedan deshabilitados si falta el host, remitente o URL pública. Las respuestas de reenvío no revelan si el correo está registrado; los enlaces usan un fragmento URL para que el token no se envíe en solicitudes HTTP ni aparezca en los logs del servidor.
+| Componente    | Tecnología / responsabilidad                                                                                                                  |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend      | React, TypeScript, Vite, Recharts y Lucide.                                                                                                   |
+| Backend       | FastAPI, Pydantic 2, SQLAlchemy 2 y Alembic. API bajo `/api`; OpenAPI en `/docs`.                                                             |
+| Base de datos | PostgreSQL 16; registros separados por cuenta.                                                                                                |
+| Sesión        | JWT de acceso en memoria y refresh token rotatorio en cookie `Secure`, `HttpOnly`, `SameSite=Strict`; las sesiones se revocan en el servidor. |
+| Contraseñas   | Hash con Argon2.                                                                                                                              |
 
-## Copias de seguridad
-
-Desde **Perfil y ajustes → Exportar y restaurar datos** puedes descargar un archivo ZIP versionado con el perfil, registros, catálogos y fotos. Antes de importar, la app valida la estructura y muestra un resumen; la restauración reemplaza los datos de la cuenta autenticada y solo acepta copias del mismo correo. Se revocan las sesiones y hay que volver a vincular Telegram; las preferencias locales de notificaciones no forman parte del archivo. Trata las copias como datos médicos sensibles.
-
-La exportación de la app no sustituye respaldos automáticos del servidor. Para desarrollo, `docker compose exec -T postgres pg_dump -U tracker tracker > backup.sql`; restauración sobre una base vacía: `docker compose exec -T postgres psql -U tracker tracker < backup.sql`. Los respaldos del servidor también deben incluir `./storage`, cifrarse fuera del host y probarse mediante restauraciones periódicas.
-
-## Configurar Telegram
-
-1. Crea un bot con BotFather y establece `TELEGRAM_BOT_TOKEN` y el nombre sin `@` en `TELEGRAM_BOT_USERNAME` dentro de `.env`. No añadas el token al repositorio ni a mensajes.
-2. Genera un secreto aleatorio exclusivo para `TELEGRAM_WEBHOOK_SECRET`; no lo publiques ni lo reutilices. Configura `PUBLIC_APP_URL` como la URL HTTPS pública de la aplicación.
-3. Asegura que el backend tenga salida HTTPS a `api.telegram.org` y que la URL pública del webhook llegue por HTTPS a Nginx. Ejecuta `docker compose up --build -d`. Al arrancar, el backend registra el webhook y aplica `alembic upgrade head`.
-4. En Recordatorios, el usuario elige **Vincular Telegram**, abre el enlace y pulsa **Iniciar** en el bot. Los avisos vencidos a la misma hora se agrupan en un mensaje e incluyen el botón **Ya lo cumplí**. Al pulsarlo, el bot guarda el cumplimiento y pregunta si quieres registrar el dato por el chat; al confirmar, muestra los comandos aplicables. Para recordatorios manuales recurrentes, la siguiente fecha se programa automáticamente.
-5. Desde el chat privado vinculado también se pueden guardar registros usando `/peso 82.35`, `/dosis 2.5`, `/cintura 90`, `/sintoma 5 náuseas`, `/presion 120/80` o `/recordatorio 2026-09-28 08:00 Texto`. `/ayuda` muestra la lista. El registro de dosis solo se acepta si hay exactamente un medicamento activo; el bot guarda lo que la persona indica y no sugiere cantidades.
-
-El envío periódico se ejecuta cada 30 segundos dentro del backend. Se omiten avisos con más de dos minutos de retraso para no enviar notificaciones antiguas después de una caída. Mantén una sola réplica del backend; aunque la fila se bloquea durante la reclamación, Telegram y PostgreSQL no comparten una transacción y un reinicio justo durante un envío aún puede producir una repetición. Al escalar, sustituye el sondeo por una cola/worker con idempotencia distribuida. Los recordatorios manuales únicos se desactivan tras enviarse; los automáticos conservan su política de frecuencia. El botón permite confirmar el cumplimiento y, opcionalmente, abrir la captura de datos por chat. Solo se procesan comandos explícitos en el chat privado ya vinculado; otros mensajes no se guardan. Seed de datos ficticios, fotos, ZIP de exportación e importación siguen sin estar implementados. El servidor no incluye datos demo con el perfil real.
+- No se incluyen analytics externos.
+- Nginx sobrescribe `X-Real-IP`; no expongas el backend ni PostgreSQL directamente.
+- Se aplican límites a rutas sensibles, pero la protección frente a fuerza bruta distribuida aún no está implementada.
+- Telegram requiere un webhook HTTPS público. Si la instancia es solo para LAN, no habilites Telegram sin un túnel o proxy seguro para esa ruta.
+- Las fotos, `.env`, tokens, credenciales SMTP/Cloudflare y copias de seguridad deben mantenerse privadas.
+- Las métricas de composición son estimaciones de báscula. Revisa resultados y decisiones de tratamiento con un profesional de salud.

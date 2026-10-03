@@ -1013,12 +1013,16 @@ def test_automatic_reminder_resync_updates_timezone_without_undoing_user_disable
 
 
 def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None:
+    sent_messages = []
+
     async def fake_send(_chat_id: str, _text: str) -> bool:
+        sent_messages.append(_text)
         return True
 
     monkeypatch.setattr(settings, "telegram_webhook_secret", "command-secret")
     monkeypatch.setattr(
         "app.routers.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr("app.telegram.send_telegram_message", fake_send)
     registered = client.post("/api/auth/register", json={
         "email": "telegram-commands@example.com", "password": "telegram-commands-password-123"})
     token = registered.json()["access_token"]
@@ -1042,20 +1046,49 @@ def test_linked_telegram_chat_can_record_weight_and_symptom(monkeypatch) -> None
         assert result.status_code == 200
 
     send_command("/peso 82.35")
+    send_command("/composicion 81.8 grasa=24.5 masa_libre=60 grasa_subcutanea=18 grasa_visceral=7 agua=52 musculo_esqueletico=39 masa_muscular=50 masa_osea=3 proteina=16 metabolismo_basal=1600 edad_metabolica=39")
+    send_command("/composicion 81.7 desconocida=2")
     send_command("/sintoma 5 náuseas")
     send_command("/dosis 2.5")
     send_command("/cintura 90")
+    send_command(
+        "/medidas cintura=91 cuello=38 pecho=102 abdomen=95 cadera=100 brazo=31 muslo=55")
+    send_command("/medidas cintura=92 desconocida=12")
     send_command("/presion 120/80")
     next_day = (datetime.now(ZoneInfo("America/Bogota")) +
                 timedelta(days=1)).replace(second=0, microsecond=0)
     send_command(
         f"/recordatorio {next_day:%Y-%m-%d %H:%M} Cita de seguimiento")
     weights = client.get("/api/weights", headers=headers).json()
-    assert weights[0]["weight_kg"] == 82.35 and weights[0]["source"] == "Telegram"
+    assert weights[0]["weight_kg"] == 81.8 and weights[0]["source"] == "Telegram"
+    assert weights[0]["body_fat_percent"] == 24.5
+    assert weights[0]["fat_free_mass_kg"] == 60
+    assert weights[0]["subcutaneous_fat_percent"] == 18
+    assert weights[0]["visceral_fat_index"] == 7
+    assert weights[0]["body_water_percent"] == 52
+    assert weights[0]["skeletal_muscle_percent"] == 39
+    assert weights[0]["muscle_mass_kg"] == 50
+    assert weights[0]["bone_mass_kg"] == 3
+    assert weights[0]["protein_percent"] == 16
+    assert weights[0]["bmr_kcal"] == 1600
+    assert weights[0]["metabolic_age"] == 39
+    assert weights[1]["weight_kg"] == 82.35
+    assert len(weights) == 2
+    assert any(
+        "Campo de composición desconocido" in message for message in sent_messages)
     doses = client.get("/api/doses", headers=headers).json()
     assert doses[0]["dose_mg"] == 2.5
     measurements = client.get("/api/body-measurements", headers=headers).json()
-    assert measurements[0]["waist_cm"] == 90
+    assert measurements[0]["waist_cm"] == 91
+    assert measurements[0]["neck_cm"] == 38
+    assert measurements[0]["chest_cm"] == 102
+    assert measurements[0]["abdomen_cm"] == 95
+    assert measurements[0]["hip_cm"] == 100
+    assert measurements[0]["arm_cm"] == 31
+    assert measurements[0]["thigh_cm"] == 55
+    assert measurements[1]["waist_cm"] == 90
+    assert len(measurements) == 2
+    assert any("Medida desconocida" in message for message in sent_messages)
     symptoms = client.get("/api/entries/symptoms", headers=headers).json()
     assert symptoms[0]["title"] == "náuseas" and symptoms[0]["data"]["severity"] == 5
     labs = client.get("/api/entries/labs", headers=headers).json()

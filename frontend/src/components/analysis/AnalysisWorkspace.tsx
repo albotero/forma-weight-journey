@@ -16,6 +16,7 @@ import { bmiRangeAreas, BmiRangeLegend } from "../charts/BmiRange"
 import { weeklyActivityChecklistDate, compositionFields } from "../../lib/records"
 import { MetricCard } from "../common/MetricCard"
 import { EmptyModule } from "../common/Empty"
+import { bodyFields } from "../modules/bodyMeasurements"
 
 export function AnalysisWorkspace({
   weights,
@@ -63,6 +64,7 @@ export function AnalysisWorkspace({
   const weeklyChange =
     latest && previous && elapsedDays > 0 ? ((latest.weight_kg - previous.weight_kg) / elapsedDays) * 7 : null
   const monthlyWeights = pastWeights.filter((item) => isWithinDays(item.measured_at, 28))
+  const weeklyWeights = pastWeights.filter((item) => isWithinDays(item.measured_at, 7))
   const monthlyTrend =
     monthlyWeights.length >= 2 ? monthlyWeights.at(-1)!.weight_kg - monthlyWeights[0].weight_kg : null
   const monthlyTrendSummary =
@@ -127,7 +129,9 @@ export function AnalysisWorkspace({
   const recentSymptoms = symptoms.filter((entry) => isWithinDays(entry.occurred_at, 7))
   const weeklyCheckIn = recentSymptoms.find((entry) => entry.data.appetite != null && entry.data.satiety != null)
   const currentWaist = pastMeasurements.some((item) => item.waist_cm != null)
-  const recentWaist = pastMeasurements.some((item) => item.waist_cm != null && isWithinDays(item.measured_at, 28))
+  const recentMeasurements = pastMeasurements.some(
+    (item) => isWithinDays(item.measured_at, 28) && bodyFields.some(([key]) => item[key] != null),
+  )
   const hasBaselineLabs = labEntries.some((entry) => entry.data.phase === "Basal")
   const hasPeriodicLabs = labEntries.some(
     (entry) =>
@@ -230,6 +234,11 @@ export function AnalysisWorkspace({
           ),
           target: "Actividad" as Section,
         },
+        {
+          label: "Composición corporal",
+          done: weeklyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
+          target: "Composición" as Section,
+        },
       ],
     },
     {
@@ -245,16 +254,11 @@ export function AnalysisWorkspace({
               : `${monthlyTrend > 0 ? "+" : ""}${formatDecimal(monthlyTrend)} kg en 28 días`,
           target: "Peso" as Section,
         },
-        { label: "Cintura", done: recentWaist, target: "Medidas" as Section },
+        { label: "Medidas corporales", done: recentMeasurements, target: "Medidas" as Section },
         {
           label: "Fotografías",
           done: pastPhotos.some((item) => isWithinDays(item.taken_at, 28)),
           target: "Fotos" as Section,
-        },
-        {
-          label: "Composición corporal",
-          done: monthlyWeights.some((item) => compositionFields.some(([key]) => item[key] != null)),
-          target: "Composición" as Section,
         },
         {
           label: "Síntomas y tolerancia",

@@ -25,6 +25,28 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org"
+BODY_MEASUREMENT_FIELDS = {
+    "cintura": ("waist_cm", Decimal("300")),
+    "cuello": ("neck_cm", Decimal("150")),
+    "pecho": ("chest_cm", Decimal("300")),
+    "abdomen": ("abdomen_cm", Decimal("300")),
+    "cadera": ("hip_cm", Decimal("300")),
+    "brazo": ("arm_cm", Decimal("150")),
+    "muslo": ("thigh_cm", Decimal("200")),
+}
+BODY_COMPOSITION_FIELDS = {
+    "grasa": ("body_fat_percent", Decimal("100"), "grasa corporal", "%", False),
+    "masa_libre": ("fat_free_mass_kg", Decimal("500"), "masa libre de grasa", "kg", False),
+    "grasa_subcutanea": ("subcutaneous_fat_percent", Decimal("100"), "grasa subcutánea", "%", False),
+    "grasa_visceral": ("visceral_fat_index", Decimal("1000"), "grasa visceral", "índice", False),
+    "agua": ("body_water_percent", Decimal("100"), "agua corporal", "%", False),
+    "musculo_esqueletico": ("skeletal_muscle_percent", Decimal("100"), "músculo esquelético", "%", False),
+    "masa_muscular": ("muscle_mass_kg", Decimal("500"), "masa muscular", "kg", False),
+    "masa_osea": ("bone_mass_kg", Decimal("100"), "masa ósea", "kg", False),
+    "proteina": ("protein_percent", Decimal("100"), "proteína", "%", False),
+    "metabolismo_basal": ("bmr_kcal", Decimal("20000"), "metabolismo basal", "kcal", False),
+    "edad_metabolica": ("metabolic_age", Decimal("150"), "edad metabólica", "años", True),
+}
 
 
 async def telegram_request(method: str, payload: dict[str, object]) -> bool:
@@ -95,6 +117,62 @@ def _decimal(value: str, *, minimum: Decimal, maximum: Decimal) -> Decimal:
     return number
 
 
+def _parse_body_measurements(arguments: str) -> tuple[dict[str, float], list[str]]:
+    values: dict[str, float] = {}
+    descriptions: list[str] = []
+    if not arguments.strip():
+        raise ValueError("Formato: /medidas cintura=90 cuello=38 cadera=100")
+    for part in re.split(r"[;\s]+", arguments.strip()):
+        match = re.fullmatch(
+            r"([a-z]+)\s*[=:]\s*(\d+(?:[.,]\d{1,2})?)", part, re.IGNORECASE)
+        if match is None:
+            raise ValueError(
+                "Formato: /medidas cintura=90 cuello=38 cadera=100")
+        name, value_text = match.groups()
+        field = BODY_MEASUREMENT_FIELDS.get(name.casefold())
+        if field is None:
+            available = ", ".join(BODY_MEASUREMENT_FIELDS)
+            raise ValueError(
+                f"Medida desconocida. Usa uno de estos nombres: {available}.")
+        field_name, maximum = field
+        if field_name in values:
+            raise ValueError(f"La medida {name} está repetida.")
+        value = _decimal(value_text, minimum=Decimal("0.01"), maximum=maximum)
+        values[field_name] = float(value)
+        descriptions.append(f"{name.casefold()} {value} cm")
+    return values, descriptions
+
+
+def _parse_weight_composition(arguments: str) -> tuple[Decimal, dict[str, float | int], list[str]]:
+    parts = re.split(r"[;\s]+", arguments.strip())
+    if len(parts) < 2:
+        raise ValueError("Formato: /composicion 82.35 grasa=24.5 agua=50")
+    weight = _decimal(parts[0], minimum=Decimal(
+        "0.01"), maximum=Decimal("500"))
+    values: dict[str, float | int] = {}
+    descriptions: list[str] = []
+    for part in parts[1:]:
+        match = re.fullmatch(
+            r"([a-z_]+)\s*[=:]\s*(\d+(?:[.,]\d{1,2})?)", part, re.IGNORECASE)
+        if match is None:
+            raise ValueError("Formato: /composicion 82.35 grasa=24.5 agua=50")
+        name, value_text = match.groups()
+        field = BODY_COMPOSITION_FIELDS.get(name.casefold())
+        if field is None:
+            available = ", ".join(BODY_COMPOSITION_FIELDS)
+            raise ValueError(
+                f"Campo de composición desconocido. Usa: {available}.")
+        field_name, maximum, label, unit, integer_only = field
+        if field_name in values:
+            raise ValueError(f"El campo {name} está repetido.")
+        value = _decimal(value_text, minimum=Decimal("0"), maximum=maximum)
+        if integer_only and value != value.to_integral_value():
+            raise ValueError(f"El campo {name} debe ser un número entero.")
+        values[field_name] = int(value) if integer_only else float(value)
+        descriptions.append(f"{label} {value} {unit}")
+    return weight, values, descriptions
+
+
 async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text: str) -> None:
     command, _, arguments = text.strip().partition(" ")
     command = command.split("@", maxsplit=1)[0].casefold()
@@ -102,7 +180,9 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
     if command in {"/ayuda", "/help", "/start"}:
         await send_telegram_message(chat_id, "Puedes registrar datos con estos comandos:\n"
                                     "/peso 82.35 [nota]\n/dosis 2.5 [nota]\n"
-                                    "/cintura 90 [nota]\n/sintoma 5 náuseas\n"
+                                    "/composicion 82.35 grasa=24.5 agua=50\n"
+                                    "/medidas cintura=90 cuello=38 cadera=100\n/cintura 90 [nota]\n"
+                                    "/sintoma 5 náuseas\n"
                                     "/presion 120/80\n/recordatorio 2026-09-28 08:00 Texto\n\n"
                                     "Usa ✅ Ya lo cumplí en un recordatorio para confirmarlo. "
                                     "Se aceptan solo mensajes privados y comandos explícitos.")
@@ -117,6 +197,15 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
             db.add(WeightMeasurement(user_id=user_id, measured_at=now, weight_kg=float(value),
                                      source="Telegram", notes=notes.strip() or None))
             reply = f"Peso registrado: {value} kg."
+        elif command == "/composicion":
+            weight, values, descriptions = _parse_weight_composition(arguments)
+            db.add(WeightMeasurement(user_id=user_id, measured_at=now, weight_kg=float(weight),
+                                     source="Telegram", **values))
+            reply = f"Peso y composición registrados: {weight} kg; {', '.join(descriptions)}."
+        elif command == "/medidas":
+            values, descriptions = _parse_body_measurements(arguments)
+            db.add(BodyMeasurement(user_id=user_id, measured_at=now, **values))
+            reply = f"Medidas registradas: {', '.join(descriptions)}."
         elif command == "/cintura":
             value_text, _, notes = arguments.partition(" ")
             value = _decimal(value_text, minimum=Decimal(

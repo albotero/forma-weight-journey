@@ -148,13 +148,13 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
                 if "blood_pressure" in keys:
                     examples.append("/presion 120/80")
                 if "measurements" in keys:
-                    examples.append("/cintura 90")
+                    examples.append("/medidas cintura=90 cuello=38")
                 if "composition" in keys:
-                    examples.append(
-                        "La composición corporal se registra desde la app.")
+                    examples.append("/composicion 82.35 grasa=24.5 agua=50")
                 if not examples:
                     examples = ["/peso 82.5", "/dosis 2.5",
-                                "/cintura 90", "/presion 120/80"]
+                                "/composicion 82.35 grasa=24.5 agua=50",
+                                "/medidas cintura=90 cuello=38", "/presion 120/80"]
                 await answer_callback_query(callback_id, "Envíame el dato por este chat.")
                 await send_telegram_message(chat_id, "Envíame el dato con el comando correspondiente:\n" + "\n".join(examples))
         return {"ok": True}
@@ -186,7 +186,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
         connection.pairing_expires_at = None
         db.commit()
         await send_telegram_message(chat_id, "Telegram quedó vinculado. Recibirás aquí tus recordatorios activos de Forma.")
-        await send_telegram_message(chat_id, "Escribe /ayuda para registrar peso, dosis, cintura, presión arterial, síntomas o crear un recordatorio desde Telegram.")
+        await send_telegram_message(chat_id, "Escribe /ayuda para registrar peso y composición corporal, medidas, dosis, presión arterial, síntomas o crear un recordatorio desde Telegram.")
     else:
         connection = db.scalar(select(TelegramConnection).where(
             TelegramConnection.chat_id == chat_id))
