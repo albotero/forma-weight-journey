@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
@@ -7,6 +7,8 @@ import {
   ArrowRight,
   Bell,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   Clock3,
   FileText,
@@ -98,6 +100,8 @@ export default function App() {
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [range, setRange] = useState("90 días")
+  const [homeMedicationIndex, setHomeMedicationIndex] = useState(0)
+  const medicationCarouselRef = useRef<HTMLDivElement>(null)
 
   const refresh = useCallback(async (authToken: string) => {
     setLoading(true)
@@ -181,11 +185,17 @@ export default function App() {
   const bmiNow = currentWeight && profile ? currentWeight / (profile.height_cm / 100) ** 2 : null
   const userTimezone = profile?.timezone ?? "America/Bogota"
   const accountInitial = account?.email.trim().charAt(0).toLocaleUpperCase("es-CO") || "?"
-  const activeMedication = medications.find((item) => item.active)
-  const currentDose = doses.find(
-    (item) => item.medication_id === activeMedication?.id && new Date(item.administered_at).getTime() <= Date.now(),
-  )
-  const nextDoseAt = activeMedication ? estimatedNextDose(activeMedication, doses) : null
+  const activeMedications = medications.filter((item) => item.active)
+  const activeMedication = activeMedications[0]
+  const visibleMedicationIndex = Math.min(homeMedicationIndex, Math.max(0, activeMedications.length - 1))
+  function navigateHomeMedication(index: number) {
+    const nextIndex = Math.max(0, Math.min(activeMedications.length - 1, index))
+    setHomeMedicationIndex(nextIndex)
+    medicationCarouselRef.current?.scrollTo({
+      left: nextIndex * medicationCarouselRef.current.clientWidth,
+      behavior: "smooth",
+    })
+  }
   const chartData = useMemo(() => {
     const days =
       range === "30 días" ? 30 : range === "90 días" ? 90 : range === "6 meses" ? 183 : range === "1 año" ? 365 : 10000
@@ -754,77 +764,139 @@ export default function App() {
                       <div className="eyebrow">TRATAMIENTO</div>
                       <h2>Medicación</h2>
                     </div>
-                    <button
-                      className="dots-button"
-                      aria-label="Configurar concentración"
-                      onClick={() => setModal("medication")}
-                    >
-                      <Settings size={17} />
-                    </button>
-                  </div>
-                  {activeMedication ? (
-                    <>
-                      <div className="medication-name">
-                        <div className="medication-symbol">
-                          {activeMedication.route === "oral" ? <Pill size={21} /> : <Syringe size={21} />}
+                    <div className="medication-panel-actions">
+                      {activeMedications.length > 1 && (
+                        <div className="medication-carousel-controls" aria-label="Cambiar medicamento">
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Medicamento anterior"
+                            disabled={visibleMedicationIndex === 0}
+                            onClick={() => navigateHomeMedication(visibleMedicationIndex - 1)}
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <span aria-live="polite">
+                            {visibleMedicationIndex + 1}/{activeMedications.length}
+                          </span>
+                          <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="Medicamento siguiente"
+                            disabled={visibleMedicationIndex >= activeMedications.length - 1}
+                            onClick={() => navigateHomeMedication(visibleMedicationIndex + 1)}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
                         </div>
-                        <div>
-                          <strong>{activeMedication.name}</strong>
-                          <span>En seguimiento</span>
-                        </div>
-                        <span className="med-active">Activo</span>
-                      </div>
-                      <div className="dose-highlight">
-                        <span>ÚLTIMO REGISTRO</span>
-                        <strong>
-                          {currentDose ? (
-                            <>
-                              <span>{formatDecimal(currentDose.dose_amount)}</span>{" "}
-                              <small>{currentDose.dose_unit}</small>
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </strong>
-                        <p>
-                          {currentDose
-                            ? formatDate(currentDose.administered_at, userTimezone)
-                            : "Sin dosis registradas"}
-                        </p>
-                      </div>
-                      <div className="dose-details">
-                        {activeMedication.route === "injectable" && (
-                          <>
-                            <span>Concentración</span>
-                            <strong>
-                              {activeMedication.concentration_mg} mg / {activeMedication.concentration_volume_ml} mL
-                            </strong>
-                            <span>Equivalencia</span>
-                            <strong>
-                              {(activeMedication.concentration_mg! / activeMedication.concentration_volume_ml!).toFixed(
-                                1,
-                              )}{" "}
-                              mg/mL{activeMedication.units_per_ml ? " · U-100 habilitado" : ""}
-                            </strong>
-                          </>
-                        )}
-                        {activeMedication.route === "oral" && (
-                          <>
-                            <span>Vía</span>
-                            <strong>Oral</strong>
-                          </>
-                        )}
-                        <span>Próxima dosis estimada</span>
-                        <strong>
-                          {nextDoseAt
-                            ? `${new Date(nextDoseAt).getTime() < Date.now() ? "Pendiente desde " : ""}${formatDateTime(nextDoseAt, userTimezone)}`
-                            : "Configura la frecuencia y registra una dosis"}
-                        </strong>
-                      </div>
-                      <button className="outline-button full-button" onClick={() => setModal("dose")}>
-                        <Plus size={16} /> Registrar dosis
+                      )}
+                      <button
+                        className="dots-button"
+                        aria-label="Ver y editar medicamentos"
+                        onClick={() => setSection("Medicación")}
+                      >
+                        <Settings size={17} />
                       </button>
-                    </>
+                    </div>
+                  </div>
+                  {activeMedications.length > 0 ? (
+                    <div
+                      className="medication-carousel"
+                      role="region"
+                      aria-label="Medicamentos activos"
+                      tabIndex={activeMedications.length > 1 ? 0 : undefined}
+                      ref={medicationCarouselRef}
+                      onScroll={(event) => {
+                        const width = event.currentTarget.clientWidth
+                        if (width > 0) {
+                          const index = Math.min(
+                            activeMedications.length - 1,
+                            Math.round(event.currentTarget.scrollLeft / width),
+                          )
+                          setHomeMedicationIndex((current) => (current === index ? current : index))
+                        }
+                      }}
+                    >
+                      {activeMedications.map((medication) => {
+                        const medicationDose = doses.find(
+                          (item) =>
+                            item.medication_id === medication.id &&
+                            new Date(item.administered_at).getTime() <= Date.now(),
+                        )
+                        const nextDoseAt = estimatedNextDose(medication, doses)
+                        return (
+                          <article className="medication-slide" key={medication.id}>
+                            <div className="medication-name">
+                              <div className="medication-symbol">
+                                {medication.route === "oral" ? <Pill size={21} /> : <Syringe size={21} />}
+                              </div>
+                              <div>
+                                <strong>{medication.name}</strong>
+                                <span>En seguimiento</span>
+                              </div>
+                              <span className="med-active">Activo</span>
+                            </div>
+                            <div className="dose-highlight">
+                              <span>ÚLTIMO REGISTRO</span>
+                              <strong>
+                                {medicationDose ? (
+                                  <>
+                                    <span>{formatDecimal(medicationDose.dose_amount)}</span>{" "}
+                                    <small>{medicationDose.dose_unit}</small>
+                                  </>
+                                ) : (
+                                  "—"
+                                )}
+                              </strong>
+                              <p>
+                                {medicationDose
+                                  ? formatDate(medicationDose.administered_at, userTimezone)
+                                  : "Sin dosis registradas"}
+                              </p>
+                            </div>
+                            <div className="dose-details">
+                              {medication.route === "injectable" && (
+                                <>
+                                  <span>Concentración</span>
+                                  <strong>
+                                    {medication.concentration_mg} mg / {medication.concentration_volume_ml} mL
+                                  </strong>
+                                  <span>Equivalencia</span>
+                                  <strong>
+                                    {medication.concentration_mg != null && medication.concentration_volume_ml != null
+                                      ? `${(medication.concentration_mg / medication.concentration_volume_ml).toFixed(1)} mg/mL`
+                                      : "Configurar concentración"}
+                                    {medication.units_per_ml ? " · U-100 habilitado" : ""}
+                                  </strong>
+                                </>
+                              )}
+                              {medication.route === "oral" && (
+                                <>
+                                  <span>Vía</span>
+                                  <strong>Oral</strong>
+                                </>
+                              )}
+                              <span>Próxima dosis estimada</span>
+                              <strong>
+                                {nextDoseAt
+                                  ? `${new Date(nextDoseAt).getTime() < Date.now() ? "Pendiente desde " : ""}${formatDateTime(nextDoseAt, userTimezone)}`
+                                  : "Configura la frecuencia y registra una dosis"}
+                              </strong>
+                            </div>
+                            <button
+                              className="outline-button full-button"
+                              onClick={() => {
+                                setEditingDose(null)
+                                setDoseMedicationId(medication.id)
+                                setModal("dose")
+                              }}
+                            >
+                              <Plus size={16} /> Registrar dosis
+                            </button>
+                          </article>
+                        )
+                      })}
+                    </div>
                   ) : (
                     <EmptyInline label="Configura una medicación para empezar." />
                   )}

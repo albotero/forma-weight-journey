@@ -211,6 +211,52 @@
 .medication-panel {
   min-height: 342px;
 }
+.medication-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.medication-carousel-controls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+.medication-carousel-controls .icon-button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.medication-carousel-controls .icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.medication-carousel {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+.medication-slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.medication-carousel::-webkit-scrollbar {
+  height: 4px;
+}
+.medication-carousel::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--line);
+}
 .dots-button {
   border: 0;
   background: none;
