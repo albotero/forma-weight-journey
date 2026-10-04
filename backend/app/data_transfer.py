@@ -246,6 +246,14 @@ def build_export(db: Session, user: User, storage_path: str) -> bytes:
     return result
 
 
+def _without_null_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _without_null_values(item) for key, item in value.items() if item is not None}
+    if isinstance(value, list):
+        return [_without_null_values(item) for item in value if item is not None]
+    return value
+
+
 def build_json_export(db: Session, user: User, storage_path: str) -> bytes:
     document, _photo_files = _build_export_manifest(
         db, user, storage_path, include_photo_files=False)
@@ -263,20 +271,13 @@ def build_json_export(db: Session, user: User, storage_path: str) -> bytes:
             ])
         ],
     }
-    for entry in document["journal_entries"]:
-        results = entry["data"].get("results")
-        if entry["module"] == "labs" and isinstance(results, list):
-            for result in results:
-                if isinstance(result, dict):
-                    for key in ("severity", "intensity", "category"):
-                        if result.get(key) is None:
-                            result.pop(key, None)
     document["photos"] = [
         {key: value for key, value in photo.items() if key not in {
             "file", "sha256"}}
         for photo in document["photos"]
     ]
-    result = json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
+    result = json.dumps(_without_null_values(document),
+                        ensure_ascii=True, indent=2).encode("utf-8")
     if len(result) > MAX_UNCOMPRESSED_BYTES:
         raise ValueError(
             "The JSON account export exceeds the download size limit")

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -389,9 +390,12 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
         "module": "labs", "title": "Glucosa", "data": {
             "results": [{"catalog_item_id": catalog.json()["id"], "name": "Glucosa", "value": 95,
                          "severity": None, "intensity": None, "category": None}],
+            "export_test": {"optional": None, "zero": 0, "disabled": False, "empty": "",
+                            "values": [None, 0, False, "", {"missing": None, "name": "Presión arterial"}]},
         },
     })
     assert entry.status_code == 201
+    assert client.get("/api/catalog/lab", headers=headers).status_code == 200
     taken_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     photo_bytes = b"\xff\xd8\xffforma-test-image"
     photo = client.post("/api/photos", headers=headers, data={"caption": "Foto de prueba", "taken_at": taken_at},
@@ -404,15 +408,35 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     json_export = client.get("/api/account/export/json", headers=headers)
     assert json_export.status_code == 200
     assert json_export.headers["content-type"] == "application/json; charset=utf-8"
-    assert medication["notes"].encode("utf-8") in json_export.content
+    assert json_export.content.isascii()
+    assert b"Presi\\u00f3n arterial" in json_export.content
     json_document = json_export.json()
+    assert json.loads(json_export.content.decode("cp1252")) == json_document
     assert json_document["medications"][0]["notes"] == medication["notes"]
+    assert next(item for item in json_document["catalog_items"] if item["is_blood_pressure"])[
+        "name"] == "Presión arterial"
+    assert "body_fat_percent" not in json_document["weights"][0]
+
+    def assert_no_null_values(value):
+        assert value is not None
+        if isinstance(value, dict):
+            for item in value.values():
+                assert_no_null_values(item)
+        elif isinstance(value, list):
+            for item in value:
+                assert_no_null_values(item)
+
+    assert_no_null_values(json_document)
     assert json_document["format"] == "forma-account-json-export"
     assert json_document["weights"][0]["weight_kg"] == 82.5
     assert json_document["weight_trends"]["window_days"] == 7
     assert json_document["weight_trends"]["points"][0]["moving_average_7d_kg"] == 82.5
     exported_lab = next(
         item for item in json_document["journal_entries"] if item["module"] == "labs")
+    assert exported_lab["data"]["export_test"] == {
+        "zero": 0, "disabled": False, "empty": "",
+        "values": [0, False, "", {"name": "Presión arterial"}],
+    }
     assert not {"severity", "intensity",
                 "category"} & exported_lab["data"]["results"][0].keys()
     exported_oral = next(
