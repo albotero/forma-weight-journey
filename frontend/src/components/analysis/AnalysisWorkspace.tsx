@@ -485,12 +485,6 @@ export function AnalysisWorkspace({
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chart} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="analysisWeightFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#6fb99c" stopOpacity={0.22} />
-                    <stop offset="100%" stopColor="#6fb99c" stopOpacity={0.01} />
-                  </linearGradient>
-                </defs>
                 {bmiRangeAreas(profile?.height_cm, weightAxis.domain)}
                 <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                 <XAxis
@@ -515,7 +509,7 @@ export function AnalysisWorkspace({
                   name="Peso registrado"
                   stroke="#398766"
                   strokeWidth={2.7}
-                  fill="url(#analysisWeightFill)"
+                  fill="none"
                 />
                 <RechartsLine
                   type="monotone"

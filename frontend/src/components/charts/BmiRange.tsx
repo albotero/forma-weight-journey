@@ -1,10 +1,10 @@
 import { ReferenceArea } from "recharts"
 
 export const bmiBands = [
-  { label: "Normal", from: 18.5, to: 25, color: "#4CD13D" },
-  { label: "Sobrepeso", from: 25, to: 30, color: "#EEF21B" },
-  { label: "Obesidad", from: 30, to: 40, color: "#FF6666" },
-  { label: "Obesidad mórbida", from: 40, to: Infinity, color: "#B13DD1" },
+  { label: "Normal", from: 18.5, to: 25, color: "#dcefe3" },
+  { label: "Sobrepeso", from: 25, to: 30, color: "#fff0c2" },
+  { label: "Obesidad", from: 30, to: 40, color: "#f7dce0" },
+  { label: "Obesidad mórbida", from: 40, to: Infinity, color: "#e8def4" },
 ] as const
 
 export function bmiRangeAreas(heightCm: number | undefined, domain: [number, number]) {
@@ -14,14 +14,7 @@ export function bmiRangeAreas(heightCm: number | undefined, domain: [number, num
     const lower = Math.max(domain[0], from * heightSquared)
     const upper = Math.min(domain[1], to * heightSquared)
     return upper > lower ? (
-      <ReferenceArea
-        key={label}
-        y1={lower}
-        y2={upper}
-        fill={color}
-        fillOpacity={label === "Sobrepeso" ? 0.38 : 0.32}
-        stroke="none"
-      />
+      <ReferenceArea key={label} y1={lower} y2={upper} fill={color} fillOpacity={1} stroke="none" />
     ) : null
   })
 }

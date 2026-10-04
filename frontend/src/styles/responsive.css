@@ -170,9 +170,6 @@
   .chart-legend {
     align-items: flex-start;
   }
-  .chart-note {
-    max-width: 155px;
-  }
   .medication-panel {
     min-height: initial;
   }

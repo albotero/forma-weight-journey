@@ -123,8 +123,10 @@
 }
 .chart-legend {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 8px 16px;
   margin-top: 14px;
 }
 .bmi-range-legend {
@@ -146,7 +148,7 @@
   height: 9px;
   border-radius: 2px;
 }
-.chart-legend > span:first-child {
+.chart-legend > span:not(.chart-note) {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -154,12 +156,15 @@
   font-size: 10px;
 }
 .legend-dot {
+  display: inline-block;
+  flex-shrink: 0;
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #408c69;
+  background: #398766;
 }
 .chart-note {
+  flex-basis: 100%;
   color: var(--muted);
   font-size: 9px;
 }
