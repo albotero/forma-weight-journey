@@ -19,7 +19,7 @@ import {
 } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import type { Section } from "../../lib/types"
-import { formatDate, formatDecimal, formatDateTime } from "../../lib/format"
+import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../../lib/format"
 import { estimatedNextDose, compositionFields, weeklyActivityChecklistDate } from "../../lib/records"
 import { AnalysisWorkspace } from "../analysis/AnalysisWorkspace"
 import { RecordActions, EmptyModule } from "../common/Empty"
@@ -704,23 +704,28 @@ export function ModuleWorkspace(props: {
           </div>
           <h2 className="module-subheading">Historial de dosis</h2>
           <div className="record-list">
-            {doses.map((item) => (
-              <article className="record-card" key={item.id}>
-                <div className="record-card-heading">
-                  <div>
-                    <strong>
-                      {formatDecimal(item.dose_amount)} {item.dose_unit}
-                      {item.calculated_volume_ml !== null && ` · ${formatDecimal(item.calculated_volume_ml)} mL`}
-                    </strong>
-                    <time>{formatDateTime(item.administered_at, userTimezone)}</time>
+            {doses.map((item) => {
+              const medicationName =
+                medications.find((medication) => medication.id === item.medication_id)?.name ?? "Medicamento"
+              return (
+                <article className="record-card" key={item.id}>
+                  <div className="record-card-heading">
+                    <div>
+                      <strong>
+                        {medicationName} · {formatDecimal(item.dose_amount)}{" "}
+                        {formatDoseUnit(item.dose_amount, item.dose_unit)}
+                        {item.calculated_volume_ml !== null && ` · ${formatDecimal(item.calculated_volume_ml)} mL`}
+                      </strong>
+                      <time>{formatDateTime(item.administered_at, userTimezone)}</time>
+                    </div>
+                    <RecordActions
+                      onEdit={() => props.onEditDose(item)}
+                      onDelete={() => void props.onDelete(`/doses/${item.id}`)}
+                    />
                   </div>
-                  <RecordActions
-                    onEdit={() => props.onEditDose(item)}
-                    onDelete={() => void props.onDelete(`/doses/${item.id}`)}
-                  />
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
             {!doses.length && <EmptyModule text="Aún no hay dosis registradas." />}
           </div>
         </>
@@ -1124,7 +1129,7 @@ export function ModuleWorkspace(props: {
             ...doses.map((item) => ({
               id: `d-${item.id}`,
               date: item.administered_at,
-              title: `${formatDecimal(item.dose_amount)} ${item.dose_unit}`,
+              title: `${medications.find((medication) => medication.id === item.medication_id)?.name ?? "Medicamento"} · ${formatDecimal(item.dose_amount)} ${formatDoseUnit(item.dose_amount, item.dose_unit)}`,
               label: "Dosis",
               edit: () => props.onEditDose(item),
               remove: () => props.onDelete(`/doses/${item.id}`),

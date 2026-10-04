@@ -2,6 +2,10 @@ export const formatDate = (date: string, timeZone = "America/Bogota") =>
   new Intl.DateTimeFormat("es-CO", { day: "numeric", month: "short", timeZone }).format(new Date(date))
 export const formatDecimal = (value: number) =>
   new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 }).format(value)
+export const formatDoseUnit = (amount: number, unit: string) => {
+  if (amount === 1) return unit
+  return ({ gota: "gotas", tableta: "tabletas", cápsula: "cápsulas" } as Record<string, string>)[unit] ?? unit
+}
 export const niceAxis = (values: number[], paddingFloor = 1): { domain: [number, number]; ticks: number[] } => {
   if (!values.length) return { domain: [0, 1], ticks: [0, 1] }
   const minimum = Math.max(Math.min(...values), 0)

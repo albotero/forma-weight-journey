@@ -55,7 +55,7 @@ import {
   pathSections,
   navigation,
 } from "./lib/navigation"
-import { formatDate, formatDecimal, niceAxis, formatAxisTick, formatDateTime } from "./lib/format"
+import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick, formatDateTime } from "./lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "./components/charts/BmiRange"
 import { estimatedNextDose, weeklyActivityChecklistDate, loadAllRecords, compositionFields } from "./lib/records"
 import { MetricCard } from "./components/common/MetricCard"
@@ -844,7 +844,9 @@ export default function App() {
                                 {medicationDose ? (
                                   <>
                                     <span>{formatDecimal(medicationDose.dose_amount)}</span>{" "}
-                                    <small>{medicationDose.dose_unit}</small>
+                                    <small>
+                                      {formatDoseUnit(medicationDose.dose_amount, medicationDose.dose_unit)}
+                                    </small>
                                   </>
                                 ) : (
                                   "—"
@@ -985,7 +987,7 @@ export default function App() {
                               : Syringe,
                           kind: "dose",
                           date: item.administered_at,
-                          text: `${formatDecimal(item.dose_amount)} ${item.dose_unit}`,
+                          text: `${medications.find((medication) => medication.id === item.medication_id)?.name ?? "Medicamento"} · ${formatDecimal(item.dose_amount)} ${formatDoseUnit(item.dose_amount, item.dose_unit)}`,
                           sub: "Medicación",
                         })),
                         ...bodyMeasurements.map((item) => ({

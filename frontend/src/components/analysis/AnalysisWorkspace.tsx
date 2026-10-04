@@ -11,7 +11,7 @@ import type {
   WeightEntry,
 } from "../../api"
 import type { Section } from "../../lib/types"
-import { formatDate, formatDecimal, niceAxis, formatAxisTick } from "../../lib/format"
+import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick } from "../../lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "../charts/BmiRange"
 import { weeklyActivityChecklistDate, compositionFields } from "../../lib/records"
 import { MetricCard } from "../common/MetricCard"
@@ -451,7 +451,8 @@ export function AnalysisWorkspace({
           {currentDose && (
             <div className="recommendation-context">
               {doseMedication?.name ?? "Dosis registrada"} · {formatDecimal(currentDose.dose_amount)}{" "}
-              {currentDose.dose_unit} · último registro {formatDate(currentDose.administered_at, profile?.timezone)}
+              {formatDoseUnit(currentDose.dose_amount, currentDose.dose_unit)} · último registro{" "}
+              {formatDate(currentDose.administered_at, profile?.timezone)}
             </div>
           )}
           <p>{recommendation.message}</p>
