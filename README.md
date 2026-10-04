@@ -25,15 +25,15 @@ Sigue las instrucciones de [instalación](#instalar-tu-propia-instancia). Para p
 
 ## Qué puedes hacer
 
-| Área               | Uso                                                                                                             |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| Peso y composición | Registra peso y métricas opcionales de báscula; consulta gráficos de evolución.                                 |
-| Medidas corporales | Registra cintura, cuello, pecho, abdomen, cadera, brazo y muslo.                                                |
-| Seguimiento        | Guarda síntomas, actividad, presión arterial, laboratorios, objetivos y revisiones.                             |
-| Tratamiento        | Registra medicamentos orales o inyectables y sus dosis con unidad; las conversiones aplican solo a inyectables. |
-| Recordatorios      | Crea avisos manuales o usa los checklists automáticos; opcionalmente recibe avisos por Telegram.                |
-| Fotos              | Guarda imágenes privadas asociadas a tu cuenta.                                                                 |
-| Datos              | Exporta o restaura los registros de tu cuenta.                                                                  |
+| Área               | Uso                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Peso y composición | Registra peso y métricas opcionales de báscula; consulta gráficos de evolución.                                                             |
+| Medidas corporales | Registra cuello, pecho, brazo, abdomen, cintura, cadera y muslo, en orden cefalocaudal.                                                     |
+| Seguimiento        | Guarda síntomas, actividad, presión arterial, laboratorios, objetivos y revisiones.                                                         |
+| Tratamiento        | Registra medicamentos orales o inyectables y sus dosis con unidad; las conversiones aplican solo a inyectables. Elige cuál es el principal. |
+| Recordatorios      | Crea avisos manuales o usa los checklists automáticos; opcionalmente recibe avisos por Telegram.                                            |
+| Fotos              | Guarda imágenes privadas asociadas a tu cuenta.                                                                                             |
+| Datos              | Exporta o restaura los registros de tu cuenta.                                                                                              |
 
 ## Instalar tu propia instancia
 
@@ -146,22 +146,22 @@ Haz primero una copia de seguridad, especialmente antes de cambios de esquema o 
 1. Abre el dominio que configuraste y crea una cuenta con una contraseña de al menos 12 caracteres.
 2. Confirma el correo desde el mensaje de verificación.
 3. En **Perfil y ajustes**, revisa zona horaria, altura y peso inicial.
-4. Añade una medicación solo si forma parte de tu tratamiento real y elige si es oral o inyectable. La concentración y el volumen solo se solicitan para inyectables; la aplicación no crea medicamentos ni indica cantidades.
+4. Añade una medicación solo si forma parte de tu tratamiento real y elige si es oral o inyectable. La concentración y el volumen solo se solicitan para inyectables; la aplicación no crea medicamentos ni indica cantidades. Si tienes varios activos, marca uno como principal desde **Medicación**; Análisis usa ese historial para estimar las semanas de tratamiento.
 5. Registra datos desde la sección correspondiente. Puedes corregir o eliminar registros propios.
 
 ### Secciones principales
 
-| Sección       | Qué registrar                                                                               |
-| ------------- | ------------------------------------------------------------------------------------------- |
-| Peso          | Peso, fecha y hora; las métricas de composición son opcionales.                             |
-| Composición   | Evolución de métricas estimadas por la báscula.                                             |
-| Medidas       | Cintura, cuello, pecho, abdomen, cadera, brazo y muslo.                                     |
-| Síntomas      | Elementos de tu catálogo, intensidad, tolerancia, hidratación y check-in semanal.           |
-| Actividad     | Actividad individual o totales semanales de pasos, calorías y distancia.                    |
-| Laboratorios  | Resultados de laboratorio y presión arterial.                                               |
-| Medicación    | Medicamentos orales o inyectables, estado activo/archivado e historial de dosis con unidad. |
-| Análisis      | Tendencias descriptivas y checklists contextuales.                                          |
-| Recordatorios | Recordatorios manuales y automáticos.                                                       |
+| Sección       | Qué registrar                                                                                          |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| Peso          | Peso, fecha y hora; las métricas de composición son opcionales.                                        |
+| Composición   | Evolución de métricas estimadas por la báscula.                                                        |
+| Medidas       | Cuello, pecho, brazo, abdomen, cintura, cadera y muslo, en orden cefalocaudal.                         |
+| Síntomas      | Elementos de tu catálogo, intensidad, tolerancia, hidratación y check-in semanal.                      |
+| Actividad     | Actividad individual o totales semanales de pasos, calorías y distancia.                               |
+| Laboratorios  | Resultados de laboratorio y presión arterial.                                                          |
+| Medicación    | Medicamentos orales o inyectables, estado activo/archivado, principal e historial de dosis con unidad. |
+| Análisis      | Tendencias descriptivas y checklists contextuales.                                                     |
+| Recordatorios | Recordatorios manuales y automáticos.                                                                  |
 
 ### Checklists y recordatorios
 
@@ -195,16 +195,16 @@ https://app.example.com/api/telegram/webhook
 
 Vincula el chat privado desde **Recordatorios → Vincular Telegram**. Solo se procesan comandos explícitos en el chat privado vinculado. `/ayuda` muestra la lista.
 
-| Comando         | Ejemplo                                             | Resultado                                                                                                                        |
-| --------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `/peso`         | `/peso 82.35`                                       | Registra peso en kg.                                                                                                             |
-| `/composicion`  | `/composicion 82.35 grasa=24.5 agua=50`             | Registra peso y uno o más campos de composición.                                                                                 |
-| `/medidas`      | `/medidas cintura=90 cuello=38 cadera=100`          | Registra una o más medidas en cm.                                                                                                |
-| `/cintura`      | `/cintura 90`                                       | Atajo compatible para registrar cintura.                                                                                         |
-| `/sintoma`      | `/sintoma 5 náuseas`                                | Registra un síntoma con intensidad de 0 a 10.                                                                                    |
-| `/presion`      | `/presion 120/80`                                   | Registra sistólica y diastólica en mmHg.                                                                                         |
-| `/dosis`        | `/dosis 2.5` (inyectable) o `/dosis 2000 UI` (oral) | En orales especifica unidad (`UI`, `mcg`, `mg`, `g`, `mL`, `tableta`, `cápsula` o `gota`); requiere un único medicamento activo. |
-| `/recordatorio` | `/recordatorio AAAA-MM-DD HH:MM texto`              | Crea un aviso futuro en la hora local del perfil.                                                                                |
+| Comando         | Ejemplo                                             | Resultado                                                                                                                                  |
+| --------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/peso`         | `/peso 82.35`                                       | Registra peso en kg.                                                                                                                       |
+| `/composicion`  | `/composicion 82.35 grasa=24.5 agua=50`             | Registra peso y uno o más campos de composición.                                                                                           |
+| `/medidas`      | `/medidas cintura=90 cuello=38 cadera=100`          | Registra una o más medidas en cm.                                                                                                          |
+| `/cintura`      | `/cintura 90`                                       | Atajo compatible para registrar cintura.                                                                                                   |
+| `/sintoma`      | `/sintoma 5 náuseas`                                | Registra un síntoma con intensidad de 0 a 10.                                                                                              |
+| `/presion`      | `/presion 120/80`                                   | Registra sistólica y diastólica en mmHg.                                                                                                   |
+| `/dosis`        | `/dosis 2.5` (inyectable) o `/dosis 2000 UI` (oral) | En orales especifica unidad (`UI`, `mcg`, `mg`, `g`, `mL`, `tableta`, `cápsula` o `gota`); usa el principal o, si no hay, el único activo. |
+| `/recordatorio` | `/recordatorio AAAA-MM-DD HH:MM texto`              | Crea un aviso futuro en la hora local del perfil.                                                                                          |
 
 Campos aceptados por `/composicion`:
 

@@ -59,6 +59,8 @@ class Medication(Base):
         "users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120), default="Tirzepatida")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false")
     route: Mapped[str] = mapped_column(
         String(16), default="injectable", server_default="injectable")
     concentration_mg: Mapped[float | None] = mapped_column(

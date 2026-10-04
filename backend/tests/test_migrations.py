@@ -60,6 +60,9 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
                            for column in inspector.get_columns("catalog_items")}
         assert {"normal_min", "normal_max", "diastolic_normal_min",
                 "diastolic_normal_max", "sort_order"} <= catalog_columns
+        medication_columns = {column["name"]
+                              for column in inspector.get_columns("medications")}
+        assert "is_primary" in medication_columns
     finally:
         engine.dispose()
 
@@ -75,9 +78,9 @@ def test_oral_medication_migration_backfills_existing_doses(tmp_path, monkeypatc
             connection.execute(text(
                 "INSERT INTO alembic_version (version_num) VALUES ('0012_profile_reminder_time')"))
             connection.execute(text(
-                "CREATE TABLE medications (id INTEGER PRIMARY KEY, concentration_mg FLOAT NOT NULL, concentration_volume_ml FLOAT NOT NULL)"))
+                "CREATE TABLE medications (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, active BOOLEAN NOT NULL, created_at DATETIME NOT NULL, concentration_mg FLOAT NOT NULL, concentration_volume_ml FLOAT NOT NULL)"))
             connection.execute(text(
-                "INSERT INTO medications (id, concentration_mg, concentration_volume_ml) VALUES (1, 10, 0.5)"))
+                "INSERT INTO medications (id, user_id, active, created_at, concentration_mg, concentration_volume_ml) VALUES (1, 7, true, '2026-10-01', 10, 0.5)"))
             connection.execute(text(
                 "CREATE TABLE doses (id INTEGER PRIMARY KEY, dose_mg FLOAT NOT NULL, calculated_volume_ml FLOAT NOT NULL)"))
             connection.execute(text(
@@ -94,10 +97,10 @@ def test_oral_medication_migration_backfills_existing_doses(tmp_path, monkeypatc
     try:
         with engine.connect() as connection:
             medication = connection.execute(text(
-                "SELECT route, concentration_mg, concentration_volume_ml FROM medications WHERE id = 1")).one()
+                "SELECT route, concentration_mg, concentration_volume_ml, is_primary FROM medications WHERE id = 1")).one()
             dose = connection.execute(text(
                 "SELECT dose_mg, dose_amount, dose_unit, calculated_volume_ml FROM doses WHERE id = 1")).one()
-        assert medication == ("injectable", 10, 0.5)
+        assert medication == ("injectable", 10, 0.5, True)
         assert dose == (5, 5, "mg", 0.25)
     finally:
         engine.dispose()

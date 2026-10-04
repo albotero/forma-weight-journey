@@ -73,6 +73,7 @@ export type Medication = {
   id: number
   name: string
   active: boolean
+  is_primary: boolean
   route: "injectable" | "oral"
   concentration_mg: number | null
   concentration_volume_ml: number | null

@@ -229,10 +229,13 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
                 "0.01"), maximum=Decimal("1000000"))
             active_medications = db.scalars(select(Medication).where(
                 Medication.user_id == user_id, Medication.active.is_(True))).all()
-            if len(active_medications) != 1:
+            medication = next(
+                (item for item in active_medications if item.is_primary), None)
+            if medication is None and len(active_medications) == 1:
+                medication = active_medications[0]
+            if medication is None:
                 await send_telegram_message(chat_id, "No pude identificar un único medicamento activo. Configura uno en la app o registra la dosis desde allí para elegirlo explícitamente.")
                 return
-            medication = active_medications[0]
             if medication.route == "oral":
                 unit_aliases = {
                     "mg": "mg", "mcg": "mcg", "ui": "UI", "iu": "UI",

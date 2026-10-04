@@ -71,7 +71,11 @@ export function AnalysisWorkspace({
     monthlyTrend == null
       ? "No hay al menos dos registros de peso en las últimas 4 semanas para estimar una tendencia."
       : `La tendencia de peso durante las últimas 4 semanas es de ${monthlyTrend < 0 ? "−" : monthlyTrend > 0 ? "+" : ""}${formatDecimal(Math.abs(monthlyTrend))} kg.`
-  const recentDoses = [...pastDoses].sort((a, b) => b.administered_at.localeCompare(a.administered_at))
+  const treatmentMedication =
+    medications.find((item) => item.active && item.is_primary) ?? medications.find((item) => item.active)
+  const recentDoses = pastDoses
+    .filter((item) => item.medication_id === treatmentMedication?.id)
+    .sort((a, b) => b.administered_at.localeCompare(a.administered_at))
   const currentDose = recentDoses[0]
   const doseSequence = currentDose
     ? recentDoses.slice(
@@ -113,7 +117,7 @@ export function AnalysisWorkspace({
       ),
   )
   const goodToleranceRecorded = doseSymptoms.some((entry) => entry.data.tolerance === "Buena")
-  const doseMedication = currentDose && medications.find((item) => item.id === currentDose.medication_id)
+  const doseMedication = currentDose && treatmentMedication
   const compositionChanges =
     previous && latest
       ? compositionFields.flatMap(([key, label, unit]) => {

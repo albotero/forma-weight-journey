@@ -185,7 +185,9 @@ export default function App() {
   const bmiNow = currentWeight && profile ? currentWeight / (profile.height_cm / 100) ** 2 : null
   const userTimezone = profile?.timezone ?? "America/Bogota"
   const accountInitial = account?.email.trim().charAt(0).toLocaleUpperCase("es-CO") || "?"
-  const activeMedications = medications.filter((item) => item.active)
+  const activeMedications = medications
+    .filter((item) => item.active)
+    .sort((first, second) => Number(second.is_primary) - Number(first.is_primary))
   const activeMedication = activeMedications[0]
   const visibleMedicationIndex = Math.min(homeMedicationIndex, Math.max(0, activeMedications.length - 1))
   function navigateHomeMedication(index: number) {
@@ -834,7 +836,7 @@ export default function App() {
                                 <strong>{medication.name}</strong>
                                 <span>En seguimiento</span>
                               </div>
-                              <span className="med-active">Activo</span>
+                              <span className="med-active">{medication.is_primary ? "Principal" : "Activo"}</span>
                             </div>
                             <div className="dose-highlight">
                               <span>ÚLTIMO REGISTRO</span>

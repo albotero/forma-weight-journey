@@ -254,6 +254,15 @@ export function ModuleWorkspace(props: {
     }
   }
 
+  async function setPrimaryMedication(medication: Medication) {
+    try {
+      await api<Medication>(`/medications/${medication.id}/primary`, token, { method: "PATCH" })
+      await props.onRefresh()
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo cambiar el medicamento principal")
+    }
+  }
+
   useEffect(() => {
     if (section !== "Recordatorios") return
     let active = true
@@ -611,6 +620,7 @@ export function ModuleWorkspace(props: {
                     <span className={`record-status ${item.active ? "active" : ""}`}>
                       {item.active ? "Activa" : "Archivada"}
                     </span>
+                    {item.is_primary && <span className="record-status active">Principal</span>}
                     <p>
                       {item.route === "oral"
                         ? "Vía oral"
@@ -626,6 +636,11 @@ export function ModuleWorkspace(props: {
                     )}
                   </div>
                   <div className="record-actions">
+                    {item.active && !item.is_primary && (
+                      <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
+                        Hacer principal
+                      </button>
+                    )}
                     {item.active && (
                       <button className="small-action" onClick={() => props.onNewDose(item)}>
                         <Plus size={13} /> Registrar dosis
@@ -1109,7 +1124,7 @@ export function ModuleWorkspace(props: {
             ...doses.map((item) => ({
               id: `d-${item.id}`,
               date: item.administered_at,
-              title: `${item.dose_mg} mg`,
+              title: `${formatDecimal(item.dose_amount)} ${item.dose_unit}`,
               label: "Dosis",
               edit: () => props.onEditDose(item),
               remove: () => props.onDelete(`/doses/${item.id}`),

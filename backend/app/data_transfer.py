@@ -148,6 +148,7 @@ def _build_export_manifest(
     for row in medications:
         manifest["medications"].append({
             "key": medication_keys[row.id], "name": row.name, "active": row.active,
+            "is_primary": row.is_primary,
             "route": row.route,
             "concentration_mg": row.concentration_mg,
             "concentration_volume_ml": row.concentration_volume_ml,
@@ -330,17 +331,36 @@ def parse_export(content: bytes, expected_email: str) -> ParsedExport:
     medication_keys: set[str] = set()
     normalized_medications: list[dict[str, Any]] = []
     for row in medications:
-        if not isinstance(row, dict) or set(row) - (set(MedicationCreate.model_fields) | {"key", "created_at"}):
+        if not isinstance(row, dict) or set(row) - (set(MedicationCreate.model_fields) | {"key", "created_at", "is_primary"}):
             raise ValueError("A medication record contains unsupported fields")
         key = row.get("key")
         if not isinstance(key, str) or not _KEY_PATTERN.fullmatch(key) or not key.startswith("med-") or key in medication_keys:
             raise ValueError("A medication reference is invalid")
         medication_keys.add(key)
-        model = _model_data(MedicationCreate, row, {"key", "created_at"})
+        is_primary = row.get("is_primary", False)
+        if not isinstance(is_primary, bool):
+            raise ValueError("A medication primary flag must be boolean")
+        model = _model_data(MedicationCreate, row, {
+                            "key", "created_at", "is_primary"})
         normalized = model.model_dump(mode="python")
-        normalized.update(key=key, created_at=_parse_datetime(
-            row.get("created_at"), "created_at", optional=True))
+        normalized.update(
+            key=key,
+            is_primary=is_primary,
+            created_at=_parse_datetime(
+                row.get("created_at"), "created_at", optional=True),
+        )
         normalized_medications.append(normalized)
+    primary_medications = [
+        row for row in normalized_medications if row["active"] and row["is_primary"]
+    ]
+    if len(primary_medications) > 1:
+        raise ValueError(
+            "An export cannot contain multiple primary medications")
+    if not primary_medications:
+        fallback = next(
+            (row for row in normalized_medications if row["active"]), None)
+        if fallback is not None:
+            fallback["is_primary"] = True
     manifest["medications"] = normalized_medications
     medication_routes = {
         row["key"]: row["route"] for row in normalized_medications
@@ -571,6 +591,7 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
         for row in manifest["medications"]:
             medication = Medication(
                 user_id=user.id, name=row["name"], active=row["active"],
+                is_primary=row["is_primary"],
                 route=row["route"],
                 concentration_mg=row["concentration_mg"],
                 concentration_volume_ml=row["concentration_volume_ml"],

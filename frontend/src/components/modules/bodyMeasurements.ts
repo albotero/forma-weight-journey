@@ -2,12 +2,12 @@ import type { BodyMeasurementEntry } from "../../api"
 import { formatDecimal } from "../../lib/format"
 
 export const bodyFields = [
-  ["waist_cm", "Cintura", "cm"],
   ["neck_cm", "Cuello", "cm"],
   ["chest_cm", "Pecho", "cm"],
-  ["abdomen_cm", "Abdomen", "cm"],
-  ["hip_cm", "Cadera", "cm"],
   ["arm_cm", "Brazo", "cm"],
+  ["abdomen_cm", "Abdomen", "cm"],
+  ["waist_cm", "Cintura", "cm"],
+  ["hip_cm", "Cadera", "cm"],
   ["thigh_cm", "Muslo", "cm"],
 ] as const
 

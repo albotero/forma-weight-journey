@@ -44,8 +44,11 @@ def test_telegram_oral_dose_saves_the_explicit_unit(monkeypatch) -> None:
         db.add(user)
         db.flush()
         medication = Medication(
-            user_id=user.id, name="Vitamina D3", route="oral")
-        db.add(medication)
+            user_id=user.id, name="Vitamina D3", route="oral", is_primary=True)
+        other_medication = Medication(
+            user_id=user.id, name="Inyectable", concentration_mg=10,
+            concentration_volume_ml=0.5, units_per_ml=100, is_primary=False)
+        db.add_all([medication, other_medication])
         db.commit()
 
         asyncio.run(handle_telegram_command(
@@ -59,6 +62,8 @@ def test_telegram_oral_dose_saves_the_explicit_unit(monkeypatch) -> None:
         assert dose.dose_mg is None
         assert dose.calculated_volume_ml is None
         assert dose.calculated_u100_units is None
+        assert db.scalar(select(Dose).where(
+            Dose.medication_id == other_medication.id)) is None
 
 
 def test_telegram_reminder_has_snooze_buttons(monkeypatch) -> None:

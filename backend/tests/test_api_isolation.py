@@ -202,6 +202,7 @@ def test_registration_starts_without_assuming_medication_and_dose_is_calculated(
         "name": "Medicamento de prueba", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
     }).json()
+    assert medication["is_primary"] is True
     assert medication["dosing_interval"] is None
 
     recorded = client.post("/api/doses", headers=headers,
@@ -261,6 +262,33 @@ def test_medication_concentration_can_be_changed_and_is_user_scoped() -> None:
     forbidden = client.put(f"/api/medications/{medication['id']}", headers=other_headers, json={
         "name": "Tirzepatida", "active": True, "concentration_mg": 5, "concentration_volume_ml": 0.5, "units_per_ml": 100})
     assert forbidden.status_code == 404
+
+
+def test_primary_medication_is_unique_and_replaced_when_archived() -> None:
+    created = client.post("/api/auth/register", json={
+        "email": "primary-medication@example.com", "password": "primary-medication-password-123"})
+    headers = {"Authorization": f"Bearer {created.json()['access_token']}"}
+    first = client.post("/api/medications", headers=headers, json={
+        "name": "Liraglutida", "concentration_mg": 6, "concentration_volume_ml": 3,
+    }).json()
+    second = client.post("/api/medications", headers=headers, json={
+        "name": "Vitamina D3", "route": "oral",
+    }).json()
+    assert first["is_primary"] is True
+    assert second["is_primary"] is False
+
+    selected = client.patch(
+        f"/api/medications/{second['id']}/primary", headers=headers)
+    assert selected.status_code == 200
+    medications = client.get("/api/medications", headers=headers).json()
+    assert {item["id"]
+            for item in medications if item["is_primary"]} == {second["id"]}
+
+    assert client.delete(
+        f"/api/medications/{second['id']}", headers=headers).status_code == 204
+    medications = client.get("/api/medications", headers=headers).json()
+    assert next(item for item in medications if item["id"] == first["id"])[
+        "is_primary"] is True
 
 
 def test_medication_dosing_interval_is_optional_and_validated() -> None:
@@ -333,6 +361,8 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     })
     assert oral_medication_response.status_code == 201
     oral_medication = oral_medication_response.json()
+    assert medication["is_primary"] is True
+    assert oral_medication["is_primary"] is False
     client.post("/api/medications", headers=other_headers, json={
         "name": "Otro medicamento", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
@@ -378,6 +408,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     exported_oral = next(
         item for item in json_document["medications"] if item["name"] == "Vitamina D3")
     assert exported_oral["route"] == "oral"
+    assert exported_oral["is_primary"] is False
     exported_oral_dose = next(
         item for item in json_document["doses"] if item["medication_key"] == exported_oral["key"])
     assert exported_oral_dose["dose_amount"] == 2000
@@ -416,6 +447,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     restored_oral = next(
         item for item in restored_medications if item["name"] == "Vitamina D3")
     assert restored_oral["route"] == "oral"
+    assert restored_medication["is_primary"] is True
     restored_doses = client.get("/api/doses", headers=headers).json()
     restored_dose = next(
         item for item in restored_doses if item["medication_id"] == restored_medication["id"])
