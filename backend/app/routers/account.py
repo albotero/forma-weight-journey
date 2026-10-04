@@ -5,7 +5,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.data_transfer import MAX_ARCHIVE_BYTES, build_export, parse_export, preview_export, restore_export
+from app.data_transfer import (
+    MAX_ARCHIVE_BYTES,
+    build_export,
+    build_json_export,
+    parse_export,
+    preview_export,
+    restore_export,
+)
 from app.database import get_db
 from app.dependencies import current_user
 from app.models import User
@@ -36,6 +43,20 @@ def export_account_data(request: Request, user: User = Depends(current_user), db
         iter([archive]), media_type="application/zip",
         headers={
             "Content-Disposition": 'attachment; filename="forma-account-export.zip"'},
+    )
+
+
+@router.get("/account/export/json")
+@limiter.limit("5/hour")
+def export_account_json(request: Request, user: User = Depends(current_user), db: Session = Depends(get_db)) -> StreamingResponse:
+    try:
+        document = build_json_export(db, user, settings.storage_path)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+    return StreamingResponse(
+        iter([document]), media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="forma-account-export.json"'},
     )
 
 

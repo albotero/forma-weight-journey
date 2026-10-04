@@ -333,6 +333,15 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     exported = client.get("/api/account/export", headers=headers)
     assert exported.status_code == 200
     assert exported.headers["content-type"] == "application/zip"
+    json_export = client.get("/api/account/export/json", headers=headers)
+    assert json_export.status_code == 200
+    assert json_export.headers["content-type"].startswith("application/json")
+    json_document = json_export.json()
+    assert json_document["format"] == "forma-account-json-export"
+    assert json_document["weights"][0]["weight_kg"] == 82.5
+    assert json_document["media_files_included"] is False
+    assert "file" not in json_document["photos"][0]
+    assert "sha256" not in json_document["photos"][0]
     upload = {"file": ("forma-account-export.zip",
                        exported.content, "application/zip")}
     preview = client.post("/api/account/import/preview",
@@ -819,6 +828,82 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
             assert saved.data["completed_reminder_epoch"] == occurrence
             assert saved.data["completed_at"]
     assert followups == [("13579", occurrence)]
+
+
+def test_due_telegram_reminders_can_be_snoozed_as_a_group(monkeypatch) -> None:
+    sent: list[tuple[str, str, datetime]] = []
+    answers: list[str] = []
+
+    async def fake_send(chat_id: str, text: str, scheduled_at: datetime) -> bool:
+        sent.append((chat_id, text, scheduled_at))
+        return True
+
+    async def fake_answer(_callback_id: str, text: str) -> bool:
+        answers.append(text)
+        return True
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "snooze-secret")
+    monkeypatch.setattr("app.telegram.SessionLocal", TestingSession)
+    monkeypatch.setattr("app.telegram.send_reminder_message", fake_send)
+    monkeypatch.setattr(
+        "app.routers.telegram.answer_callback_query", fake_answer)
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-snooze@example.com", "password": "telegram-snooze-password-123"})
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    due_time = (datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat()
+    reminder_ids = []
+    for title in ("Recordar cita", "Registrar peso"):
+        reminder = client.post("/api/entries", headers=headers, json={
+            "module": "reminders", "title": title, "occurred_at": due_time,
+            "data": {"reminder_at": due_time, "repeat": "No repetir", "enabled": "Sí"},
+        })
+        assert reminder.status_code == 201
+        reminder_ids.append(reminder.json()["id"])
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "telegram-snooze@example.com"))
+        assert user is not None
+        db.add(TelegramConnection(user_id=user.id, chat_id="987654321"))
+        db.commit()
+
+    from app.telegram import dispatch_due_reminders
+
+    asyncio.run(dispatch_due_reminders())
+    assert len(sent) == 1
+    occurrence = int(sent[0][2].timestamp())
+    webhook_headers = {"X-Telegram-Bot-Api-Secret-Token": "snooze-secret"}
+
+    def send_callback(action: str) -> None:
+        response = client.post("/api/telegram/webhook", headers=webhook_headers, json={
+            "callback_query": {
+                "id": f"callback-{len(answers)}",
+                "data": action,
+                "message": {"chat": {"id": 987654321, "type": "private"}},
+            },
+        })
+        assert response.status_code == 200
+
+    send_callback(f"snooze:900:{occurrence}")
+    with TestingSession() as db:
+        snoozed_until = None
+        for reminder_id in reminder_ids:
+            reminder = db.get(JournalEntry, reminder_id)
+            assert reminder is not None
+            assert reminder.data["snoozed_from_epoch"] == occurrence
+            assert reminder.data.get("completed_reminder_epoch") is None
+            if snoozed_until is None:
+                snoozed_until = reminder.data["reminder_at"]
+            assert reminder.data["reminder_at"] == snoozed_until
+        assert snoozed_until is not None
+        remaining = datetime.fromisoformat(
+            snoozed_until).timestamp() - datetime.now(timezone.utc).timestamp()
+        assert 890 <= remaining <= 900
+
+    send_callback(f"done:{occurrence}")
+    assert answers[-1] == "Este aviso fue pospuesto; espera el nuevo horario."
+    send_callback(f"snooze:900:{occurrence}")
+    assert answers[-1] == "Este aviso ya no se puede posponer."
 
 
 def test_automatic_reminders_track_records_and_can_be_disabled_without_deleting() -> None:

@@ -181,7 +181,7 @@ Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notifi
 ### Cuenta y privacidad de datos
 
 - Las cuentas nuevas requieren verificación de correo. Los enlaces de verificación vencen a las 24 horas; los de recuperación de contraseña, a los 30 minutos.
-- Exportar/restaurar está en **Perfil y ajustes → Exportar y restaurar datos**. La restauración reemplaza los datos de esa cuenta, acepta solo una exportación del mismo correo y revoca sesiones y la vinculación con Telegram.
+- En **Perfil y ajustes → Exportar y restaurar datos**, descarga JSON versionado para analizar los registros en otras aplicaciones o un ZIP con fotos para restaurar la cuenta. Solo se restaura el ZIP; la restauración reemplaza los datos de esa cuenta, acepta solo una copia del mismo correo y revoca sesiones y la vinculación con Telegram.
 - Fotos admitidas: JPEG, PNG y WebP, hasta 10 MB. Se guardan fuera del directorio público y solo se sirven mediante la API autenticada.
 - Los datos de salud son sensibles. Protege la cuenta, el servidor y las copias de seguridad.
 
@@ -220,11 +220,11 @@ Campos aceptados por `/composicion`:
 
 El peso es obligatorio para `/composicion`, porque la base de datos guarda estas métricas en una lectura de peso. Todos los campos adicionales son opcionales; puedes usar espacios o punto y coma para separarlos y `=` o `:` entre nombre y valor.
 
-El bot comprueba mensajes cada 30 segundos y omite recordatorios con más de dos minutos de retraso. Los avisos que vencen a la vez se agrupan. El botón **Ya lo cumplí** confirma el aviso y permite enviar el dato por el chat. Mantén una sola réplica del backend: un reinicio durante un envío puede ocasionar una repetición.
+El bot comprueba mensajes cada 30 segundos y omite recordatorios con más de dos minutos de retraso. Los avisos que vencen a la vez se agrupan. Además de **Ya lo cumplí**, cada aviso ofrece posponerlo **15 minutos, 1 hora o 3 horas**; la opción se aplica a todo el grupo. Al confirmar el cumplimiento, puedes elegir si enviar el dato por el chat. Mantén una sola réplica del backend: un reinicio durante un envío puede ocasionar una repetición.
 
 ## Copias de seguridad
 
-La exportación desde la app no sustituye las copias del servidor. Guarda tanto PostgreSQL como `storage/`, que contiene las fotos.
+La descarga JSON contiene los registros estructurados y metadatos de fotos, pero no los archivos de imagen; sirve para análisis o importación por otras aplicaciones. El ZIP incluye los archivos y es el formato aceptado por la restauración de la cuenta. Ninguna exportación desde la app sustituye las copias del servidor: guarda también PostgreSQL y `storage/`, que contiene las fotos.
 
 Con los valores predeterminados (`tracker`), crea una copia de la base así:
 

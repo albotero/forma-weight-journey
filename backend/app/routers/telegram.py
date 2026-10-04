@@ -15,6 +15,7 @@ from app.telegram import (
     answer_callback_query,
     connection_status,
     handle_telegram_command,
+    REMINDER_SNOOZE_OPTIONS,
     send_reminder_followup,
     send_telegram_message,
 )
@@ -85,11 +86,25 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
                 and len(parts) == 2):
             await answer_callback_query(callback_id, "De acuerdo.")
             return {"ok": True}
-        if (isinstance(callback_id, str) and parts and parts[0] in {"done", "capture"}
-                and (len(parts) == 2 or (parts[0] == "done" and len(parts) == 3))
+        is_snooze = bool(parts and parts[0] == "snooze")
+        valid_callback_shape = (
+            len(parts) == 3 if is_snooze else
+            bool(parts and parts[0] in {"done", "capture"}) and
+            (len(parts) == 2 or (parts[0] == "done" and len(parts) == 3))
+        )
+        if (isinstance(callback_id, str) and valid_callback_shape
                 and isinstance(callback_chat, dict) and callback_chat.get("type") == "private"):
             try:
-                if len(parts) == 2:
+                snooze_seconds = None
+                if is_snooze:
+                    snooze_seconds = int(parts[1])
+                    occurrence = int(parts[2])
+                    allowed_delays = {seconds for _label,
+                                      seconds in REMINDER_SNOOZE_OPTIONS}
+                    if snooze_seconds not in allowed_delays:
+                        raise ValueError
+                    entry_ids = None
+                elif len(parts) == 2:
                     entry_ids = None
                     occurrence = int(parts[1])
                 else:
@@ -121,7 +136,33 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
             if not entries_by_id or (entry_ids is not None and len(entries_by_id) != len(entry_ids)):
                 await answer_callback_query(callback_id, "No se encontró este recordatorio vinculado a tu cuenta.")
                 return {"ok": True}
+            if is_snooze:
+                if any(
+                    (entry.data or {}).get("last_sent_epoch") != occurrence
+                    or (entry.data or {}).get("completed_reminder_epoch") == occurrence
+                    or (entry.data or {}).get("snoozed_from_epoch") == occurrence
+                    for entry in entries_by_id.values()
+                ):
+                    await answer_callback_query(callback_id, "Este aviso ya no se puede posponer.")
+                    return {"ok": True}
+                snoozed_until = utc_now() + timedelta(seconds=snooze_seconds)
+                for entry in entries_by_id.values():
+                    data = dict(entry.data or {})
+                    data["snoozed_from_epoch"] = occurrence
+                    data["reminder_at"] = snoozed_until.isoformat()
+                    if data.get("auto_generated") is True:
+                        data["schedule_override"] = True
+                    entry.data = data
+                    entry.occurred_at = snoozed_until
+                db.commit()
+                label = dict((seconds, name) for name, seconds in REMINDER_SNOOZE_OPTIONS)[
+                    snooze_seconds]
+                await answer_callback_query(callback_id, f"Pospuesto {label}.")
+                return {"ok": True}
             if parts[0] == "done":
+                if any((entry.data or {}).get("snoozed_from_epoch") == occurrence for entry in entries_by_id.values()):
+                    await answer_callback_query(callback_id, "Este aviso fue pospuesto; espera el nuevo horario.")
+                    return {"ok": True}
                 for entry in entries_by_id.values():
                     data = dict(entry.data or {})
                     if data.get("last_sent_epoch") != occurrence:

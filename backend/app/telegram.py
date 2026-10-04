@@ -25,6 +25,7 @@ from app.models import (
 
 logger = logging.getLogger(__name__)
 TELEGRAM_API = "https://api.telegram.org"
+REMINDER_SNOOZE_OPTIONS = (("15 min", 900), ("1 h", 3600), ("3 h", 10800))
 BODY_MEASUREMENT_FIELDS = {
     "cintura": ("waist_cm", Decimal("300")),
     "cuello": ("neck_cm", Decimal("150")),
@@ -80,11 +81,18 @@ async def send_telegram_message(chat_id: str, text: str) -> bool:
 
 
 async def send_reminder_message(chat_id: str, text: str, scheduled_at: datetime) -> bool:
-    callback_data = f"done:{int(scheduled_at.timestamp())}"
+    occurrence = int(scheduled_at.timestamp())
     return await telegram_request("sendMessage", {
         "chat_id": chat_id,
         "text": text,
-        "reply_markup": {"inline_keyboard": [[{"text": "✅ Ya lo cumplí", "callback_data": callback_data}]]},
+        "reply_markup": {"inline_keyboard": [
+            [{"text": "✅ Ya lo cumplí", "callback_data": f"done:{occurrence}"}],
+            [
+                {"text": f"Posponer {label}",
+                    "callback_data": f"snooze:{seconds}:{occurrence}"}
+                for label, seconds in REMINDER_SNOOZE_OPTIONS
+            ],
+        ]},
     })
 
 

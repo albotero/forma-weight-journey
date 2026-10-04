@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -27,6 +28,28 @@ def test_reminder_enabled_accepts_form_values() -> None:
     assert reminder_is_enabled(True)
     assert not reminder_is_enabled("No")
     assert not reminder_is_enabled(False)
+
+
+def test_telegram_reminder_has_snooze_buttons(monkeypatch) -> None:
+    from app.telegram import send_reminder_message
+
+    sent: dict[str, object] = {}
+
+    async def fake_request(_method: str, payload: dict[str, object]) -> bool:
+        sent.update(payload)
+        return True
+
+    monkeypatch.setattr("app.telegram.telegram_request", fake_request)
+    scheduled = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+
+    assert asyncio.run(send_reminder_message("123", "Recordatorio", scheduled))
+
+    keyboard = sent["reply_markup"]["inline_keyboard"]
+    assert keyboard[0][0]["callback_data"] == f"done:{int(scheduled.timestamp())}"
+    assert [button["callback_data"] for button in keyboard[1]] == [
+        f"snooze:{seconds}:{int(scheduled.timestamp())}"
+        for _label, seconds in (("15 min", 900), ("1 h", 3600), ("3 h", 10800))
+    ]
 
 
 def test_automatic_reminder_offsets_use_calendar_time_in_profile_timezone() -> None:

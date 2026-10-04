@@ -2,12 +2,22 @@ import { useState } from "react"
 import { Download, Upload } from "lucide-react"
 import {
   downloadAccountExport,
+  downloadAccountJsonExport,
   logoutSession,
   previewAccountImport,
   restoreAccountImport,
   type AccountImportPreview,
 } from "../../api"
 import { formatDate } from "../../lib/format"
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 export function AccountDataTransfer({ token }: { token: string }) {
   const [file, setFile] = useState<File | null>(null)
@@ -22,15 +32,25 @@ export function AccountDataTransfer({ token }: { token: string }) {
     setSuccess("")
     try {
       const blob = await downloadAccountExport(token)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = "forma-account-export.zip"
-      link.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      setSuccess("Copia descargada. Guárdala en un lugar privado.")
+      saveBlob(blob, "forma-account-export.zip")
+      setSuccess("ZIP restaurable descargado con los datos y las fotos. Guárdalo en un lugar privado.")
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo descargar la copia.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function downloadJsonExport() {
+    setBusy(true)
+    setError("")
+    setSuccess("")
+    try {
+      const blob = await downloadAccountJsonExport(token)
+      saveBlob(blob, "forma-account-export.json")
+      setSuccess("JSON descargado para análisis externo. No incluye los archivos de imagen.")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "No se pudo descargar el JSON.")
     } finally {
       setBusy(false)
     }
@@ -88,12 +108,15 @@ export function AccountDataTransfer({ token }: { token: string }) {
       <div className="account-card-heading">
         <div>
           <h2>Exportar y restaurar datos</h2>
-          <p>Descarga tus registros y fotos o restaura una copia de esta cuenta.</p>
+          <p>JSON para analizar los datos; ZIP para restaurarlos con sus fotos.</p>
         </div>
         <Download size={19} />
       </div>
       <button className="outline-button" disabled={busy} onClick={() => void downloadExport()}>
-        <Download size={16} /> Descargar copia
+        <Download size={16} /> Descargar ZIP restaurable
+      </button>
+      <button className="outline-button" disabled={busy} onClick={() => void downloadJsonExport()}>
+        <Download size={16} /> Descargar JSON
       </button>
       <label className="account-import-file">
         Archivo de copia (.zip)

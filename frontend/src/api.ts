@@ -254,6 +254,10 @@ export async function downloadAccountExport(token: string): Promise<Blob> {
   return (await accountTransferRequest("/account/export", token, "GET")).blob()
 }
 
+export async function downloadAccountJsonExport(token: string): Promise<Blob> {
+  return (await accountTransferRequest("/account/export/json", token, "GET")).blob()
+}
+
 export async function previewAccountImport(token: string, file: File): Promise<AccountImportPreview> {
   const form = new FormData()
   form.set("file", file)

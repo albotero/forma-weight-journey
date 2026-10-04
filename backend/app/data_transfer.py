@@ -22,6 +22,7 @@ from app.schemas import BodyMeasurementCreate, CatalogItemCreate, DoseCreate, Jo
 
 EXPORT_FORMAT = "forma-account-export"
 EXPORT_VERSION = 1
+JSON_EXPORT_FORMAT = "forma-account-json-export"
 MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 150 * 1024 * 1024
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
@@ -92,7 +93,13 @@ def _validate_catalog_keys(value: Any, catalog_keys: set[str]) -> None:
             _validate_catalog_keys(item, catalog_keys)
 
 
-def build_export(db: Session, user: User, storage_path: str) -> bytes:
+def _build_export_manifest(
+    db: Session,
+    user: User,
+    storage_path: str,
+    *,
+    include_photo_files: bool,
+) -> tuple[dict[str, Any], dict[str, bytes]]:
     profile = db.scalar(select(UserProfile).where(
         UserProfile.user_id == user.id))
     if profile is None:
@@ -193,30 +200,61 @@ def build_export(db: Session, user: User, storage_path: str) -> bytes:
             "created_at": _iso(row.created_at),
         })
 
-    archive_buffer = BytesIO()
     photo_directory = Path(storage_path) / "photos" / str(user.id)
-    with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
-        for index, row in enumerate(photos):
+    photo_files: dict[str, bytes] = {}
+    for index, row in enumerate(photos):
+        photo_key = f"photo-{index:06d}"
+        photo_metadata = {
+            "key": photo_key,
+            "content_type": row.content_type,
+            "caption": row.caption,
+            "taken_at": _iso(row.taken_at),
+            "created_at": _iso(row.created_at),
+        }
+        if include_photo_files:
             source = photo_directory / row.file_key
             if source.parent != photo_directory or not source.is_file():
                 raise ValueError("A photo file is missing")
             content = source.read_bytes()
             if len(content) > MAX_PHOTO_BYTES:
                 raise ValueError("A photo exceeds the export size limit")
-            photo_key = f"photo-{index:06d}"
             file_path = f"photos/{photo_key}"
-            manifest["photos"].append({
-                "key": photo_key, "file": file_path, "content_type": row.content_type,
-                "caption": row.caption, "taken_at": _iso(row.taken_at),
-                "created_at": _iso(row.created_at), "sha256": sha256(content).hexdigest(),
-            })
+            photo_metadata.update(
+                file=file_path, sha256=sha256(content).hexdigest())
+            photo_files[file_path] = content
+        manifest["photos"].append(photo_metadata)
+    return manifest, photo_files
+
+
+def build_export(db: Session, user: User, storage_path: str) -> bytes:
+    manifest, photo_files = _build_export_manifest(
+        db, user, storage_path, include_photo_files=True)
+    archive_buffer = BytesIO()
+    with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for file_path, content in photo_files.items():
             archive.writestr(file_path, content)
         archive.writestr("manifest.json", json.dumps(
             manifest, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
     result = archive_buffer.getvalue()
     if len(result) > MAX_ARCHIVE_BYTES:
         raise ValueError("The account export exceeds the download size limit")
+    return result
+
+
+def build_json_export(db: Session, user: User, storage_path: str) -> bytes:
+    document, _photo_files = _build_export_manifest(
+        db, user, storage_path, include_photo_files=False)
+    document["format"] = JSON_EXPORT_FORMAT
+    document["media_files_included"] = False
+    document["photos"] = [
+        {key: value for key, value in photo.items() if key not in {
+            "file", "sha256"}}
+        for photo in document["photos"]
+    ]
+    result = json.dumps(document, ensure_ascii=False, indent=2).encode("utf-8")
+    if len(result) > MAX_UNCOMPRESSED_BYTES:
+        raise ValueError(
+            "The JSON account export exceeds the download size limit")
     return result
 
 
