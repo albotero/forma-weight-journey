@@ -83,15 +83,17 @@ export function JournalEntryEditor({
             <input required maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} />
           </label>
         )}
-        <label>
-          Fecha y hora
-          <input
-            required
-            type="datetime-local"
-            value={occurredAt}
-            onChange={(event) => setOccurredAt(event.target.value)}
-          />
-        </label>
+        {module !== "reminders" && (
+          <label>
+            Fecha y hora
+            <input
+              required
+              type="datetime-local"
+              value={occurredAt}
+              onChange={(event) => setOccurredAt(event.target.value)}
+            />
+          </label>
+        )}
         {journalDefinitions[module].fields.map(({ key, label, type, options }) => (
           <label key={key}>
             {label}
@@ -107,6 +109,7 @@ export function JournalEntryEditor({
               </select>
             ) : (
               <input
+                required={module === "reminders" && key === "reminder_at"}
                 type={type ?? "text"}
                 min={type === "number" ? "0" : undefined}
                 step={type === "number" ? "0.01" : undefined}

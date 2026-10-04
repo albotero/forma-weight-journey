@@ -60,7 +60,7 @@ export const journalDefinitions: Record<
     ],
   },
   reminders: {
-    title: "recordatorio",
+    title: "Recordatorio",
     fields: [
       { key: "reminder_at", label: "Fecha y hora", type: "datetime-local" },
       { key: "repeat", label: "Repetición", options: ["No repetir", "Diario", "Semanal", "Mensual"] },
