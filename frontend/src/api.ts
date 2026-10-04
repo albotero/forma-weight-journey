@@ -73,8 +73,9 @@ export type Medication = {
   id: number
   name: string
   active: boolean
-  concentration_mg: number
-  concentration_volume_ml: number
+  route: "injectable" | "oral"
+  concentration_mg: number | null
+  concentration_volume_ml: number | null
   units_per_ml: number | null
   dosing_interval: "daily" | "weekly" | null
 }
@@ -82,8 +83,10 @@ export type DoseEntry = {
   id: number
   medication_id: number
   administered_at: string
-  dose_mg: number
-  calculated_volume_ml: number
+  dose_mg: number | null
+  dose_amount: number
+  dose_unit: "mg" | "mcg" | "UI" | "g" | "mL" | "tableta" | "cápsula" | "gota"
+  calculated_volume_ml: number | null
   calculated_u100_units: number | null
   injection_site?: string | null
   notes?: string | null

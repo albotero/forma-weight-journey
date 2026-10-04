@@ -187,7 +187,8 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
     arguments = arguments.strip()
     if command in {"/ayuda", "/help", "/start"}:
         await send_telegram_message(chat_id, "Puedes registrar datos con estos comandos:\n"
-                                    "/peso 82.35 [nota]\n/dosis 2.5 [nota]\n"
+                                    "/peso 82.35 [nota]\n/dosis 2.5 [nota] (inyectable)\n"
+                                    "/dosis 2000 UI [nota] (oral)\n"
                                     "/composicion 82.35 grasa=24.5 agua=50\n"
                                     "/medidas cintura=90 cuello=38 cadera=100\n/cintura 90 [nota]\n"
                                     "/sintoma 5 náuseas\n"
@@ -222,23 +223,47 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
                                    notes=notes.strip() or None))
             reply = f"Cintura registrada: {value} cm."
         elif command == "/dosis":
-            value_text, _, notes = arguments.partition(" ")
+            dose_parts = arguments.split(maxsplit=2)
+            value_text = dose_parts[0] if dose_parts else ""
             value = _decimal(value_text, minimum=Decimal(
-                "0.01"), maximum=Decimal("1000"))
+                "0.01"), maximum=Decimal("1000000"))
             active_medications = db.scalars(select(Medication).where(
                 Medication.user_id == user_id, Medication.active.is_(True))).all()
             if len(active_medications) != 1:
                 await send_telegram_message(chat_id, "No pude identificar un único medicamento activo. Configura uno en la app o registra la dosis desde allí para elegirlo explícitamente.")
                 return
             medication = active_medications[0]
-            volume = dose_volume_ml(
-                float(value), medication.concentration_mg, medication.concentration_volume_ml)
-            units = u100_units(
-                volume, medication.units_per_ml) if medication.units_per_ml is not None else None
-            db.add(Dose(medication_id=medication.id, administered_at=now, dose_mg=float(value),
-                        calculated_volume_ml=volume, calculated_u100_units=units,
-                        notes=notes.strip() or None))
-            reply = f"Registro guardado: {value} mg de {medication.name}. Esto solo registra lo que indicaste; no recomienda una dosis."
+            if medication.route == "oral":
+                unit_aliases = {
+                    "mg": "mg", "mcg": "mcg", "ui": "UI", "iu": "UI",
+                    "g": "g", "ml": "mL", "tableta": "tableta",
+                    "cápsula": "cápsula", "capsula": "cápsula", "gota": "gota",
+                }
+                if len(dose_parts) < 2 or dose_parts[1].casefold() not in unit_aliases:
+                    raise ValueError(
+                        "Para una medicación oral usa /dosis 2000 UI [nota].")
+                dose_unit = unit_aliases[dose_parts[1].casefold()]
+                notes = dose_parts[2] if len(dose_parts) > 2 else ""
+                volume = units = None
+                dose_mg = float(value) if dose_unit == "mg" else None
+                reply = f"Registro guardado: {value} {dose_unit} de {medication.name}. Solo registra lo que indicaste; no recomienda una dosis."
+            else:
+                if medication.concentration_mg is None or medication.concentration_volume_ml is None:
+                    raise ValueError(
+                        "Configura la concentración inyectable desde la app antes de registrar dosis.")
+                notes = " ".join(dose_parts[1:])
+                dose_unit = "mg"
+                dose_mg = float(value)
+                volume = dose_volume_ml(
+                    float(value), medication.concentration_mg, medication.concentration_volume_ml)
+                units = u100_units(
+                    volume, medication.units_per_ml) if medication.units_per_ml is not None else None
+                reply = f"Registro guardado: {value} mg de {medication.name}. Esto solo registra lo que indicaste; no recomienda una dosis."
+            db.add(Dose(
+                medication_id=medication.id, administered_at=now,
+                dose_mg=dose_mg, dose_amount=float(value), dose_unit=dose_unit,
+                calculated_volume_ml=volume, calculated_u100_units=units,
+                notes=notes.strip() or None))
         elif command == "/sintoma":
             severity_text, separator, title = arguments.partition(" ")
             if not separator or not title.strip():

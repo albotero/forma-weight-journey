@@ -89,6 +89,7 @@ export function ModuleWorkspace(props: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [showNewMedication, setShowNewMedication] = useState(false)
+  const [newMedicationRoute, setNewMedicationRoute] = useState<Medication["route"]>("injectable")
   const [telegram, setTelegram] = useState<TelegramConnection | null>(null)
   const [pairingUrl, setPairingUrl] = useState("")
   const [catalog, setCatalog] = useState<CatalogItem[]>([])
@@ -348,14 +349,16 @@ export function ModuleWorkspace(props: {
     setBusy(true)
     setError("")
     try {
+      const route = String(form.get("route")) as Medication["route"]
       await api("/medications", token, {
         method: "POST",
         body: JSON.stringify({
           name: String(form.get("name")),
           active: true,
-          concentration_mg: Number(form.get("concentration_mg")),
-          concentration_volume_ml: Number(form.get("concentration_volume_ml")),
-          units_per_ml: form.get("units_per_ml") ? Number(form.get("units_per_ml")) : null,
+          route,
+          concentration_mg: route === "injectable" ? Number(form.get("concentration_mg")) : null,
+          concentration_volume_ml: route === "injectable" ? Number(form.get("concentration_volume_ml")) : null,
+          units_per_ml: route === "injectable" && form.get("units_per_ml") ? Number(form.get("units_per_ml")) : null,
           dosing_interval: form.get("dosing_interval") || null,
         }),
       })
@@ -387,7 +390,13 @@ export function ModuleWorkspace(props: {
             </button>
           )}
           {section === "Medicación" && (
-            <button className="primary-button" onClick={() => setShowNewMedication(true)}>
+            <button
+              className="primary-button"
+              onClick={() => {
+                setNewMedicationRoute("injectable")
+                setShowNewMedication(true)
+              }}
+            >
               <Plus size={16} /> Añadir medicación
             </button>
           )}
@@ -603,8 +612,9 @@ export function ModuleWorkspace(props: {
                       {item.active ? "Activa" : "Archivada"}
                     </span>
                     <p>
-                      {item.concentration_mg} mg / {item.concentration_volume_ml} mL
-                      {item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}
+                      {item.route === "oral"
+                        ? "Vía oral"
+                        : `${item.concentration_mg} mg / ${item.concentration_volume_ml} mL${item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}`}
                     </p>
                     {item.active && (
                       <p>
@@ -684,7 +694,8 @@ export function ModuleWorkspace(props: {
                 <div className="record-card-heading">
                   <div>
                     <strong>
-                      {item.dose_mg} mg · {item.calculated_volume_ml} mL
+                      {formatDecimal(item.dose_amount)} {item.dose_unit}
+                      {item.calculated_volume_ml !== null && ` · ${formatDecimal(item.calculated_volume_ml)} mL`}
                     </strong>
                     <time>{formatDateTime(item.administered_at, userTimezone)}</time>
                   </div>
@@ -1204,7 +1215,7 @@ export function ModuleWorkspace(props: {
       {showNewMedication && (
         <Modal
           title="Añadir medicación"
-          subtitle="Configura concentración para conversiones informativas."
+          subtitle="Registra medicamentos orales e inyectables. Las conversiones solo aplican a inyectables."
           onClose={() => setShowNewMedication(false)}
         >
           <form className="entry-form" onSubmit={createMedication}>
@@ -1212,20 +1223,35 @@ export function ModuleWorkspace(props: {
               Nombre
               <input name="name" required maxLength={120} />
             </label>
-            <div className="form-two-columns">
-              <label>
-                Concentración
-                <input name="concentration_mg" required type="number" min="0.01" step="0.01" />
-              </label>
-              <label>
-                Volumen (mL)
-                <input name="concentration_volume_ml" required type="number" min="0.01" step="0.01" />
-              </label>
-            </div>
             <label>
-              Unidades/mL <span className="optional">opcional</span>
-              <input name="units_per_ml" type="number" min="0.01" step="0.01" />
+              Vía de administración
+              <select
+                name="route"
+                value={newMedicationRoute}
+                onChange={(event) => setNewMedicationRoute(event.target.value as Medication["route"])}
+              >
+                <option value="injectable">Inyectable</option>
+                <option value="oral">Oral</option>
+              </select>
             </label>
+            {newMedicationRoute === "injectable" && (
+              <>
+                <div className="form-two-columns">
+                  <label>
+                    Concentración
+                    <input name="concentration_mg" required type="number" min="0.01" step="0.01" />
+                  </label>
+                  <label>
+                    Volumen (mL)
+                    <input name="concentration_volume_ml" required type="number" min="0.01" step="0.01" />
+                  </label>
+                </div>
+                <label>
+                  Unidades/mL <span className="optional">opcional</span>
+                  <input name="units_per_ml" type="number" min="0.01" step="0.01" />
+                </label>
+              </>
+            )}
             <label>
               Frecuencia <span className="optional">opcional</span>
               <select name="dosing_interval" defaultValue="">

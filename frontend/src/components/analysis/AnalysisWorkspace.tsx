@@ -77,11 +77,17 @@ export function AnalysisWorkspace({
     ? recentDoses.slice(
         0,
         recentDoses.findIndex(
-          (item) => item.medication_id !== currentDose.medication_id || item.dose_mg !== currentDose.dose_mg,
+          (item) =>
+            item.medication_id !== currentDose.medication_id ||
+            item.dose_amount !== currentDose.dose_amount ||
+            item.dose_unit !== currentDose.dose_unit,
         ) < 0
           ? recentDoses.length
           : recentDoses.findIndex(
-              (item) => item.medication_id !== currentDose.medication_id || item.dose_mg !== currentDose.dose_mg,
+              (item) =>
+                item.medication_id !== currentDose.medication_id ||
+                item.dose_amount !== currentDose.dose_amount ||
+                item.dose_unit !== currentDose.dose_unit,
             ),
       )
     : []
@@ -440,8 +446,8 @@ export function AnalysisWorkspace({
           <h2>{recommendation.title}</h2>
           {currentDose && (
             <div className="recommendation-context">
-              {doseMedication?.name ?? "Dosis registrada"} · {formatDecimal(currentDose.dose_mg)} mg · último registro{" "}
-              {formatDate(currentDose.administered_at, profile?.timezone)}
+              {doseMedication?.name ?? "Dosis registrada"} · {formatDecimal(currentDose.dose_amount)}{" "}
+              {currentDose.dose_unit} · último registro {formatDate(currentDose.administered_at, profile?.timezone)}
             </div>
           )}
           <p>{recommendation.message}</p>

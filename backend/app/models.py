@@ -59,10 +59,14 @@ class Medication(Base):
         "users.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(120), default="Tirzepatida")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    concentration_mg: Mapped[float] = mapped_column(Float, default=10)
-    concentration_volume_ml: Mapped[float] = mapped_column(Float, default=0.5)
+    route: Mapped[str] = mapped_column(
+        String(16), default="injectable", server_default="injectable")
+    concentration_mg: Mapped[float | None] = mapped_column(
+        Float, nullable=True)
+    concentration_volume_ml: Mapped[float |
+                                    None] = mapped_column(Float, nullable=True)
     units_per_ml: Mapped[float | None] = mapped_column(
-        Float, default=100, nullable=True)
+        Float, nullable=True)
     dosing_interval: Mapped[str | None] = mapped_column(
         String(10), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -81,8 +85,12 @@ class Dose(Base):
         "medications.id", ondelete="CASCADE"), index=True)
     administered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True)
-    dose_mg: Mapped[float] = mapped_column(Float)
-    calculated_volume_ml: Mapped[float] = mapped_column(Float)
+    dose_mg: Mapped[float | None] = mapped_column(Float, nullable=True)
+    dose_amount: Mapped[float] = mapped_column(Float)
+    dose_unit: Mapped[str] = mapped_column(
+        String(20), default="mg", server_default="mg")
+    calculated_volume_ml: Mapped[float |
+                                 None] = mapped_column(Float, nullable=True)
     calculated_u100_units: Mapped[float |
                                   None] = mapped_column(Float, nullable=True)
     injection_site: Mapped[str | None] = mapped_column(

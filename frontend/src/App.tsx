@@ -17,6 +17,7 @@ import {
   Menu,
   Moon,
   MoreHorizontal,
+  Pill,
   Plus,
   Ruler,
   Scale,
@@ -353,14 +354,22 @@ export default function App() {
     setModal(null)
   }
 
-  async function submitDose(mg: number, injectionSite: string, dateTime: string, id?: number, medicationId?: number) {
+  async function submitDose(
+    amount: number,
+    unit: DoseEntry["dose_unit"],
+    injectionSite: string,
+    dateTime: string,
+    id?: number,
+    medicationId?: number,
+  ) {
     const targetMedicationId = medicationId ?? activeMedication?.id
     if (!token || !targetMedicationId) return
     await api(id ? `/doses/${id}` : "/doses", token, {
       method: id ? "PUT" : "POST",
       body: JSON.stringify({
         medication_id: targetMedicationId,
-        dose_mg: mg,
+        dose_amount: amount,
+        dose_unit: unit,
         administered_at: localDateTimeToIso(dateTime, userTimezone),
         injection_site: injectionSite || null,
       }),
@@ -379,8 +388,9 @@ export default function App() {
   async function updateMedication(
     medication: Medication,
     name: string,
-    concentrationMg: number,
-    volumeMl: number,
+    route: Medication["route"],
+    concentrationMg: number | null,
+    volumeMl: number | null,
     unitsPerMl: number | null,
     dosingInterval: Medication["dosing_interval"],
   ) {
@@ -390,6 +400,7 @@ export default function App() {
       body: JSON.stringify({
         name,
         active: medication.active,
+        route,
         concentration_mg: concentrationMg,
         concentration_volume_ml: volumeMl,
         units_per_ml: unitsPerMl,
@@ -755,7 +766,7 @@ export default function App() {
                     <>
                       <div className="medication-name">
                         <div className="medication-symbol">
-                          <Syringe size={21} />
+                          {activeMedication.route === "oral" ? <Pill size={21} /> : <Syringe size={21} />}
                         </div>
                         <div>
                           <strong>{activeMedication.name}</strong>
@@ -768,7 +779,8 @@ export default function App() {
                         <strong>
                           {currentDose ? (
                             <>
-                              <span>{currentDose.dose_mg}</span> <small>mg</small>
+                              <span>{formatDecimal(currentDose.dose_amount)}</span>{" "}
+                              <small>{currentDose.dose_unit}</small>
                             </>
                           ) : (
                             "—"
@@ -781,15 +793,27 @@ export default function App() {
                         </p>
                       </div>
                       <div className="dose-details">
-                        <span>Concentración</span>
-                        <strong>
-                          {activeMedication.concentration_mg} mg / {activeMedication.concentration_volume_ml} mL
-                        </strong>
-                        <span>Equivalencia</span>
-                        <strong>
-                          {(activeMedication.concentration_mg / activeMedication.concentration_volume_ml).toFixed(1)}{" "}
-                          mg/mL{activeMedication.units_per_ml ? ` · U-100 habilitado` : ""}
-                        </strong>
+                        {activeMedication.route === "injectable" && (
+                          <>
+                            <span>Concentración</span>
+                            <strong>
+                              {activeMedication.concentration_mg} mg / {activeMedication.concentration_volume_ml} mL
+                            </strong>
+                            <span>Equivalencia</span>
+                            <strong>
+                              {(activeMedication.concentration_mg! / activeMedication.concentration_volume_ml!).toFixed(
+                                1,
+                              )}{" "}
+                              mg/mL{activeMedication.units_per_ml ? " · U-100 habilitado" : ""}
+                            </strong>
+                          </>
+                        )}
+                        {activeMedication.route === "oral" && (
+                          <>
+                            <span>Vía</span>
+                            <strong>Oral</strong>
+                          </>
+                        )}
                         <span>Próxima dosis estimada</span>
                         <strong>
                           {nextDoseAt
@@ -881,10 +905,13 @@ export default function App() {
                         })),
                         ...doses.map((item) => ({
                           id: `d${item.id}`,
-                          icon: Syringe,
+                          icon:
+                            medications.find((medication) => medication.id === item.medication_id)?.route === "oral"
+                              ? Pill
+                              : Syringe,
                           kind: "dose",
                           date: item.administered_at,
-                          text: `${formatDecimal(item.dose_mg)} mg`,
+                          text: `${formatDecimal(item.dose_amount)} ${item.dose_unit}`,
                           sub: "Medicación",
                         })),
                         ...bodyMeasurements.map((item) => ({

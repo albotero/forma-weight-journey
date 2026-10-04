@@ -140,11 +140,26 @@ class MedicationsReviewToggle(BaseModel):
 class MedicationCreate(NumericPrecisionModel):
     name: str = Field(default="Tirzepatida", min_length=1, max_length=120)
     active: bool = True
-    concentration_mg: float = Field(gt=0, le=10000)
-    concentration_volume_ml: float = Field(gt=0, le=1000)
-    units_per_ml: float | None = Field(default=100, gt=0, le=10000)
+    route: Literal["injectable", "oral"] = "injectable"
+    concentration_mg: float | None = Field(default=None, gt=0, le=10000)
+    concentration_volume_ml: float | None = Field(default=None, gt=0, le=1000)
+    units_per_ml: float | None = Field(default=None, gt=0, le=10000)
     dosing_interval: Literal["daily", "weekly"] | None = None
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def validate_route_fields(self) -> "MedicationCreate":
+        if self.route == "injectable":
+            if self.concentration_mg is None or self.concentration_volume_ml is None:
+                raise ValueError(
+                    "Injectable medications require concentration and volume")
+            if self.units_per_ml is None:
+                self.units_per_ml = 100
+        elif any(value is not None for value in (
+                self.concentration_mg, self.concentration_volume_ml, self.units_per_ml)):
+            raise ValueError(
+                "Oral medications do not use injection concentration fields")
+        return self
 
 
 class MedicationOut(MedicationCreate):
@@ -181,9 +196,29 @@ class WeightOut(WeightCreate):
 class DoseCreate(NumericPrecisionModel):
     medication_id: int
     administered_at: datetime | None = None
-    dose_mg: float = Field(gt=0, le=1000)
+    dose_amount: float | None = Field(default=None, gt=0, le=1000000)
+    dose_unit: Literal["mg", "mcg", "UI", "g",
+                       "mL", "tableta", "cápsula", "gota"] = "mg"
+    dose_mg: float | None = Field(default=None, gt=0, le=1000)
     injection_site: str | None = Field(default=None, max_length=80)
     notes: str | None = None
+
+    @model_validator(mode="after")
+    def normalize_dose_amount(self) -> "DoseCreate":
+        if self.dose_amount is None:
+            if self.dose_mg is None:
+                raise ValueError("Dose amount is required")
+            self.dose_amount = self.dose_mg
+        if self.dose_unit == "mg":
+            if self.dose_mg is None:
+                self.dose_mg = self.dose_amount
+            elif self.dose_mg != self.dose_amount:
+                raise ValueError(
+                    "dose_mg and dose_amount must match when the unit is mg")
+        elif self.dose_mg is not None:
+            raise ValueError(
+                "Use dose_amount instead of dose_mg when the unit is not mg")
+        return self
 
 
 class DoseOut(BaseModel):
@@ -191,8 +226,10 @@ class DoseOut(BaseModel):
     id: int
     medication_id: int
     administered_at: datetime
-    dose_mg: float
-    calculated_volume_ml: float
+    dose_mg: float | None
+    dose_amount: float
+    dose_unit: str
+    calculated_volume_ml: float | None
     calculated_u100_units: float | None
     injection_site: str | None
     notes: str | None

@@ -211,6 +211,33 @@ def test_registration_starts_without_assuming_medication_and_dose_is_calculated(
     assert recorded.json()["calculated_u100_units"] == 25
 
 
+def test_oral_medication_and_doses_keep_their_unit_without_injection_math() -> None:
+    created = client.post("/api/auth/register", json={
+        "email": "oral-medication@example.com", "password": "oral-medication-password-123"})
+    headers = {"Authorization": f"Bearer {created.json()['access_token']}"}
+    medication = client.post("/api/medications", headers=headers, json={
+        "name": "Vitamina D3", "route": "oral", "dosing_interval": "weekly",
+        "notes": "Reposición indicada por profesional de salud",
+    })
+    assert medication.status_code == 201
+    assert medication.json()["route"] == "oral"
+    assert medication.json()["dosing_interval"] == "weekly"
+    assert medication.json()["concentration_mg"] is None
+    assert medication.json()["concentration_volume_ml"] is None
+
+    dose = client.post("/api/doses", headers=headers, json={
+        "medication_id": medication.json()["id"],
+        "dose_amount": 2000,
+        "dose_unit": "UI",
+    })
+    assert dose.status_code == 201
+    assert dose.json()["dose_amount"] == 2000
+    assert dose.json()["dose_unit"] == "UI"
+    assert dose.json()["dose_mg"] is None
+    assert dose.json()["calculated_volume_ml"] is None
+    assert dose.json()["calculated_u100_units"] is None
+
+
 def test_medication_concentration_can_be_changed_and_is_user_scoped() -> None:
     owner = client.post("/api/auth/register", json={
                         "email": "concentration-owner@example.com", "password": "concentration-owner-123"})
@@ -301,6 +328,11 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
         "dosing_interval": "weekly",
     }).json()
+    oral_medication_response = client.post("/api/medications", headers=headers, json={
+        "name": "Vitamina D3", "route": "oral", "dosing_interval": "daily",
+    })
+    assert oral_medication_response.status_code == 201
+    oral_medication = oral_medication_response.json()
     client.post("/api/medications", headers=other_headers, json={
         "name": "Otro medicamento", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
@@ -309,6 +341,10 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
         "medication_id": medication["id"], "dose_mg": 2.5,
     })
     assert dose.status_code == 201
+    oral_dose = client.post("/api/doses", headers=headers, json={
+        "medication_id": oral_medication["id"], "dose_amount": 2000, "dose_unit": "UI",
+    })
+    assert oral_dose.status_code == 201
     original_weight = client.post("/api/weights", headers=headers, json={
         "weight_kg": 82.5,
     })
@@ -339,6 +375,13 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     json_document = json_export.json()
     assert json_document["format"] == "forma-account-json-export"
     assert json_document["weights"][0]["weight_kg"] == 82.5
+    exported_oral = next(
+        item for item in json_document["medications"] if item["name"] == "Vitamina D3")
+    assert exported_oral["route"] == "oral"
+    exported_oral_dose = next(
+        item for item in json_document["doses"] if item["medication_key"] == exported_oral["key"])
+    assert exported_oral_dose["dose_amount"] == 2000
+    assert exported_oral_dose["dose_unit"] == "UI"
     assert json_document["media_files_included"] is False
     assert "file" not in json_document["photos"][0]
     assert "sha256" not in json_document["photos"][0]
@@ -365,11 +408,23 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
     weights = client.get("/api/weights", headers=headers).json()
     assert len(weights) == 1 and weights[0]["weight_kg"] == 82.5
-    restored_medication = client.get(
-        "/api/medications", headers=headers).json()[0]
+    restored_medications = client.get(
+        "/api/medications", headers=headers).json()
+    restored_medication = next(
+        item for item in restored_medications if item["name"] == "Registro de prueba")
     assert restored_medication["dosing_interval"] == "weekly"
-    restored_dose = client.get("/api/doses", headers=headers).json()[0]
+    restored_oral = next(
+        item for item in restored_medications if item["name"] == "Vitamina D3")
+    assert restored_oral["route"] == "oral"
+    restored_doses = client.get("/api/doses", headers=headers).json()
+    restored_dose = next(
+        item for item in restored_doses if item["medication_id"] == restored_medication["id"])
     assert restored_dose["medication_id"] == restored_medication["id"]
+    restored_oral_dose = next(
+        item for item in restored_doses if item["medication_id"] == restored_oral["id"])
+    assert restored_oral_dose["dose_amount"] == 2000
+    assert restored_oral_dose["dose_unit"] == "UI"
+    assert restored_oral_dose["calculated_volume_ml"] is None
     restored_entry = client.get("/api/entries/labs", headers=headers).json()[0]
     restored_catalog = client.get("/api/catalog/lab", headers=headers).json()
     custom_item = next(

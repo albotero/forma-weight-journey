@@ -62,3 +62,42 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
                 "diastolic_normal_max", "sort_order"} <= catalog_columns
     finally:
         engine.dispose()
+
+
+def test_oral_medication_migration_backfills_existing_doses(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "legacy-medications.sqlite"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{database}")
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY)"))
+            connection.execute(text(
+                "INSERT INTO alembic_version (version_num) VALUES ('0012_profile_reminder_time')"))
+            connection.execute(text(
+                "CREATE TABLE medications (id INTEGER PRIMARY KEY, concentration_mg FLOAT NOT NULL, concentration_volume_ml FLOAT NOT NULL)"))
+            connection.execute(text(
+                "INSERT INTO medications (id, concentration_mg, concentration_volume_ml) VALUES (1, 10, 0.5)"))
+            connection.execute(text(
+                "CREATE TABLE doses (id INTEGER PRIMARY KEY, dose_mg FLOAT NOT NULL, calculated_volume_ml FLOAT NOT NULL)"))
+            connection.execute(text(
+                "INSERT INTO doses (id, dose_mg, calculated_volume_ml) VALUES (1, 5, 0.25)"))
+    finally:
+        engine.dispose()
+
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "migrations"))
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.connect() as connection:
+            medication = connection.execute(text(
+                "SELECT route, concentration_mg, concentration_volume_ml FROM medications WHERE id = 1")).one()
+            dose = connection.execute(text(
+                "SELECT dose_mg, dose_amount, dose_unit, calculated_volume_ml FROM doses WHERE id = 1")).one()
+        assert medication == ("injectable", 10, 0.5)
+        assert dose == (5, 5, "mg", 0.25)
+    finally:
+        engine.dispose()

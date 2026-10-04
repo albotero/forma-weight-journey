@@ -2,13 +2,13 @@ import asyncio
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.automatic_reminders import _next_date
 from app.database import Base
-from app.models import JournalEntry, Medication, User
+from app.models import Dose, JournalEntry, Medication, User
 from app.telegram import next_occurrence, parse_scheduled_at, reminder_is_enabled
 
 
@@ -28,6 +28,37 @@ def test_reminder_enabled_accepts_form_values() -> None:
     assert reminder_is_enabled(True)
     assert not reminder_is_enabled("No")
     assert not reminder_is_enabled(False)
+
+
+def test_telegram_oral_dose_saves_the_explicit_unit(monkeypatch) -> None:
+    from app.telegram import handle_telegram_command
+
+    async def fake_send(_chat_id: str, _text: str) -> bool:
+        return True
+
+    monkeypatch.setattr("app.telegram.send_telegram_message", fake_send)
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        user = User(email="oral-dose@example.com", password_hash="unused")
+        db.add(user)
+        db.flush()
+        medication = Medication(
+            user_id=user.id, name="Vitamina D3", route="oral")
+        db.add(medication)
+        db.commit()
+
+        asyncio.run(handle_telegram_command(
+            db, user.id, "123", "/dosis 2000 UI reposición"))
+
+        dose = db.scalar(select(Dose).where(
+            Dose.medication_id == medication.id))
+        assert dose is not None
+        assert dose.dose_amount == 2000
+        assert dose.dose_unit == "UI"
+        assert dose.dose_mg is None
+        assert dose.calculated_volume_ml is None
+        assert dose.calculated_u100_units is None
 
 
 def test_telegram_reminder_has_snooze_buttons(monkeypatch) -> None:

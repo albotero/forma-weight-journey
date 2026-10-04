@@ -148,6 +148,7 @@ def _build_export_manifest(
     for row in medications:
         manifest["medications"].append({
             "key": medication_keys[row.id], "name": row.name, "active": row.active,
+            "route": row.route,
             "concentration_mg": row.concentration_mg,
             "concentration_volume_ml": row.concentration_volume_ml,
             "units_per_ml": row.units_per_ml, "dosing_interval": row.dosing_interval,
@@ -160,7 +161,9 @@ def _build_export_manifest(
             raise ValueError("A dose refers to a missing medication")
         manifest["doses"].append({
             "medication_key": medication_key,
-            "administered_at": _iso(row.administered_at), "dose_mg": row.dose_mg,
+            "administered_at": _iso(row.administered_at),
+            "dose_mg": row.dose_mg, "dose_amount": row.dose_amount,
+            "dose_unit": row.dose_unit,
             "calculated_volume_ml": row.calculated_volume_ml,
             "calculated_u100_units": row.calculated_u100_units,
             "injection_site": row.injection_site, "notes": row.notes,
@@ -339,6 +342,9 @@ def parse_export(content: bytes, expected_email: str) -> ParsedExport:
             row.get("created_at"), "created_at", optional=True))
         normalized_medications.append(normalized)
     manifest["medications"] = normalized_medications
+    medication_routes = {
+        row["key"]: row["route"] for row in normalized_medications
+    }
 
     catalog_items = _validate_rows("catalog_items", manifest["catalog_items"])
     catalog_keys: set[str] = set()
@@ -396,11 +402,20 @@ def parse_export(content: bytes, expected_email: str) -> ParsedExport:
             created_at=_parse_datetime(
                 row.get("created_at"), "created_at", optional=True),
         )
-        if isinstance(normalized["calculated_volume_ml"], bool) or not isinstance(normalized["calculated_volume_ml"], (int, float)) or normalized["calculated_volume_ml"] <= 0:
-            raise ValueError("A dose has an invalid calculated volume")
+        route = medication_routes[key]
+        if route == "injectable":
+            if normalized["dose_unit"] != "mg":
+                raise ValueError("An injectable dose must use mg")
+            volume = normalized["calculated_volume_ml"]
+            if isinstance(volume, bool) or not isinstance(volume, (int, float)) or volume <= 0:
+                raise ValueError("A dose has an invalid calculated volume")
+        elif normalized["calculated_volume_ml"] is not None:
+            raise ValueError("An oral dose cannot contain an injection volume")
         units = normalized["calculated_u100_units"]
         if units is not None and (isinstance(units, bool) or not isinstance(units, (int, float)) or units <= 0):
             raise ValueError("A dose has invalid calculated units")
+        if route == "oral" and units is not None:
+            raise ValueError("An oral dose cannot contain U-100 units")
         normalized_doses.append(normalized)
     manifest["doses"] = normalized_doses
 
@@ -556,6 +571,7 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
         for row in manifest["medications"]:
             medication = Medication(
                 user_id=user.id, name=row["name"], active=row["active"],
+                route=row["route"],
                 concentration_mg=row["concentration_mg"],
                 concentration_volume_ml=row["concentration_volume_ml"],
                 units_per_ml=row["units_per_ml"], dosing_interval=row["dosing_interval"],
@@ -571,6 +587,7 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
             dose = Dose(
                 medication_id=medication_ids[row["medication_key"]],
                 administered_at=row["administered_at"], dose_mg=row["dose_mg"],
+                dose_amount=row["dose_amount"], dose_unit=row["dose_unit"],
                 calculated_volume_ml=row["calculated_volume_ml"],
                 calculated_u100_units=row["calculated_u100_units"],
                 injection_site=row["injection_site"], notes=row["notes"],

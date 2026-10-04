@@ -12,6 +12,44 @@ from app.routers.common import utc_datetime
 router = APIRouter()
 
 
+def dose_storage_values(payload: DoseCreate, medication: Medication) -> dict[str, object]:
+    if payload.dose_amount is None:
+        raise HTTPException(status_code=422, detail="Dose amount is required")
+    if medication.route == "injectable":
+        if payload.dose_unit != "mg":
+            raise HTTPException(
+                status_code=422, detail="Injectable doses must be recorded in mg")
+        if medication.concentration_mg is None or medication.concentration_volume_ml is None:
+            raise HTTPException(
+                status_code=409, detail="Set the injectable concentration before recording a dose")
+        if payload.injection_site is not None:
+            injection_site = payload.injection_site
+        else:
+            injection_site = None
+        volume = dose_volume_ml(
+            payload.dose_amount, medication.concentration_mg, medication.concentration_volume_ml)
+        return {
+            "dose_mg": payload.dose_amount,
+            "dose_amount": payload.dose_amount,
+            "dose_unit": "mg",
+            "calculated_volume_ml": volume,
+            "calculated_u100_units": u100_units(
+                volume, medication.units_per_ml) if medication.units_per_ml is not None else None,
+            "injection_site": injection_site,
+        }
+    if payload.injection_site is not None:
+        raise HTTPException(
+            status_code=422, detail="Injection site only applies to injectable medications")
+    return {
+        "dose_mg": payload.dose_mg,
+        "dose_amount": payload.dose_amount,
+        "dose_unit": payload.dose_unit,
+        "calculated_volume_ml": None,
+        "calculated_u100_units": None,
+        "injection_site": None,
+    }
+
+
 @router.get("/doses", response_model=list[DoseOut])
 def list_doses(limit: int = Query(default=100, ge=1, le=500), offset: int = Query(default=0, ge=0), user: User = Depends(current_user), db: Session = Depends(get_db)) -> list[Dose]:
     statement = select(Dose).join(Medication).where(Medication.user_id == user.id).order_by(
@@ -26,12 +64,12 @@ def create_dose(payload: DoseCreate, user: User = Depends(current_user), db: Ses
     if medication is None:
         raise HTTPException(
             status_code=404, detail="Active medication not found")
-    volume = dose_volume_ml(
-        payload.dose_mg, medication.concentration_mg, medication.concentration_volume_ml)
-    units = u100_units(
-        volume, medication.units_per_ml) if medication.units_per_ml is not None else None
-    dose = Dose(medication_id=medication.id, administered_at=utc_datetime(payload.administered_at), dose_mg=payload.dose_mg,
-                calculated_volume_ml=volume, calculated_u100_units=units, injection_site=payload.injection_site, notes=payload.notes)
+    dose = Dose(
+        medication_id=medication.id,
+        administered_at=utc_datetime(payload.administered_at),
+        notes=payload.notes,
+        **dose_storage_values(payload, medication),
+    )
     db.add(dose)
     db.commit()
     db.refresh(dose)
@@ -48,15 +86,11 @@ def update_dose(dose_id: int, payload: DoseCreate, user: User = Depends(current_
         Medication.id == payload.medication_id, Medication.user_id == user.id))
     if medication is None:
         raise HTTPException(status_code=404, detail="Medication not found")
-    volume = dose_volume_ml(
-        payload.dose_mg, medication.concentration_mg, medication.concentration_volume_ml)
+    dose_values = dose_storage_values(payload, medication)
     dose.medication_id = medication.id
     dose.administered_at = utc_datetime(payload.administered_at)
-    dose.dose_mg = payload.dose_mg
-    dose.calculated_volume_ml = volume
-    dose.calculated_u100_units = u100_units(
-        volume, medication.units_per_ml) if medication.units_per_ml is not None else None
-    dose.injection_site = payload.injection_site
+    for field, value in dose_values.items():
+        setattr(dose, field, value)
     dose.notes = payload.notes
     db.commit()
     db.refresh(dose)
