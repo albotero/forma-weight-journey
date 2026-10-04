@@ -17,6 +17,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.calculations import weight_moving_average_series
 from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
 from app.schemas import BodyMeasurementCreate, CatalogItemCreate, DoseCreate, JournalEntryCreate, MedicationCreate, PhotoUpdate, ProfileUpdate, WeightCreate
 
@@ -250,6 +251,26 @@ def build_json_export(db: Session, user: User, storage_path: str) -> bytes:
         db, user, storage_path, include_photo_files=False)
     document["format"] = JSON_EXPORT_FORMAT
     document["media_files_included"] = False
+    document["weight_trends"] = {
+        "window_days": 7,
+        "method": "mean_of_measurements_in_trailing_window_exclusive_start_inclusive_end",
+        "unit": "kg",
+        "points": [
+            {"measured_at": timestamp.isoformat(), "moving_average_7d_kg": average}
+            for timestamp, average in weight_moving_average_series([
+                (datetime.fromisoformat(row["measured_at"]), row["weight_kg"])
+                for row in document["weights"]
+            ])
+        ],
+    }
+    for entry in document["journal_entries"]:
+        results = entry["data"].get("results")
+        if entry["module"] == "labs" and isinstance(results, list):
+            for result in results:
+                if isinstance(result, dict):
+                    for key in ("severity", "intensity", "category"):
+                        if result.get(key) is None:
+                            result.pop(key, None)
     document["photos"] = [
         {key: value for key, value in photo.items() if key not in {
             "file", "sha256"}}

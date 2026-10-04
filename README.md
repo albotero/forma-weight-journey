@@ -182,6 +182,8 @@ Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notifi
 
 - Las cuentas nuevas requieren verificación de correo. Los enlaces de verificación vencen a las 24 horas; los de recuperación de contraseña, a los 30 minutos.
 - En **Perfil y ajustes → Exportar y restaurar datos**, descarga JSON versionado para analizar los registros en otras aplicaciones o un ZIP con fotos para restaurar la cuenta. Solo se restaura el ZIP; la restauración reemplaza los datos de esa cuenta, acepta solo una copia del mismo correo y revoca sesiones y la vinculación con Telegram.
+- El JSON se genera en UTF-8, conserva los acentos y añade `weight_trends.points` con `measured_at` y `moving_average_7d_kg`. Esta serie también aparece en las gráficas de Inicio y Análisis: promedia los pesajes de las últimas 168 horas, excluye el límite inicial, incluye la lectura actual y redondea a dos decimales. Los días sin pesajes no se rellenan; al inicio del historial se usan las lecturas disponibles.
+- En el JSON de análisis, los resultados de laboratorio omiten `severity`, `intensity` y `category` cuando son nulos; esos campos corresponden a síntomas u objetivos. El ZIP y los registros almacenados no se modifican. En recordatorios, `occurred_at` indica la fecha programada y `created_at` cuándo se creó el registro, por lo que no son intercambiables.
 - Fotos admitidas: JPEG, PNG y WebP, hasta 10 MB. Se guardan fuera del directorio público y solo se sirven mediante la API autenticada.
 - Los datos de salud son sensibles. Protege la cuenta, el servidor y las copias de seguridad.
 

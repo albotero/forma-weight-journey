@@ -1,5 +1,8 @@
+from collections import deque
 from collections.abc import Sequence
 from datetime import datetime, timedelta, timezone
+from itertools import groupby
+from math import floor
 
 
 def bmi(weight_kg: float, height_cm: float) -> float:
@@ -42,6 +45,27 @@ def rolling_weight_average(entries: Sequence[tuple[datetime, float]], days: int,
     values = [weight for timestamp,
               weight in entries if start <= timestamp <= end]
     return sum(values) / len(values) if values else None
+
+
+def weight_moving_average_series(entries: Sequence[tuple[datetime, float]]) -> list[tuple[datetime, float]]:
+    ordered = sorted(
+        ((timestamp.replace(tzinfo=timezone.utc) if timestamp.tzinfo is None
+          else timestamp.astimezone(timezone.utc), weight) for timestamp, weight in entries),
+        key=lambda entry: entry[0],
+    )
+    window: deque[tuple[datetime, float]] = deque()
+    total = 0.0
+    result: list[tuple[datetime, float]] = []
+    for timestamp, group in groupby(ordered, key=lambda entry: entry[0]):
+        cutoff = timestamp - timedelta(days=7)
+        while window and window[0][0] <= cutoff:
+            total -= window.popleft()[1]
+        for entry in group:
+            window.append(entry)
+            total += entry[1]
+        result.append(
+            (timestamp, floor(total / len(window) * 100 + 0.5) / 100))
+    return result
 
 
 def weekly_weight_change(entries: Sequence[tuple[datetime, float]]) -> float | None:

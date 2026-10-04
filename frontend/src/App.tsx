@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import {
+  Area,
+  ComposedChart,
+  Line as RechartsLine,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import {
   Activity,
   UserRoundCog,
@@ -58,6 +67,7 @@ import {
 import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick, formatDateTime } from "./lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "./components/charts/BmiRange"
 import { estimatedNextDose, weeklyActivityChecklistDate, loadAllRecords, compositionFields } from "./lib/records"
+import { weightMovingAverageSeries } from "./lib/weightTrend.js"
 import { MetricCard } from "./components/common/MetricCard"
 import { AccountSettings } from "./components/settings/AccountSettings"
 import { AuthScreen } from "./components/auth/AuthScreen"
@@ -202,15 +212,19 @@ export default function App() {
     const days =
       range === "30 días" ? 30 : range === "90 días" ? 90 : range === "6 meses" ? 183 : range === "1 año" ? 365 : 10000
     const cutoff = Date.now() - days * 86400000
-    return sortedWeights
+    return weightMovingAverageSeries(sortedWeights)
       .filter((item) => {
         const timestamp = new Date(item.measured_at).getTime()
         return timestamp >= cutoff && timestamp <= Date.now()
       })
-      .map((item) => ({ date: formatDate(item.measured_at, userTimezone), peso: item.weight_kg }))
+      .map((item) => ({
+        date: formatDate(item.measured_at, userTimezone),
+        peso: item.weight_kg,
+        promedio: item.moving_average_7d_kg,
+      }))
   }, [sortedWeights, range, userTimezone])
   const weightAxis = niceAxis(
-    chartData.map((item) => item.peso),
+    chartData.flatMap((item) => [item.peso, item.promedio]),
     2,
   )
   const average7 = useMemo(() => {
@@ -702,7 +716,7 @@ export default function App() {
                   {chartData.length ? (
                     <div className="chart-wrap">
                       <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={chartData} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+                        <ComposedChart data={chartData} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
                           <defs>
                             <linearGradient id="weightFill" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="0%" stopColor="#6fb99c" stopOpacity={0.22} />
@@ -735,18 +749,27 @@ export default function App() {
                               background: "var(--panel)",
                               color: "var(--text)",
                             }}
-                            formatter={(value) => [`${formatDecimal(Number(value))} kg`, "Peso"]}
+                            formatter={(value, name) => [`${formatDecimal(Number(value))} kg`, name]}
                             labelStyle={{ color: "var(--muted)", marginBottom: 4 }}
                           />
                           <Area
                             type="monotone"
                             dataKey="peso"
+                            name="Peso registrado"
                             stroke="#398766"
                             strokeWidth={2.7}
                             fill="url(#weightFill)"
                             activeDot={{ r: 5, strokeWidth: 3, stroke: "var(--panel)" }}
                           />
-                        </AreaChart>
+                          <RechartsLine
+                            type="monotone"
+                            dataKey="promedio"
+                            name="Media móvil (7 días)"
+                            stroke="#3d6fb4"
+                            strokeWidth={2.5}
+                            dot={false}
+                          />
+                        </ComposedChart>
                       </ResponsiveContainer>
                     </div>
                   ) : (
@@ -755,6 +778,9 @@ export default function App() {
                   <div className="chart-legend">
                     <span>
                       <i className="legend-dot" /> Peso registrado
+                    </span>
+                    <span>
+                      <i className="legend-dot" style={{ background: "#3d6fb4" }} /> Media móvil (7 días)
                     </span>
                     <span className="chart-note">Los cambios reflejan tus registros, no una recomendación médica.</span>
                   </div>

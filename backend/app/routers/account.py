@@ -54,7 +54,7 @@ def export_account_json(request: Request, user: User = Depends(current_user), db
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from None
     return StreamingResponse(
-        iter([document]), media_type="application/json",
+        iter([document]), media_type="application/json; charset=utf-8",
         headers={
             "Content-Disposition": 'attachment; filename="forma-account-export.json"'},
     )

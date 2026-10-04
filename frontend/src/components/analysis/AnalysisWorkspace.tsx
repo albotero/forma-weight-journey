@@ -1,4 +1,13 @@
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import {
+  Area,
+  ComposedChart,
+  Line as RechartsLine,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Activity, Check, HeartPulse, LineChart, Scale, ShieldCheck, TrendingDown } from "lucide-react"
 import type {
   BodyMeasurementEntry,
@@ -14,6 +23,7 @@ import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick } from "../../lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "../charts/BmiRange"
 import { weeklyActivityChecklistDate, compositionFields } from "../../lib/records"
+import { weightMovingAverageSeries } from "../../lib/weightTrend.js"
 import { MetricCard } from "../common/MetricCard"
 import { EmptyModule } from "../common/Empty"
 import { bodyFields } from "../modules/bodyMeasurements"
@@ -126,12 +136,13 @@ export function AnalysisWorkspace({
           return current == null || before == null ? [] : [{ label, unit, current, change: current - before }]
         })
       : []
-  const chart = pastWeights.map((item) => ({
+  const chart = weightMovingAverageSeries(pastWeights).map((item) => ({
     date: formatDate(item.measured_at, profile?.timezone),
     peso: item.weight_kg,
+    promedio: item.moving_average_7d_kg,
   }))
   const weightAxis = niceAxis(
-    chart.map((item) => item.peso),
+    chart.flatMap((item) => [item.peso, item.promedio]),
     2,
   )
   const labEntries = pastEntries.filter((entry) => entry.module === "labs")
@@ -473,7 +484,7 @@ export function AnalysisWorkspace({
         {chart.length ? (
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chart} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
+              <ComposedChart data={chart} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="analysisWeightFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#6fb99c" stopOpacity={0.22} />
@@ -497,19 +508,38 @@ export function AnalysisWorkspace({
                   tick={{ fill: "var(--muted)", fontSize: 11 }}
                   tickFormatter={(value) => formatAxisTick(Number(value))}
                 />
-                <Tooltip formatter={(value) => [`${formatDecimal(Number(value))} kg`, "Peso"]} />
+                <Tooltip formatter={(value, name) => [`${formatDecimal(Number(value))} kg`, name]} />
                 <Area
                   type="monotone"
                   dataKey="peso"
+                  name="Peso registrado"
                   stroke="#398766"
                   strokeWidth={2.7}
                   fill="url(#analysisWeightFill)"
                 />
-              </AreaChart>
+                <RechartsLine
+                  type="monotone"
+                  dataKey="promedio"
+                  name="Media móvil (7 días)"
+                  stroke="#3d6fb4"
+                  strokeWidth={2.5}
+                  dot={false}
+                />
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         ) : (
           <EmptyModule text="Registra al menos un peso para ver su evolución." />
+        )}
+        {chart.length > 0 && (
+          <div className="chart-legend">
+            <span>
+              <i className="legend-dot" /> Peso registrado
+            </span>
+            <span>
+              <i className="legend-dot" style={{ background: "#3d6fb4" }} /> Media móvil (7 días)
+            </span>
+          </div>
         )}
         {chart.length > 0 && profile && <BmiRangeLegend />}
       </div>

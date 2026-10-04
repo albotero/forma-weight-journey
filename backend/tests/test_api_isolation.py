@@ -355,6 +355,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
         "name": "Registro de prueba", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
         "dosing_interval": "weekly",
+        "notes": "Presión, náuseas e hidratación: ñ, á, é, í, ó, ú.",
     }).json()
     oral_medication_response = client.post("/api/medications", headers=headers, json={
         "name": "Vitamina D3", "route": "oral", "dosing_interval": "daily",
@@ -386,7 +387,8 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     assert catalog.status_code == 201
     entry = client.post("/api/entries", headers=headers, json={
         "module": "labs", "title": "Glucosa", "data": {
-            "results": [{"catalog_item_id": catalog.json()["id"], "name": "Glucosa", "value": 95}],
+            "results": [{"catalog_item_id": catalog.json()["id"], "name": "Glucosa", "value": 95,
+                         "severity": None, "intensity": None, "category": None}],
         },
     })
     assert entry.status_code == 201
@@ -401,10 +403,18 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     assert exported.headers["content-type"] == "application/zip"
     json_export = client.get("/api/account/export/json", headers=headers)
     assert json_export.status_code == 200
-    assert json_export.headers["content-type"].startswith("application/json")
+    assert json_export.headers["content-type"] == "application/json; charset=utf-8"
+    assert medication["notes"].encode("utf-8") in json_export.content
     json_document = json_export.json()
+    assert json_document["medications"][0]["notes"] == medication["notes"]
     assert json_document["format"] == "forma-account-json-export"
     assert json_document["weights"][0]["weight_kg"] == 82.5
+    assert json_document["weight_trends"]["window_days"] == 7
+    assert json_document["weight_trends"]["points"][0]["moving_average_7d_kg"] == 82.5
+    exported_lab = next(
+        item for item in json_document["journal_entries"] if item["module"] == "labs")
+    assert not {"severity", "intensity",
+                "category"} & exported_lab["data"]["results"][0].keys()
     exported_oral = next(
         item for item in json_document["medications"] if item["name"] == "Vitamina D3")
     assert exported_oral["route"] == "oral"

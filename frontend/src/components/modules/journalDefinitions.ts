@@ -18,7 +18,7 @@ export const journalDefinitions: Record<
     fields: [
       { key: "appetite", label: "Apetito", options: ["Menor", "Sin cambios", "Mayor"] },
       { key: "satiety", label: "Saciedad", options: ["Menor", "Sin cambios", "Mayor"] },
-      { key: "hydration_l", label: "Hidratación aproximada (L)", type: "number" },
+      { key: "hydration_l", label: "Hidratación aproximada (L/día)", type: "number" },
       {
         key: "tolerance",
         label: "Tolerancia percibida",
