@@ -128,11 +128,27 @@ export function AnalysisWorkspace({
   )
   const goodToleranceRecorded = doseSymptoms.some((entry) => entry.data.tolerance === "Buena")
   const doseMedication = currentDose && treatmentMedication
+  const compositionWeights = pastWeights.filter((item) => compositionFields.some(([key]) => item[key] != null))
+  const latestComposition = compositionWeights.at(-1)
+  const previousComposition = compositionWeights.at(-2)
   const compositionChanges =
-    previous && latest
+    previousComposition && latestComposition
       ? compositionFields.flatMap(([key, label, unit]) => {
-          const current = latest[key]
-          const before = previous[key]
+          const current = latestComposition[key]
+          const before = previousComposition[key]
+          return current == null || before == null ? [] : [{ label, unit, current, change: current - before }]
+        })
+      : []
+  const bodyMeasurementReadings = pastMeasurements
+    .filter((item) => bodyFields.some(([key]) => item[key] != null))
+    .sort((first, second) => first.measured_at.localeCompare(second.measured_at) || first.id - second.id)
+  const latestBodyMeasurement = bodyMeasurementReadings.at(-1)
+  const previousBodyMeasurement = bodyMeasurementReadings.at(-2)
+  const bodyMeasurementChanges =
+    previousBodyMeasurement && latestBodyMeasurement
+      ? bodyFields.flatMap(([key, label, unit]) => {
+          const current = latestBodyMeasurement[key]
+          const before = previousBodyMeasurement[key]
           return current == null || before == null ? [] : [{ label, unit, current, change: current - before }]
         })
       : []
@@ -554,7 +570,38 @@ export function AnalysisWorkspace({
           ))}
         </div>
       ) : (
-        <EmptyModule text="Se necesitan dos lecturas con datos de composición para compararlas." />
+        <EmptyModule
+          text={
+            compositionWeights.length < 2
+              ? "Se necesitan dos lecturas con datos de composición para compararlas."
+              : "Las dos últimas lecturas de composición no tienen campos en común para comparar."
+          }
+        />
+      )}
+      <h2 className="module-subheading">Cambio de medidas corporales entre las dos últimas lecturas</h2>
+      {bodyMeasurementChanges.length ? (
+        <div className="composition-results">
+          {bodyMeasurementChanges.map(({ label, unit, current, change }) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>
+                {formatDecimal(current)} {unit}
+              </strong>
+              <small className="analysis-delta">
+                {change > 0 ? "+" : ""}
+                {formatDecimal(change)} {unit}
+              </small>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyModule
+          text={
+            bodyMeasurementReadings.length < 2
+              ? "Se necesitan dos lecturas con medidas corporales para compararlas."
+              : "Las dos últimas lecturas de medidas corporales no tienen campos en común para comparar."
+          }
+        />
       )}
     </section>
   )
