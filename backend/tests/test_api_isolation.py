@@ -1324,6 +1324,74 @@ def test_weight_records_can_be_edited_and_deleted_only_by_owner() -> None:
         f"/api/weights/{record['id']}", headers=owner_headers).status_code == 204
 
 
+def test_telegram_completion_phrase_prompts_for_number_and_records_weight(monkeypatch) -> None:
+    sent_messages: list[str] = []
+    sent_requests: list[dict[str, object]] = []
+
+    async def fake_send(_chat_id: str, text: str) -> bool:
+        sent_messages.append(text)
+        return True
+
+    async def fake_request(_method: str, payload: dict[str, object]) -> bool:
+        sent_requests.append(payload)
+        return True
+
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "completion-secret")
+    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr("app.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr("app.telegram.telegram_request", fake_request)
+
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-completion@example.com",
+        "password": "telegram-completion-password-123",
+    })
+    assert registered.status_code == 200
+    headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "telegram-completion@example.com"))
+        assert user is not None
+        db.add_all([
+            TelegramConnection(user_id=user.id, chat_id="86421"),
+            JournalEntry(
+                user_id=user.id,
+                module="reminders",
+                occurred_at=datetime.now(timezone.utc),
+                title="Checklist diario: registrar peso",
+                data={
+                    "auto_generated": True,
+                    "auto_key": "weight",
+                    "enabled": "Sí",
+                    "last_sent_epoch": now_epoch,
+                },
+            ),
+        ])
+        db.commit()
+
+    webhook_headers = {
+        "X-Telegram-Bot-Api-Secret-Token": "completion-secret"}
+
+    def send_message(text: str) -> None:
+        response = client.post("/api/telegram/webhook", headers=webhook_headers, json={
+            "message": {"text": text, "chat": {"id": 86421, "type": "private"}}})
+        assert response.status_code == 200
+
+    send_message("¡Ya lo cumplí!")
+    assert "Responde solo con el número" in sent_requests[0]["text"]
+    assert "Comando: /peso" in sent_requests[0]["text"]
+    assert sent_requests[0]["reply_markup"]["force_reply"] is True
+    send_message("no es un número")
+    assert "Responde solo con un número" in sent_messages[-1]
+    send_message("72,4")
+
+    weights = client.get("/api/weights", headers=headers).json()
+    assert len(weights) == 1
+    assert weights[0]["weight_kg"] == 72.4
+    assert any("Peso registrado: 72.4 kg." in message
+               for message in sent_messages)
+
+
 def test_body_measurement_and_dose_crud_and_medication_archival() -> None:
     owner = client.post("/api/auth/register", json={
                         "email": "registrycrud@example.com", "password": "registry-crud-password-123"})

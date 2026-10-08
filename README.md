@@ -222,7 +222,7 @@ Campos aceptados por `/composicion`:
 
 El peso es obligatorio para `/composicion`, porque la base de datos guarda estas métricas en una lectura de peso. Todos los campos adicionales son opcionales; puedes usar espacios o punto y coma para separarlos y `=` o `:` entre nombre y valor.
 
-El bot comprueba mensajes cada 30 segundos y omite recordatorios con más de dos minutos de retraso. Los avisos que vencen a la vez se agrupan. Además de **Ya lo cumplí**, cada aviso ofrece posponerlo **15 minutos, 1 hora o 3 horas**; la opción se aplica a todo el grupo. Al confirmar el cumplimiento, puedes elegir si enviar el dato por el chat. Mantén una sola réplica del backend: un reinicio durante un envío puede ocasionar una repetición.
+El bot comprueba mensajes cada 30 segundos y omite recordatorios con más de dos minutos de retraso. Los avisos que vencen a la vez se agrupan. Además de **Ya lo cumplí**, cada aviso ofrece posponerlo **15 minutos, 1 hora o 3 horas**; la opción se aplica a todo el grupo. También puedes escribir `ya lo cumplí` en el chat privado: si el recordatorio automático más reciente corresponde a peso, composición, cintura o una dosis inyectable configurada, el bot prepara el comando y puedes responder solo con el número. Esa respuesta queda activa durante 10 minutos. Si el aviso requiere varios datos, el bot indica el formato correspondiente. Mantén una sola réplica del backend: un reinicio durante un envío puede ocasionar una repetición.
 
 ## Copias de seguridad
 

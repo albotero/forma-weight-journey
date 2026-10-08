@@ -1,6 +1,7 @@
 import calendar
 import logging
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -108,8 +109,153 @@ async def send_reminder_followup(chat_id: str, occurrence: int) -> bool:
     })
 
 
+async def send_telegram_capture_prompt(chat_id: str, command: str, label: str) -> bool:
+    return await telegram_request("sendMessage", {
+        "chat_id": chat_id,
+        "text": f"Recordatorio marcado como cumplido.\nComando: {command}\nResponde solo con el número ({label}).",
+        "reply_markup": {
+            "force_reply": True,
+            "input_field_placeholder": "Escribe solo el número",
+        },
+    })
+
+
 async def answer_callback_query(callback_query_id: str, text: str) -> bool:
     return await telegram_request("answerCallbackQuery", {"callback_query_id": callback_query_id, "text": text})
+
+
+def is_completion_message(text: str) -> bool:
+    normalized = unicodedata.normalize("NFKD", text)
+    normalized = "".join(
+        character for character in normalized
+        if not unicodedata.combining(character)
+    )
+    normalized = re.sub(r"[^\w\s]", "", normalized).casefold()
+    return " ".join(normalized.split()) == "ya lo cumpli"
+
+
+def pending_telegram_capture(db: Session, user_id: int) -> tuple[JournalEntry, str] | None:
+    reminders = db.scalars(select(JournalEntry).where(
+        JournalEntry.user_id == user_id,
+        JournalEntry.module == "reminders",
+    )).all()
+    now = datetime.now(timezone.utc)
+    for reminder in reminders:
+        data = dict(reminder.data or {})
+        command = data.get("telegram_pending_capture")
+        expires_at = data.get("telegram_capture_expires_at")
+        if not isinstance(command, str) or not isinstance(expires_at, str):
+            continue
+        try:
+            expiry = datetime.fromisoformat(expires_at)
+        except ValueError:
+            expiry = now
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry <= now:
+            data.pop("telegram_pending_capture", None)
+            data.pop("telegram_capture_expires_at", None)
+            reminder.data = data
+            db.commit()
+            continue
+        return reminder, command
+    return None
+
+
+async def handle_telegram_completion(db: Session, user_id: int, chat_id: str) -> None:
+    reminders = db.scalars(select(JournalEntry).where(
+        JournalEntry.user_id == user_id,
+        JournalEntry.module == "reminders",
+    )).all()
+    cleared_capture = False
+    for reminder in reminders:
+        data = dict(reminder.data or {})
+        if "telegram_pending_capture" in data:
+            data.pop("telegram_pending_capture", None)
+            data.pop("telegram_capture_expires_at", None)
+            reminder.data = data
+            cleared_capture = True
+    sent_reminders = [
+        reminder for reminder in reminders
+        if (reminder.data or {}).get("auto_generated") is True
+        and (reminder.data or {}).get("enabled") in (True, "Sí", "Si", "yes")
+        and isinstance((reminder.data or {}).get("last_sent_epoch"), int)
+        and (reminder.data or {}).get("snoozed_from_epoch")
+        != (reminder.data or {}).get("last_sent_epoch")
+    ]
+    if not sent_reminders:
+        if cleared_capture:
+            db.commit()
+        await send_telegram_message(
+            chat_id, "No encuentro un recordatorio automático reciente. Usa el botón del aviso o escribe /ayuda.")
+        return
+
+    latest_epoch = max(
+        reminder.data["last_sent_epoch"] for reminder in sent_reminders
+    )
+    latest_reminders = [
+        reminder for reminder in sent_reminders
+        if reminder.data["last_sent_epoch"] == latest_epoch
+    ]
+    keys = {str((reminder.data or {}).get("auto_key"))
+            for reminder in latest_reminders}
+    capture_specs = {
+        "weight": ("/peso", "peso en kg"),
+        "composition": ("/composicion", "peso en kg"),
+        "measurements": ("/cintura", "cintura en cm"),
+    }
+    if "dose" in keys:
+        medications = db.scalars(select(Medication).where(
+            Medication.user_id == user_id,
+            Medication.active.is_(True),
+        )).all()
+        medication = next(
+            (item for item in medications if item.is_primary), None)
+        if medication is None and len(medications) == 1:
+            medication = medications[0]
+        if (medication is not None and medication.route != "oral"
+                and medication.concentration_mg is not None
+                and medication.concentration_volume_ml is not None):
+            capture_specs["dose"] = ("/dosis", "dosis en mg")
+
+    for reminder in latest_reminders:
+        data = dict(reminder.data or {})
+        data["completed_reminder_epoch"] = latest_epoch
+        data["completed_at"] = datetime.now(timezone.utc).isoformat()
+        reminder.data = data
+    db.commit()
+
+    matching_specs = [
+        capture_specs[key] for key in keys if key in capture_specs
+    ]
+    if len(matching_specs) == 1 and len(keys) == 1:
+        command, label = matching_specs[0]
+        reminder = latest_reminders[0]
+        data = dict(reminder.data or {})
+        data["telegram_pending_capture"] = command
+        data["telegram_capture_expires_at"] = (
+            datetime.now(timezone.utc) + timedelta(minutes=10)
+        ).isoformat()
+        reminder.data = data
+        db.commit()
+        await send_telegram_capture_prompt(chat_id, command, label)
+        return
+
+    if len(keys) > 1:
+        await send_telegram_message(
+            chat_id,
+            "Recordatorio marcado como cumplido. Este aviso incluye varios datos; para registrarlos, usa el comando correspondiente que aparece en /ayuda.",
+        )
+    elif keys == {"dose"}:
+        await send_telegram_message(
+            chat_id,
+            "Recordatorio marcado como cumplido. Para registrar una dosis oral incluye también la unidad, por ejemplo: /dosis 2000 UI.",
+        )
+    else:
+        await send_telegram_message(
+            chat_id,
+            "Recordatorio marcado como cumplido. Para registrar este dato, usa el comando correspondiente que aparece en /ayuda.",
+        )
 
 
 def _decimal(value: str, *, minimum: Decimal, maximum: Decimal) -> Decimal:
@@ -181,7 +327,7 @@ def _parse_weight_composition(arguments: str) -> tuple[Decimal, dict[str, float 
     return weight, values, descriptions
 
 
-async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text: str) -> None:
+async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text: str) -> bool:
     command, _, arguments = text.strip().partition(" ")
     command = command.split("@", maxsplit=1)[0].casefold()
     arguments = arguments.strip()
@@ -195,7 +341,7 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
                                     "/presion 120/80\n/recordatorio 2026-09-28 08:00 Texto\n\n"
                                     "Usa ✅ Ya lo cumplí en un recordatorio para confirmarlo. "
                                     "Se aceptan solo mensajes privados y comandos explícitos.")
-        return
+        return False
 
     now = datetime.now(timezone.utc)
     try:
@@ -235,7 +381,7 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
                 medication = active_medications[0]
             if medication is None:
                 await send_telegram_message(chat_id, "No pude identificar un único medicamento activo. Configura uno en la app o registra la dosis desde allí para elegirlo explícitamente.")
-                return
+                return False
             if medication.route == "oral":
                 unit_aliases = {
                     "mg": "mg", "mcg": "mcg", "ui": "UI", "iu": "UI",
@@ -314,13 +460,14 @@ async def handle_telegram_command(db: Session, user_id: int, chat_id: str, text:
             reply = f"Recordatorio guardado para {local_time.strftime('%d/%m/%Y %H:%M')} (hora local)."
         else:
             await send_telegram_message(chat_id, "No reconozco ese comando. Escribe /ayuda para ver opciones.")
-            return
+            return False
     except (ValueError, OverflowError) as error:
         await send_telegram_message(chat_id, str(error))
-        return
+        return False
 
     db.commit()
     await send_telegram_message(chat_id, reply)
+    return True
 
 
 def parse_scheduled_at(value: object) -> datetime | None:

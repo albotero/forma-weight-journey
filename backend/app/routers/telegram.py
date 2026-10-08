@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import timedelta
 
@@ -14,7 +15,10 @@ from app.models import JournalEntry, TelegramConnection, User
 from app.telegram import (
     answer_callback_query,
     connection_status,
+    handle_telegram_completion,
     handle_telegram_command,
+    is_completion_message,
+    pending_telegram_capture,
     REMINDER_SNOOZE_OPTIONS,
     send_reminder_followup,
     send_telegram_message,
@@ -234,5 +238,32 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)) -> d
         if connection is None:
             await send_telegram_message(chat_id, "Este chat no está vinculado a Forma. Inicia la vinculación desde la sección Recordatorios de la app.")
         else:
+            if is_completion_message(text):
+                await handle_telegram_completion(
+                    db, connection.user_id, chat_id)
+                return {"ok": True}
+            pending_capture = pending_telegram_capture(
+                db, connection.user_id)
+            if pending_capture is not None:
+                reminder, command = pending_capture
+                if re.fullmatch(r"\d+(?:[.,]\d{1,2})?", text.strip()):
+                    handled = await handle_telegram_command(
+                        db, connection.user_id, chat_id, f"{command} {text.strip()}")
+                    if handled:
+                        data = dict(reminder.data or {})
+                        data.pop("telegram_pending_capture", None)
+                        data.pop("telegram_capture_expires_at", None)
+                        reminder.data = data
+                        db.commit()
+                    return {"ok": True}
+                if not text.strip().startswith("/"):
+                    await send_telegram_message(
+                        chat_id, "Responde solo con un número para completar el registro.")
+                    return {"ok": True}
+                data = dict(reminder.data or {})
+                data.pop("telegram_pending_capture", None)
+                data.pop("telegram_capture_expires_at", None)
+                reminder.data = data
+                db.commit()
             await handle_telegram_command(db, connection.user_id, chat_id, text)
     return {"ok": True}
