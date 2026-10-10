@@ -72,6 +72,20 @@ export function ModuleWorkspace(props: {
     { key: "weekly_calories_kcal", label: "Calorías", unit: "kcal" },
     { key: "weekly_distance_km", label: "Distancia", unit: "km" },
   ] as const
+  const visibleEntries = entries
+    .filter((entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)))
+    .sort((first, second) => {
+      if (module !== "reminders") return 0
+      const timestamp = (entry: JournalEntry) => {
+        const scheduled = entry.data.reminder_at
+        const value = typeof scheduled === "string" ? Date.parse(scheduled) : Number.NaN
+        return Number.isFinite(value) ? value : Date.parse(entry.occurred_at)
+      }
+      return timestamp(first) - timestamp(second) || first.id - second.id
+    })
+  const orderedMedications = [...medications].sort(
+    (first, second) => Number(second.is_primary) - Number(first.is_primary),
+  )
   const photoGroups = Object.entries(
     photos.reduce<Record<string, PhotoEntry[]>>((groups, photo) => {
       const day = dateTimeInputValue(photo.taken_at, userTimezone).slice(0, 10)
@@ -612,7 +626,7 @@ export function ModuleWorkspace(props: {
       {section === "Medicación" && (
         <>
           <div className="record-list">
-            {medications.map((item) => (
+            {orderedMedications.map((item) => (
               <article className="record-card medication-record" key={item.id}>
                 <div className="record-card-heading">
                   <div>
@@ -636,11 +650,6 @@ export function ModuleWorkspace(props: {
                     )}
                   </div>
                   <div className="record-actions">
-                    {item.active && !item.is_primary && (
-                      <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
-                        Hacer principal
-                      </button>
-                    )}
                     {item.active && (
                       <button className="small-action" onClick={() => props.onNewDose(item)}>
                         <Plus size={13} /> Registrar dosis
@@ -696,6 +705,11 @@ export function ModuleWorkspace(props: {
                     >
                       Eliminar
                     </button>
+                    {item.active && !item.is_primary && (
+                      <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
+                        Hacer principal
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
@@ -788,104 +802,95 @@ export function ModuleWorkspace(props: {
           )}
           {module === "symptoms" && <h2 className="module-subheading">Check-ins semanales</h2>}
           <div className="record-list">
-            {entries
-              .filter(
-                (entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)),
-              )
-              .map((entry) => (
-                <article className="record-card" key={entry.id}>
-                  <div className="record-card-heading">
-                    <div>
-                      <strong>{entry.title}</strong>
-                      <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
-                      {module === "reminders" && entry.data.auto_generated === true && (
-                        <span className="record-status">
-                          {entry.data.source_recorded_at
-                            ? "Automático · basado en tu último registro"
-                            : "Automático · pendiente de registro"}
-                        </span>
-                      )}
-                      {module === "reminders" && typeof entry.data.last_sent_epoch === "number" && (
-                        <span
-                          className={`record-status ${entry.data.completed_reminder_epoch === entry.data.last_sent_epoch ? "active" : ""}`}
-                        >
-                          {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
-                            ? "Cumplido desde Telegram"
-                            : "Enviado · pendiente de confirmación"}
-                        </span>
-                      )}
-                    </div>
-                    {module === "reminders" && entry.data.auto_generated === true ? (
-                      typeof entry.data.last_sent_epoch === "number" ? (
-                        <span className="record-status active">
-                          {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
-                            ? "Cumplido desde Telegram"
-                            : "Aviso enviado por Telegram"}
-                        </span>
-                      ) : (
-                        <button
-                          className={`small-action ${entry.data.enabled === "Sí" || entry.data.enabled === true ? "danger" : ""}`}
-                          aria-pressed={entry.data.enabled === "Sí" || entry.data.enabled === true}
-                          onClick={() =>
-                            void setReminderEnabled(
-                              entry,
-                              !(entry.data.enabled === "Sí" || entry.data.enabled === true),
-                            )
-                          }
-                        >
-                          {entry.data.enabled === "Sí" || entry.data.enabled === true ? "Desactivar" : "Activar"}
-                        </button>
-                      )
-                    ) : (
-                      <RecordActions
-                        onEdit={() => {
-                          setEditingEntry(entry)
-                          setShowEntryForm(true)
-                        }}
-                        onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
-                      />
+            {visibleEntries.map((entry) => (
+              <article className="record-card" key={entry.id}>
+                <div className="record-card-heading">
+                  <div>
+                    <strong>{entry.title}</strong>
+                    <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                    {module === "reminders" && entry.data.auto_generated === true && (
+                      <span className="record-status">
+                        {entry.data.source_recorded_at
+                          ? "Automático · basado en tu último registro"
+                          : "Automático · pendiente de registro"}
+                      </span>
+                    )}
+                    {module === "reminders" && typeof entry.data.last_sent_epoch === "number" && (
+                      <span
+                        className={`record-status ${entry.data.completed_reminder_epoch === entry.data.last_sent_epoch ? "active" : ""}`}
+                      >
+                        {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
+                          ? "Cumplido desde Telegram"
+                          : "Enviado · pendiente de confirmación"}
+                      </span>
                     )}
                   </div>
-                  <div className="composition-results">
-                    {journalDefinitions[module].fields
-                      .filter(
-                        ({ key }) =>
-                          entry.data[key] !== undefined &&
-                          entry.data[key] !== null &&
-                          entry.data[key] !== "" &&
-                          !(module === "reminders" && entry.data.auto_generated === true && key === "repeat"),
-                      )
-                      .map(({ key, label, type }) => (
-                        <div key={key}>
-                          <span>
-                            {module === "reminders" && key === "reminder_at"
-                              ? entry.data.last_sent_epoch != null
-                                ? "Aviso enviado"
-                                : entry.data.auto_generated === true && entry.data.enabled === "No"
-                                  ? "Aviso desactivado para"
-                                  : "Próximo aviso"
-                              : label}
-                          </span>
-                          <strong>
-                            {module === "reminders" && key === "reminder_at"
-                              ? formatDateTime(String(entry.data[key]), userTimezone)
-                              : module === "activity" && key === "entry_type"
-                                ? entry.data.entry_type === "weekly"
-                                  ? "Estadísticas semanales"
-                                  : "Actividad individual"
-                                : type === "number"
-                                  ? formatDecimal(Number(entry.data[key]))
-                                  : String(entry.data[key])}
-                          </strong>
-                        </div>
-                      ))}
-                  </div>
-                  {entry.notes && <p>{entry.notes}</p>}
-                </article>
-              ))}
-            {!entries.some(
-              (entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)),
-            ) && (
+                  {module === "reminders" && entry.data.auto_generated === true ? (
+                    typeof entry.data.last_sent_epoch === "number" ? (
+                      <span className="record-status active">
+                        {entry.data.completed_reminder_epoch === entry.data.last_sent_epoch
+                          ? "Cumplido desde Telegram"
+                          : "Aviso enviado por Telegram"}
+                      </span>
+                    ) : (
+                      <button
+                        className={`small-action ${entry.data.enabled === "Sí" || entry.data.enabled === true ? "danger" : ""}`}
+                        aria-pressed={entry.data.enabled === "Sí" || entry.data.enabled === true}
+                        onClick={() =>
+                          void setReminderEnabled(entry, !(entry.data.enabled === "Sí" || entry.data.enabled === true))
+                        }
+                      >
+                        {entry.data.enabled === "Sí" || entry.data.enabled === true ? "Desactivar" : "Activar"}
+                      </button>
+                    )
+                  ) : (
+                    <RecordActions
+                      onEdit={() => {
+                        setEditingEntry(entry)
+                        setShowEntryForm(true)
+                      }}
+                      onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
+                    />
+                  )}
+                </div>
+                <div className="composition-results">
+                  {journalDefinitions[module].fields
+                    .filter(
+                      ({ key }) =>
+                        entry.data[key] !== undefined &&
+                        entry.data[key] !== null &&
+                        entry.data[key] !== "" &&
+                        !(module === "reminders" && entry.data.auto_generated === true && key === "repeat"),
+                    )
+                    .map(({ key, label, type }) => (
+                      <div key={key}>
+                        <span>
+                          {module === "reminders" && key === "reminder_at"
+                            ? entry.data.last_sent_epoch != null
+                              ? "Aviso enviado"
+                              : entry.data.auto_generated === true && entry.data.enabled === "No"
+                                ? "Aviso desactivado para"
+                                : "Próximo aviso"
+                            : label}
+                        </span>
+                        <strong>
+                          {module === "reminders" && key === "reminder_at"
+                            ? formatDateTime(String(entry.data[key]), userTimezone)
+                            : module === "activity" && key === "entry_type"
+                              ? entry.data.entry_type === "weekly"
+                                ? "Estadísticas semanales"
+                                : "Actividad individual"
+                              : type === "number"
+                                ? formatDecimal(Number(entry.data[key]))
+                                : String(entry.data[key])}
+                        </strong>
+                      </div>
+                    ))}
+                </div>
+                {entry.notes && <p>{entry.notes}</p>}
+              </article>
+            ))}
+            {!visibleEntries.length && (
               <EmptyModule
                 text={`Aún no hay registros de ${module === "symptoms" ? "check-ins semanales" : section.toLowerCase()}.`}
               />

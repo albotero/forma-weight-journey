@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, select
@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.automatic_reminders import _next_date
 from app.database import Base
 from app.models import Dose, JournalEntry, Medication, User
-from app.telegram import next_occurrence, parse_scheduled_at, reminder_is_enabled
+from app.telegram import _medications_due_on, next_occurrence, parse_scheduled_at, reminder_is_enabled
 
 
 def test_parse_scheduled_at_normalizes_utc() -> None:
@@ -28,6 +28,50 @@ def test_reminder_enabled_accepts_form_values() -> None:
     assert reminder_is_enabled(True)
     assert not reminder_is_enabled("No")
     assert not reminder_is_enabled(False)
+
+
+def test_telegram_dose_reminder_lists_every_active_medication_due_that_day() -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    scheduled = datetime(2026, 9, 10, 13, tzinfo=timezone.utc)
+    with Session(engine) as db:
+        user = User(email="dose-list@example.com", password_hash="unused")
+        db.add(user)
+        db.flush()
+        tirzepatide = Medication(
+            user_id=user.id, name="Tirzepatida", active=True,
+            is_primary=True, dosing_interval="weekly")
+        vitamin_d = Medication(
+            user_id=user.id, name="Vitamina D", active=True,
+            dosing_interval="daily")
+        new_medication = Medication(
+            user_id=user.id, name="Suplemento diario", active=True,
+            dosing_interval="daily")
+        not_due = Medication(
+            user_id=user.id, name="Medicamento futuro", active=True,
+            dosing_interval="weekly")
+        inactive = Medication(
+            user_id=user.id, name="Medicamento inactivo", active=False,
+            dosing_interval="daily")
+        db.add_all([tirzepatide, vitamin_d, new_medication, not_due, inactive])
+        db.flush()
+        db.add_all([
+            Dose(medication_id=tirzepatide.id,
+                 administered_at=scheduled - timedelta(days=7), dose_amount=5),
+            Dose(medication_id=vitamin_d.id,
+                 administered_at=scheduled - timedelta(days=1), dose_amount=1),
+            Dose(medication_id=not_due.id,
+                 administered_at=scheduled - timedelta(days=2), dose_amount=1),
+            Dose(medication_id=inactive.id,
+                 administered_at=scheduled - timedelta(days=1), dose_amount=1),
+        ])
+        db.flush()
+
+        assert _medications_due_on(db, user.id, scheduled, "America/Bogota") == [
+            "• Tirzepatida (semanal)",
+            "• Suplemento diario (diaria)",
+            "• Vitamina D (diaria)",
+        ]
 
 
 def test_telegram_oral_dose_saves_the_explicit_unit(monkeypatch) -> None:

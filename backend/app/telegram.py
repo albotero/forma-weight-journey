@@ -482,6 +482,49 @@ def parse_scheduled_at(value: object) -> datetime | None:
     return scheduled.astimezone(timezone.utc)
 
 
+def _medications_due_on(
+    db: Session, user_id: int, scheduled: datetime, timezone_name: str,
+) -> list[str]:
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = timezone.utc
+    target_date = scheduled.astimezone(zone).date()
+    medications = db.scalars(select(Medication).where(
+        Medication.user_id == user_id,
+        Medication.active.is_(True),
+        Medication.dosing_interval.in_(("daily", "weekly")),
+    ).order_by(Medication.is_primary.desc(), Medication.name)).all()
+    if not medications:
+        return []
+    doses = db.scalars(
+        select(Dose)
+        .join(Medication, Dose.medication_id == Medication.id)
+        .where(
+            Medication.user_id == user_id,
+            Medication.active.is_(True),
+            Dose.medication_id.in_(
+                [medication.id for medication in medications]),
+        )
+        .order_by(Dose.administered_at.desc(), Dose.id.desc())
+    ).all()
+    latest_doses: dict[int, datetime] = {}
+    for dose in doses:
+        latest_doses.setdefault(dose.medication_id, dose.administered_at)
+
+    due: list[str] = []
+    for medication in medications:
+        interval_days = 1 if medication.dosing_interval == "daily" else 7
+        latest_dose = latest_doses.get(medication.id)
+        if latest_dose is not None:
+            due_date = parse_scheduled_at(latest_dose.isoformat())
+            if due_date is None or (due_date + timedelta(days=interval_days)).astimezone(zone).date() > target_date:
+                continue
+        interval_label = "diaria" if interval_days == 1 else "semanal"
+        due.append(f"• {medication.name} ({interval_label})")
+    return due
+
+
 def next_occurrence(scheduled: datetime, repeat: str, timezone_name: str) -> datetime | None:
     if repeat == "No repetir":
         return None
@@ -514,7 +557,7 @@ async def dispatch_due_reminders() -> None:
     now = datetime.now(timezone.utc)
     max_lateness = timedelta(minutes=2)
     due: dict[tuple[int, str, datetime],
-              list[tuple[int, str, str | None, str]]] = {}
+              list[tuple[int, str, str | None, str, str | None]]] = {}
     with SessionLocal() as db:
         sync_all_automatic_reminders(db)
         entries = db.scalars(select(JournalEntry).where(
@@ -541,14 +584,16 @@ async def dispatch_due_reminders() -> None:
                 data.get("source_recorded_at") if isinstance(
                     data.get("source_recorded_at"), str) else None,
                 zone,
+                data.get("auto_key") if isinstance(
+                    data.get("auto_key"), str) else None,
             ))
 
-    for (_user_id, chat_id, scheduled), candidates in due.items():
+    for (user_id, chat_id, scheduled), candidates in due.items():
         occurrence = int(scheduled.timestamp())
         entry_ids: list[int] = []
         message_lines = ["Recordatorios Forma:"]
         with SessionLocal() as db:
-            for entry_id, title, source_recorded_at, timezone_name in candidates:
+            for entry_id, title, source_recorded_at, timezone_name, auto_key in candidates:
                 query = select(JournalEntry).where(JournalEntry.id == entry_id)
                 if db.bind is not None and db.bind.dialect.name == "postgresql":
                     query = query.with_for_update(skip_locked=True)
@@ -571,6 +616,14 @@ async def dispatch_due_reminders() -> None:
                 entry.data = data
                 entry_ids.append(entry_id)
                 message_lines.append(f"• {title}")
+                if auto_key == "dose":
+                    medications_due = _medications_due_on(
+                        db, user_id, scheduled, timezone_name)
+                    message_lines.append("Medicamentos que corresponden hoy:")
+                    message_lines.extend(
+                        medications_due or [
+                            "• Revisa el intervalo de dosis de tus medicamentos activos en Forma."]
+                    )
                 source_time = parse_scheduled_at(source_recorded_at)
                 if source_time is not None:
                     try:

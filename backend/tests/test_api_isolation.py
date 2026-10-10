@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.config import settings
 from app.main import app
-from app.models import JournalEntry, PasswordResetToken, RefreshSession, TelegramConnection, User
+from app.models import Dose, JournalEntry, Medication, PasswordResetToken, RefreshSession, TelegramConnection, User
 from app.password_reset_email import send_email_verification_email, send_password_reset_email
 from app.security import hash_password_reset_token
 from app.routers import auth as auth_routes
@@ -951,6 +951,79 @@ def test_due_telegram_reminder_is_sent_and_disabled(monkeypatch) -> None:
     assert followups == [("13579", occurrence)]
 
 
+def test_telegram_dose_reminder_names_all_medications_due_today(monkeypatch) -> None:
+    sent: list[str] = []
+
+    async def fake_send(_chat_id: str, text: str, _scheduled_at: datetime) -> bool:
+        sent.append(text)
+        return True
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "bot-token-for-tests")
+    monkeypatch.setattr("app.telegram.SessionLocal", TestingSession)
+    monkeypatch.setattr("app.telegram.send_reminder_message", fake_send)
+    registered = client.post("/api/auth/register", json={
+        "email": "telegram-dose-list@example.com", "password": "telegram-dose-list-password-123"})
+    assert registered.status_code == 200
+    now = datetime.now(timezone.utc)
+    scheduled = now - timedelta(seconds=30)
+    with TestingSession() as db:
+        user = db.scalar(select(User).where(
+            User.email == "telegram-dose-list@example.com"))
+        assert user is not None
+        tirzepatide = Medication(
+            user_id=user.id, name="Tirzepatida", active=True,
+            is_primary=True, dosing_interval="weekly")
+        vitamin_d = Medication(
+            user_id=user.id, name="Vitamina D", active=True,
+            dosing_interval="daily")
+        future_medication = Medication(
+            user_id=user.id, name="Medicamento futuro", active=True,
+            dosing_interval="weekly")
+        db.add_all([tirzepatide, vitamin_d, future_medication])
+        db.flush()
+        latest_dose_time = scheduled - timedelta(days=1)
+        doses = [
+            Dose(medication_id=tirzepatide.id,
+                 administered_at=scheduled - timedelta(days=7), dose_amount=5),
+            Dose(medication_id=vitamin_d.id,
+                 administered_at=latest_dose_time, dose_amount=1),
+            Dose(medication_id=future_medication.id,
+                 administered_at=scheduled - timedelta(days=2), dose_amount=1),
+        ]
+        db.add_all(doses)
+        db.flush()
+        db.add(TelegramConnection(user_id=user.id, chat_id="2468013579"))
+        db.add(JournalEntry(
+            user_id=user.id,
+            module="reminders",
+            occurred_at=scheduled,
+            title="Checklist semanal: dosis registrada",
+            data={
+                "auto_generated": True,
+                "auto_key": "dose",
+                "source_record_id": doses[1].id,
+                "source_signature": f"{doses[1].id}:{latest_dose_time.isoformat()}",
+                "source_recorded_at": latest_dose_time.isoformat(),
+                "reminder_at": scheduled.isoformat(),
+                "schedule_override": True,
+                "repeat": "No repetir",
+                "enabled": "Sí",
+            },
+        ))
+        db.commit()
+
+    from app.telegram import dispatch_due_reminders
+
+    asyncio.run(dispatch_due_reminders())
+
+    assert len(sent) == 1
+    assert "Medicamentos que corresponden hoy:" in sent[0]
+    assert "• Tirzepatida (semanal)" in sent[0]
+    assert "• Vitamina D (diaria)" in sent[0]
+    assert sent[0].index("• Tirzepatida") < sent[0].index("• Vitamina D")
+    assert "Medicamento futuro" not in sent[0]
+
+
 def test_due_telegram_reminders_can_be_snoozed_as_a_group(monkeypatch) -> None:
     sent: list[tuple[str, str, datetime]] = []
     answers: list[str] = []
@@ -1336,8 +1409,10 @@ def test_telegram_completion_phrase_prompts_for_number_and_records_weight(monkey
         sent_requests.append(payload)
         return True
 
-    monkeypatch.setattr(settings, "telegram_webhook_secret", "completion-secret")
-    monkeypatch.setattr("app.routers.telegram.send_telegram_message", fake_send)
+    monkeypatch.setattr(settings, "telegram_webhook_secret",
+                        "completion-secret")
+    monkeypatch.setattr(
+        "app.routers.telegram.send_telegram_message", fake_send)
     monkeypatch.setattr("app.telegram.send_telegram_message", fake_send)
     monkeypatch.setattr("app.telegram.telegram_request", fake_request)
 
