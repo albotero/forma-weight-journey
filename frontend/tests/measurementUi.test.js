@@ -81,6 +81,7 @@ test("blood pressure overview combines three metrics in every card and one chart
   assert.match(html, /<strong>80 mmHg<\/strong>/)
   assert.match(html, /<strong>100 mmHg<\/strong>/)
   assert.match(html, /aria-pressed="true">90 días<\/button>/)
+  assert.match(html, /<p class="activity-disclaimer">Las tarjetas y la gráfica comparan todas las series/)
   assert.doesNotMatch(html, /Colesterol/)
 })
 

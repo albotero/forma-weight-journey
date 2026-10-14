@@ -128,7 +128,7 @@ export function MeasurementOverview({
           {selected ? "No hay lecturas de esta medida en el período. Elige otro período." : "Registra medidas para ver su evolución."}
         </p>
       )}
-      <p className="module-hint">
+      <p className="activity-disclaimer">
         {combined ? "Las tarjetas y la gráfica comparan todas las series." : "Las tarjetas y la gráfica muestran la medida seleccionada."} Las lecturas no se suman;
         los campos vacíos no se estiman. El historial completo permanece debajo.
       </p>

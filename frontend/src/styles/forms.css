@@ -812,7 +812,8 @@
 .activity-overview {
   margin-bottom: 24px;
 }
-.activity-overview .activity-disclaimer {
+.activity-overview .activity-disclaimer,
+.measurement-overview .activity-disclaimer {
   margin: 18px 0 22px;
   padding: 12px 14px;
   border: 1px solid var(--line);
