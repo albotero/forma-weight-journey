@@ -756,20 +756,77 @@
 .trend-chart-panel {
   margin-bottom: 20px;
 }
-.activity-weekly-charts {
+.activity-total-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
   gap: 12px;
-  margin-bottom: 20px;
+  margin: 16px 0;
 }
-.activity-weekly-charts .trend-chart-panel {
+.activity-total-card {
   min-width: 0;
-  margin-bottom: 0;
-  padding: 14px;
+  padding: 18px;
 }
-.activity-weekly-charts .trend-chart-panel .chart-wrap {
-  height: 230px;
-  margin-top: 12px;
+.activity-total-card h3 {
+  margin: 0 0 10px;
+  color: var(--sub);
+  font-size: 13px;
+}
+.activity-total-card > strong {
+  font-size: 24px;
+}
+.activity-total-unit {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-total-card dl {
+  margin: 14px 0 0;
+  color: var(--sub);
+  font-size: 11px;
+}
+.activity-total-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.activity-total-card dd {
+  margin: 0;
+}
+.activity-summary-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.activity-summary-heading .range-select,
+.activity-metric-select {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+}
+.activity-metric-select {
+  margin-bottom: 12px;
+}
+.activity-overview {
+  margin-bottom: 24px;
+}
+.measurement-overview {
+  margin-bottom: 24px;
+}
+.measurement-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  margin-top: 14px;
+}
+.measurement-tabs button {
+  white-space: normal;
+  text-align: left;
+}
+.blood-pressure-fields {
+  width: 100%;
 }
 .trend-chart-panel .chart-wrap {
   height: 300px;

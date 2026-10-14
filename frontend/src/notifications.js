@@ -1,7 +1,7 @@
 const reminderTargets = {
   weight: "Peso",
   dose: "Medicación",
-  blood_pressure: "Laboratorios",
+  blood_pressure: "Presión arterial",
   composition: "Composición",
   measurements: "Medidas",
 }

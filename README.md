@@ -187,6 +187,22 @@ Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notifi
 - Fotos admitidas: JPEG, PNG y WebP, hasta 10 MB. Se guardan fuera del directorio público y solo se sirven mediante la API autenticada.
 - Los datos de salud son sensibles. Protege la cuenta, el servidor y las copias de seguridad.
 
+### Actividad
+
+Registra actividades individuales con duración, distancia, calorías y pasos opcionales, o guarda resúmenes semanales. Completa solo las medidas disponibles: no se calculan pasos ni calorías a partir de otras medidas.
+
+La página muestra totales y evolución semanal para esta semana, las últimas 4 o 12 semanas (incluida la actual), o todo el historial hasta hoy, según la zona horaria del perfil. Los registros del período aparecen debajo y pueden editarse o eliminarse. Cada total desglosa el aporte de actividades individuales y resúmenes; la duración suma solo actividades individuales. Un campo vacío aparece como «Sin datos», no como cero.
+
+Los totales **suman siempre los resúmenes semanales y las actividades individuales**, incluso si cubren el mismo período. Si un resumen ya incluye una actividad registrada por separado, esa medida se contará dos veces. Las barras apiladas muestran ambos aportes por separado, con un eje que empieza en cero. Las semanas de la gráfica van de lunes a domingo; cada resumen se asigna completo a la semana de su fecha final, sin repartirlo entre días. Las semanas sin una medida registrada no se representan como cero.
+
+### Medidas, laboratorios y presión arterial
+
+**Peso, Composición, Medidas, Síntomas, Objetivos, Laboratorios y Presión arterial** tienen tarjetas con el último valor, el cambio entre las últimas dos lecturas, el promedio y el número de lecturas. Las pestañas seleccionan una sola medida o prueba y una sola gráfica visible, con filtros para esta semana, 4 o 12 semanas (incluida la actual), o todo el historial hasta hoy. Estas lecturas no se suman. Los filtros afectan las tarjetas y la gráfica; el historial completo sigue disponible debajo.
+
+En **Peso** puedes elegir peso, promedio móvil de 7 días o IMC. En **Laboratorios** solo se grafican resultados numéricos; los resultados de texto se conservan en el historial. Las gráficas mantienen los rangos normales configurados.
+
+**Presión arterial** tiene su propia sección y formulario para sistólica y diastólica, sin campos de laboratorio. Las pestañas permiten consultar sistólica, diastólica y la media registrada. Los registros antiguos que combinan presión y laboratorios aparecen en ambas secciones: editar o eliminar los valores de una sección conserva los de la otra. En esos registros antiguos la fecha y las notas siguen siendo compartidas; el formulario lo indica. No se requiere migrar ni volver a introducir datos. Los recordatorios de presión y el acceso rápido abren la nueva sección.
+
 ## Telegram
 
 Telegram es opcional. Para habilitarlo, configura `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME` y un `TELEGRAM_WEBHOOK_SECRET` aleatorio en `.env`, y usa una `PUBLIC_APP_URL` pública con HTTPS. Al iniciar el backend se registra el webhook. Telegram debe poder acceder a:

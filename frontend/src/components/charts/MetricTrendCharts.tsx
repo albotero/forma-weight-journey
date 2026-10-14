@@ -30,18 +30,22 @@ export function MetricTrendCharts({
   const [hidden, setHidden] = useState<string[]>([])
   const populated = series.filter(({ points }) => points.length)
   if (!populated.length) return null
-  const times = [...new Set(populated.flatMap(({ points }) => points.map(({ occurredAt }) => occurredAt)))].sort()
-  const chartData = times.map((occurredAt) => {
-    const row: Record<string, string | number | null> = {
-      occurredAt,
-      date: populated.flatMap(({ points }) => points).find((point) => point.occurredAt === occurredAt)!.date,
-    }
-    populated.forEach(({ points }, index) => {
-      const value = points.find((point) => point.occurredAt === occurredAt)?.value
-      row[`metric_${index}`] = value ?? null
-      row[`raw_${index}`] = value ?? null
+  const times = [...new Set(populated.flatMap(({ points }) => points.map(({ occurredAt }) => occurredAt)))]
+    .sort((a, b) => Date.parse(a) - Date.parse(b))
+  const chartData = times.flatMap((occurredAt) => {
+    const readings = populated.map(({ points }) => points.filter((point) => point.occurredAt === occurredAt))
+    return Array.from({ length: Math.max(...readings.map((points) => points.length)) }, (_, occurrence) => {
+      const row: Record<string, string | number | null> = {
+        occurredAt,
+        date: readings.flat()[0].date,
+      }
+      readings.forEach((points, index) => {
+        const value = points[occurrence]?.value
+        row[`metric_${index}`] = value ?? null
+        row[`raw_${index}`] = value ?? null
+      })
+      return row
     })
-    return row
   })
   const metabolicIndex = title === "Composición corporal" ? populated.findIndex(({ unit }) => unit === "kcal") : -1
   const rightAxisIndexes = new Set(

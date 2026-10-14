@@ -11,6 +11,7 @@ export type AppNotification = {
     | "Síntomas"
     | "Actividad"
     | "Laboratorios"
+    | "Presión arterial"
     | "Fotos"
     | "Objetivos"
     | "Revisiones"

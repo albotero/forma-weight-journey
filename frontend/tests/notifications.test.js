@@ -31,7 +31,7 @@ test("shows only overdue enabled reminders that are not completed", () => {
       id: "reminder-1-2026-09-28T10:00:00Z",
       title: "Reminder 1",
       body: "Programado para 2026-09-28T10:00:00Z",
-      target: "Laboratorios",
+      target: "Presión arterial",
       severity: "due",
     },
   ])
@@ -48,7 +48,7 @@ test("routes automatic reminders to their matching sections", () => {
 
   assert.deepEqual(
     notifications.filter((item) => item.severity === "due").map((item) => item.target),
-    ["Peso", "Medicación", "Laboratorios", "Composición", "Medidas", "Recordatorios"],
+    ["Peso", "Medicación", "Presión arterial", "Composición", "Medidas", "Recordatorios"],
   )
 })
 

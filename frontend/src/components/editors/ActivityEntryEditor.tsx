@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react"
 import type { JournalEntry } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import { activityTypes, type ActivityType } from "../../lib/types"
+import { activityEntryDate } from "../../lib/activity.js"
 import { Modal } from "../modals/Modal"
 
 export function ActivityEntryEditor({
@@ -33,16 +34,13 @@ export function ActivityEntryEditor({
   const [occurredAt, setOccurredAt] = useState(() =>
     dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
   )
-  const [weekEnd, setWeekEnd] = useState(() => {
-    if (entry?.data.entry_type !== "weekly" || entry.data.week_end != null) return occurredAt.split("T")[0]
-    const legacyEnd = new Date(`${occurredAt.split("T")[0]}T12:00:00Z`)
-    legacyEnd.setUTCDate(legacyEnd.getUTCDate() + 6)
-    const today = dateTimeInputValue(new Date().toISOString(), timezone).split("T")[0]
-    return legacyEnd.toISOString().split("T")[0] > today ? today : legacyEnd.toISOString().split("T")[0]
-  })
+  const [weekEnd, setWeekEnd] = useState(() =>
+    entry?.data.entry_type === "weekly" ? activityEntryDate(entry, timezone) : occurredAt.split("T")[0],
+  )
   const [duration, setDuration] = useState(() => String(entry?.data.duration_min ?? ""))
   const [distance, setDistance] = useState(() => String(entry?.data.distance_km ?? ""))
   const [calories, setCalories] = useState(() => String(entry?.data.calories_kcal ?? ""))
+  const [steps, setSteps] = useState(() => String(entry?.data.steps ?? ""))
   const [intensity, setIntensity] = useState(() => String(entry?.data.intensity ?? ""))
   const [weeklyCalories, setWeeklyCalories] = useState(() => String(entry?.data.weekly_calories_kcal ?? ""))
   const [weeklySteps, setWeeklySteps] = useState(() => String(entry?.data.weekly_steps ?? ""))
@@ -54,7 +52,7 @@ export function ActivityEntryEditor({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const measurements =
-      entryType === "weekly" ? [weeklyCalories, weeklySteps, weeklyDistance] : [duration, distance, calories]
+      entryType === "weekly" ? [weeklyCalories, weeklySteps, weeklyDistance] : [duration, distance, calories, steps]
     if (!measurements.some((value) => value.trim() !== "")) {
       setError(
         entryType === "weekly"
@@ -85,6 +83,7 @@ export function ActivityEntryEditor({
             duration_min: numberOrNull(duration),
             distance_km: numberOrNull(distance),
             calories_kcal: numberOrNull(calories),
+            steps: numberOrNull(steps),
             intensity: intensity || null,
           }
 
@@ -122,6 +121,7 @@ export function ActivityEntryEditor({
           <button
             type="button"
             className={entryType === "single" ? "selected" : ""}
+            aria-pressed={entryType === "single"}
             onClick={() => setEntryType("single")}
           >
             Actividad individual
@@ -129,6 +129,7 @@ export function ActivityEntryEditor({
           <button
             type="button"
             className={entryType === "weekly" ? "selected" : ""}
+            aria-pressed={entryType === "weekly"}
             onClick={() => setEntryType("weekly")}
           >
             Estadísticas semanales
@@ -200,6 +201,17 @@ export function ActivityEntryEditor({
                 />
               </label>
               <label>
+                Pasos
+                <input
+                  type="number"
+                  min="0"
+                  max="2000000"
+                  step="1"
+                  value={steps}
+                  onChange={(event) => setSteps(event.target.value)}
+                />
+              </label>
+              <label>
                 Intensidad
                 <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
                   <option value="">Sin especificar</option>
@@ -263,6 +275,10 @@ export function ActivityEntryEditor({
           Notas <span className="optional">opcional</span>
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
         </label>
+        <p className="module-hint">
+          Completa solo las medidas disponibles para esta actividad; los campos vacíos no se estiman.
+          Los resúmenes semanales se suman a los registros individuales, incluso si cubren el mismo período.
+        </p>
         {error && (
           <div className="error-banner" role="alert">
             {error}

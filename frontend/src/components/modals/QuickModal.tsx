@@ -17,6 +17,7 @@ export function QuickModal({
     { label: "Síntomas", icon: HeartPulse, section: "Síntomas" as const, color: "rose", available: true },
     { label: "Actividad", icon: Footprints, section: "Actividad" as const, color: "amber", available: true },
     { label: "Laboratorios", icon: FileText, section: "Laboratorios" as const, color: "blue", available: true },
+    { label: "Presión arterial", icon: HeartPulse, section: "Presión arterial" as const, color: "rose", available: true },
   ]
   return (
     <Modal title="¿Qué quieres registrar?" subtitle="Elige una opción para un registro rápido." onClose={onClose}>

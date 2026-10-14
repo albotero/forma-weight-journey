@@ -12,18 +12,23 @@ import {
   YAxis,
 } from "recharts"
 import type { CatalogItem, CatalogResult, JournalEntry } from "../../api"
-import { formatDate, formatDecimal, niceAxis, formatAxisTick } from "../../lib/format"
-import { EmptyModule } from "../common/Empty"
+import { formatDecimal, niceAxis, formatAxisTick } from "../../lib/format"
+import { MeasurementOverview, type MeasurementSeries } from "./MeasurementOverview"
 
 export function LabEvolutionCharts({
   entries,
   catalog,
   timezone,
+  bloodPressure = false,
 }: {
   entries: JournalEntry[]
   catalog: CatalogItem[]
   timezone: string
+  bloodPressure?: boolean
 }) {
+  const dateFormatter = new Intl.DateTimeFormat("es-CO", {
+    day: "numeric", month: "short", year: "numeric", timeZone: timezone,
+  })
   const series = catalog
     .map((item) => {
       const points = entries
@@ -33,7 +38,8 @@ export function LabEvolutionCharts({
           if (!result || (!item.is_blood_pressure && result.value == null)) return []
           return [
             {
-              date: formatDate(entry.occurred_at, timezone),
+              id: entry.id,
+              date: dateFormatter.format(new Date(entry.occurred_at)),
               occurred_at: entry.occurred_at,
               value: result.value,
               systolic: result.systolic,
@@ -42,24 +48,46 @@ export function LabEvolutionCharts({
             },
           ]
         })
-        .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at))
+        .sort((a, b) => Date.parse(a.occurred_at) - Date.parse(b.occurred_at) || a.id - b.id)
       return { item, points }
     })
     .filter((series) => series.points.length > 0)
 
-  if (!series.length) {
-    return <EmptyModule text="Registra resultados numéricos para ver la evolución de cada prueba." />
-  }
+  const measurementSeries: MeasurementSeries[] = series.flatMap(({ item, points }) => {
+    const metrics = item.is_blood_pressure
+      ? [
+          { key: "systolic" as const, label: "Sistólica" },
+          { key: "diastolic" as const, label: "Diastólica" },
+          { key: "mean" as const, label: "Media registrada" },
+        ]
+      : [{ key: "value" as const, label: item.name }]
+    return metrics.map(({ key, label }) => ({
+      id: `${item.id}:${key}`,
+      label,
+      unit: item.unit ?? "",
+      points: points.flatMap((point) => point[key] == null ? [] : [{
+        id: point.id,
+        occurredAt: point.occurred_at,
+        date: point.date,
+        value: point[key],
+      }]),
+    }))
+  })
 
   const yAxis = (
     item: CatalogItem,
     points: (typeof series)[number]["points"],
+    metricKey: string,
   ): { domain: [number, number]; ticks: number[] } => {
     const numericValues = item.is_blood_pressure
-      ? points.flatMap((point) => [point.systolic, point.diastolic, point.mean])
+      ? points.map((point) => metricKey === "systolic" ? point.systolic : metricKey === "diastolic" ? point.diastolic : point.mean)
       : points.map((point) => point.value)
     const thresholds = item.is_blood_pressure
-      ? [item.normal_min, item.normal_max, item.diastolic_normal_min, item.diastolic_normal_max]
+      ? metricKey === "systolic"
+        ? [item.normal_min, item.normal_max]
+        : metricKey === "diastolic"
+          ? [item.diastolic_normal_min, item.diastolic_normal_max]
+          : []
       : [item.normal_min, item.normal_max]
     const domainValues = [...numericValues, ...thresholds].filter((value): value is number => value != null)
     return niceAxis(domainValues)
@@ -240,16 +268,24 @@ export function LabEvolutionCharts({
     }
 
   return (
-    <div className="lab-charts-grid">
-      {series.map(({ item, points }) => {
-        const { domain, ticks } = yAxis(item, points)
+    <MeasurementOverview
+      title={bloodPressure ? "Presión arterial" : "Laboratorios"}
+      series={measurementSeries}
+      timezone={timezone}
+      renderChart={(selected) => {
+        const [itemId, metricKey] = selected.id.split(":")
+        const source = series.find(({ item }) => String(item.id) === itemId)!
+        const { item } = source
+        const timestamps = new Set(selected.points.map(({ occurredAt }) => occurredAt))
+        const points = source.points.filter((point) => timestamps.has(point.occurred_at))
+        const { domain, ticks } = yAxis(item, points, metricKey)
         const gradientId = `lab-gradient-${item.id}`
         return (
           <div className="panel analysis-chart-panel" key={item.id}>
             <div className="panel-heading">
               <div>
                 <div className="eyebrow">EVOLUCIÓN</div>
-                <h2>{item.name}</h2>
+                <h2>{selected.label}</h2>
               </div>
               <span className="goal-caption">
                 {points.length} {points.length === 1 ? "registro" : "registros"}
@@ -281,8 +317,8 @@ export function LabEvolutionCharts({
                   <Tooltip content={labTooltip(item)} />
                   {item.is_blood_pressure ? (
                     <>
-                      {normalRangeGuides(item.normal_min, item.normal_max, "#ad8a50")}
-                      {normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
+                      {metricKey === "systolic" && normalRangeGuides(item.normal_min, item.normal_max, "#ad8a50")}
+                      {metricKey === "diastolic" && normalRangeGuides(item.diastolic_normal_min, item.diastolic_normal_max, "#3d6fb4")}
                     </>
                   ) : (
                     normalRangeGuides(item.normal_min, item.normal_max, "#398766")
@@ -290,23 +326,23 @@ export function LabEvolutionCharts({
                   {item.is_blood_pressure ? (
                     <>
                       <Legend />
-                      <Line
+                      {metricKey === "systolic" && <Line
                         type="monotone"
                         dataKey="systolic"
                         name="Sistólica"
                         stroke="#ad8a50"
                         strokeWidth={2.4}
                         dot={seriesDot("#ad8a50")}
-                      />
-                      <Line
+                      />}
+                      {metricKey === "diastolic" && <Line
                         type="monotone"
                         dataKey="diastolic"
                         name="Diastólica"
                         stroke="#3d6fb4"
                         strokeWidth={2.4}
                         dot={seriesDot("#3d6fb4")}
-                      />
-                      <Line
+                      />}
+                      {metricKey === "mean" && <Line
                         type="monotone"
                         dataKey="mean"
                         name="Media"
@@ -314,7 +350,7 @@ export function LabEvolutionCharts({
                         strokeWidth={2.4}
                         strokeDasharray="4 3"
                         dot={seriesDot("#7a54bf")}
-                      />
+                      />}
                     </>
                   ) : (
                     <Line
@@ -337,7 +373,7 @@ export function LabEvolutionCharts({
             </div>
           </div>
         )
-      })}
-    </div>
+      }}
+    />
   )
 }

@@ -20,7 +20,11 @@ import {
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../../lib/format"
-import { estimatedNextDose, compositionFields, weeklyActivityChecklistDate } from "../../lib/records"
+import { estimatedNextDose, compositionFields } from "../../lib/records"
+import { activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
+import { ActivityOverview } from "./ActivityOverview"
+import { catalogWithHistoricalItems, labRecordLabel, mergeScopedCatalogEntry, scopedCatalogResults } from "../../lib/catalogRecords.js"
+import { weightMovingAverageSeries } from "../../lib/weightTrend.js"
 import { AnalysisWorkspace } from "../analysis/AnalysisWorkspace"
 import { RecordActions, EmptyModule } from "../common/Empty"
 import { journalModuleBySection, journalDefinitions, journalSectionLabels } from "./journalDefinitions"
@@ -29,7 +33,7 @@ import { ActivityEntryEditor } from "../editors/ActivityEntryEditor"
 import { JournalEntryEditor } from "../editors/JournalEntryEditor"
 import { CatalogThresholdsEditor } from "../editors/CatalogThresholdsEditor"
 import { CatalogEntryEditor } from "../editors/CatalogEntryEditor"
-import { MetricTrendCharts } from "../charts/MetricTrendCharts"
+import { MeasurementOverview, type MeasurementSeries } from "../charts/MeasurementOverview"
 import { LabEvolutionCharts } from "../charts/LabEvolutionCharts"
 import { BodyMeasurementEditor } from "../editors/BodyMeasurementEditor"
 import { PhotoCard } from "../photos/PhotoCard"
@@ -60,19 +64,16 @@ export function ModuleWorkspace(props: {
 }) {
   const { section, token, weights, doses, measurements, medications, entries, photos } = props
   const userTimezone = props.profile?.timezone ?? "America/Bogota"
+  const bloodPressureSection = section === "Presión arterial"
   const module = journalModuleBySection[section]
   const compositionWeights = [...weights]
     .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
-  const weeklyActivityEntries = entries
-    .filter((entry) => entry.module === "activity" && entry.data.entry_type === "weekly")
-    .sort((a, b) => weeklyActivityChecklistDate(a).localeCompare(weeklyActivityChecklistDate(b)))
-  const weeklyActivityMetrics = [
-    { key: "weekly_steps", label: "Pasos", unit: "pasos" },
-    { key: "weekly_calories_kcal", label: "Calorías", unit: "kcal" },
-    { key: "weekly_distance_km", label: "Distancia", unit: "km" },
-  ] as const
-  const visibleEntries = entries
+  const [activityWeekCount, setActivityWeekCount] = useState<number | null>(4)
+  const activitySummary = module === "activity" ? summarizeActivity(entries, userTimezone, activityWeekCount) : null
+  const activityDateLabel = (day: string) =>
+    `${formatDate(localDateTimeToIso(`${day}T12:00`, userTimezone), userTimezone)} ${day.slice(0, 4)}`
+  const visibleEntries = activitySummary?.entries ?? entries
     .filter((entry) => entry.module === module && (module !== "symptoms" || !Array.isArray(entry.data.results)))
     .sort((first, second) => {
       if (module !== "reminders") return 0
@@ -118,7 +119,7 @@ export function ModuleWorkspace(props: {
       ? "symptom"
       : section === "Objetivos"
         ? "goal"
-        : section === "Laboratorios"
+        : section === "Laboratorios" || bloodPressureSection
           ? "lab"
           : undefined
   const catalogModule: JournalModule | undefined =
@@ -129,7 +130,7 @@ export function ModuleWorkspace(props: {
         : catalogCategory === "lab"
           ? "labs"
           : undefined
-  const orderedCatalog =
+  const orderedCatalog = (
     catalogCategory === "lab"
       ? [...catalog].sort(
           (a, b) =>
@@ -138,6 +139,65 @@ export function ModuleWorkspace(props: {
             a.name.localeCompare(b.name),
         )
       : catalog
+  ).filter((item) => item.category === catalogCategory &&
+    (catalogCategory !== "lab" || item.is_blood_pressure === bloodPressureSection))
+  const catalogEntries = entries
+    .filter((entry) => entry.module === catalogModule && Array.isArray(entry.data.results))
+    .filter((entry) => catalogCategory !== "lab" || scopedCatalogResults(entry, bloodPressureSection, catalog).length > 0)
+  const chartCatalog = catalogCategory
+    ? catalogWithHistoricalItems(orderedCatalog, catalogEntries, catalogCategory)
+      .filter((item) => catalogCategory !== "lab" || item.is_blood_pressure === bloodPressureSection)
+    : []
+  const editorCatalog = editingCatalogEntry && catalogCategory
+    ? catalogWithHistoricalItems(orderedCatalog, [editingCatalogEntry], catalogCategory)
+      .filter((item) => catalogCategory !== "lab" || item.is_blood_pressure === bloodPressureSection)
+    : orderedCatalog
+  const catalogMetricSeries: MeasurementSeries[] = chartCatalog.map((item) => ({
+    id: String(item.id),
+    label: item.name,
+    unit: "/10",
+    points: catalogEntries.flatMap((entry) => {
+      const result = (entry.data.results as CatalogResult[]).find((row) => row.catalog_item_id === item.id)
+      const value = catalogCategory === "symptom" ? result?.severity : result?.intensity
+      return value == null ? [] : [{
+        id: entry.id,
+        occurredAt: entry.occurred_at,
+        date: formatDate(entry.occurred_at, userTimezone),
+        value,
+      }]
+    }),
+  }))
+  if (catalogCategory === "symptom") {
+    catalogMetricSeries.push({
+      id: "hydration",
+      label: "Hidratación",
+      unit: "L/día",
+      points: entries.filter((entry) => entry.module === "symptoms" && typeof entry.data.hydration_l === "number")
+        .map((entry) => ({
+          id: entry.id,
+          occurredAt: entry.occurred_at,
+          date: formatDate(entry.occurred_at, userTimezone),
+          value: Number(entry.data.hydration_l),
+        })),
+    })
+  }
+  const weightTrend = weightMovingAverageSeries(weights)
+  const heightMeters = props.profile ? props.profile.height_cm / 100 : null
+  const weightMetricSeries: MeasurementSeries[] = [
+    { id: "weight", label: "Peso", unit: "kg", points: weights.map((item) => ({
+      id: item.id,
+      occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.weight_kg,
+    })) },
+    { id: "average", label: "Promedio móvil de 7 días", unit: "kg", points: weightTrend.map((item) => ({
+      id: item.id,
+      occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.moving_average_7d_kg,
+    })) },
+    ...(heightMeters != null ? [{ id: "bmi", label: "IMC", unit: "kg/m²", points: weights.map((item) => ({
+      id: item.id,
+      occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone),
+      value: Number((item.weight_kg / heightMeters ** 2).toFixed(2)),
+    })) }] : []),
+  ]
 
   useEffect(() => {
     if (!catalogCategory) return
@@ -231,8 +291,8 @@ export function ModuleWorkspace(props: {
     const reordered = [...orderable]
     const [moved] = reordered.splice(fromIndex, 1)
     reordered.splice(toIndex, 0, moved)
-    const bloodPressureItem = orderedCatalog.find((entry) => entry.is_blood_pressure)
-    await persistCatalogOrder(bloodPressureItem ? [bloodPressureItem, ...reordered] : reordered)
+    const bloodPressureItems = catalog.filter((entry) => entry.is_blood_pressure)
+    await persistCatalogOrder([...bloodPressureItems, ...reordered])
   }
 
   async function removeCatalogItem(item: CatalogItem) {
@@ -249,11 +309,34 @@ export function ModuleWorkspace(props: {
   async function saveCatalogEntry(payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) {
     await api(editingCatalogEntry ? `/entries/${editingCatalogEntry.id}` : "/entries", token, {
       method: editingCatalogEntry ? "PUT" : "POST",
-      body: JSON.stringify(payload),
+      body: JSON.stringify(catalogCategory === "lab"
+        ? mergeScopedCatalogEntry(editingCatalogEntry, payload, bloodPressureSection, catalog)
+        : payload),
     })
     await props.onRefresh()
     setShowCatalogEntryForm(false)
     setEditingCatalogEntry(null)
+  }
+
+  async function deleteCatalogEntry(entry: JournalEntry) {
+    const remaining = catalogCategory === "lab" ? scopedCatalogResults(entry, !bloodPressureSection, catalog) : []
+    if (!remaining.length) {
+      await props.onDelete(`/entries/${entry.id}`)
+      return
+    }
+    if (!window.confirm("¿Eliminar los valores de esta sección? Los valores de la otra sección se conservarán.")) return
+    try {
+      await api(`/entries/${entry.id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({
+          module: entry.module, title: entry.title, occurred_at: entry.occurred_at, notes: entry.notes,
+          data: { ...entry.data, results: remaining },
+        }),
+      })
+      await props.onRefresh()
+    } catch (reason) {
+      props.onError(reason instanceof Error ? reason.message : "No se pudo eliminar el registro")
+    }
   }
 
   async function toggleMedicationsReviewed(reviewed: boolean) {
@@ -467,7 +550,7 @@ export function ModuleWorkspace(props: {
               </button>
             </>
           )}
-          {(section === "Objetivos" || section === "Laboratorios") && (
+          {(section === "Objetivos" || section === "Laboratorios" || bloodPressureSection) && (
             <button
               className="primary-button"
               onClick={() => {
@@ -475,7 +558,7 @@ export function ModuleWorkspace(props: {
                 setShowCatalogEntryForm(true)
               }}
             >
-              <Plus size={16} /> {section === "Objetivos" ? "Registrar objetivo" : "Registrar resultados"}
+              <Plus size={16} /> {bloodPressureSection ? "Registrar presión arterial" : section === "Objetivos" ? "Registrar objetivo" : "Registrar resultados"}
             </button>
           )}
         </div>
@@ -487,15 +570,18 @@ export function ModuleWorkspace(props: {
             Lecturas de báscula; son estimaciones del dispositivo, no mediciones diagnósticas. Todos los campos de
             composición son opcionales.
           </p>
-          <MetricTrendCharts
+          <MeasurementOverview
             title="Composición corporal"
+            timezone={userTimezone}
             series={compositionFields.map(([key, label, unit]) => ({
+              id: key,
               label,
               unit,
               points: compositionWeights
                 .filter((item) => item[key] != null)
                 .sort((a, b) => a.measured_at.localeCompare(b.measured_at))
                 .map((item) => ({
+                  id: item.id,
                   occurredAt: item.measured_at,
                   date: formatDate(item.measured_at, userTimezone),
                   value: Number(item[key]),
@@ -553,37 +639,43 @@ export function ModuleWorkspace(props: {
       )}
 
       {section === "Peso" && (
-        <div className="record-list">
-          {weights.map((item) => (
-            <article className="record-card" key={item.id}>
-              <div className="record-card-heading">
-                <div>
-                  <strong>{formatDecimal(item.weight_kg)} kg</strong>
-                  <time>{formatDateTime(item.measured_at, userTimezone)}</time>
+        <>
+          <MeasurementOverview title="Peso" series={weightMetricSeries} timezone={userTimezone} />
+          <div className="record-list">
+            {weights.map((item) => (
+              <article className="record-card" key={item.id}>
+                <div className="record-card-heading">
+                  <div>
+                    <strong>{formatDecimal(item.weight_kg)} kg</strong>
+                    <time>{formatDateTime(item.measured_at, userTimezone)}</time>
+                  </div>
+                  <RecordActions
+                    onEdit={() => props.onEditWeight(item)}
+                    onDelete={() => void props.onDelete(`/weights/${item.id}`)}
+                  />
                 </div>
-                <RecordActions
-                  onEdit={() => props.onEditWeight(item)}
-                  onDelete={() => void props.onDelete(`/weights/${item.id}`)}
-                />
-              </div>
-              {item.notes && <p>{item.notes}</p>}
-            </article>
-          ))}
-          {!weights.length && <EmptyModule text="Aún no hay registros de peso." />}
-        </div>
+                {item.notes && <p>{item.notes}</p>}
+              </article>
+            ))}
+            {!weights.length && <EmptyModule text="Aún no hay registros de peso." />}
+          </div>
+        </>
       )}
 
       {section === "Medidas" && (
         <>
-          <MetricTrendCharts
+          <MeasurementOverview
             title="Medidas corporales"
+            timezone={userTimezone}
             series={bodyFields.map(([key, label, unit]) => ({
+              id: key,
               label,
               unit,
               points: measurements
                 .filter((item) => item[key] != null)
                 .sort((a, b) => a.measured_at.localeCompare(b.measured_at))
                 .map((item) => ({
+                  id: item.id,
                   occurredAt: item.measured_at,
                   date: formatDate(item.measured_at, userTimezone),
                   value: Number(item[key]),
@@ -747,6 +839,9 @@ export function ModuleWorkspace(props: {
 
       {module && (!catalogCategory || module === "symptoms") && (
         <>
+          {module === "symptoms" && (
+            <MeasurementOverview title="Síntomas e hidratación" series={catalogMetricSeries} timezone={userTimezone} />
+          )}
           {module === "reminders" && (
             <div className="telegram-panel">
               <div>
@@ -778,36 +873,36 @@ export function ModuleWorkspace(props: {
               )}
             </div>
           )}
-          {module === "activity" && weeklyActivityEntries.length > 0 && (
-            <div className="activity-weekly-charts">
-              {weeklyActivityMetrics.map(({ key, label, unit }) => {
-                const points = weeklyActivityEntries
-                  .filter((entry) => entry.data[key] != null)
-                  .map((entry) => ({
-                    occurredAt: weeklyActivityChecklistDate(entry),
-                    date: formatDate(weeklyActivityChecklistDate(entry), userTimezone),
-                    value: Number(entry.data[key]),
-                  }))
-                if (!points.length) return null
-                return (
-                  <MetricTrendCharts
-                    key={key}
-                    title={`${label} semanales`}
-                    hideLegend
-                    series={[{ label, unit, points }]}
-                  />
-                )
-              })}
-            </div>
+          {activitySummary && (
+            <ActivityOverview
+              summary={activitySummary}
+              timezone={userTimezone}
+              weekCount={activityWeekCount}
+              onPeriodChange={setActivityWeekCount}
+            />
           )}
           {module === "symptoms" && <h2 className="module-subheading">Check-ins semanales</h2>}
+          {module === "activity" && <h2 className="module-subheading">Registros del período</h2>}
           <div className="record-list">
             {visibleEntries.map((entry) => (
               <article className="record-card" key={entry.id}>
                 <div className="record-card-heading">
                   <div>
                     <strong>{entry.title}</strong>
-                    <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                    {module === "activity" && entry.data.entry_type === "weekly" ? (
+                      <time>
+                        {activityDateLabel(shiftActivityDate(activityEntryDate(entry, userTimezone), -6))}
+                        {" – "}
+                        {activityDateLabel(activityEntryDate(entry, userTimezone))}
+                      </time>
+                    ) : (
+                      <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
+                    )}
+                    {module === "activity" && (
+                      <span className="record-status">
+                        {entry.data.entry_type === "weekly" ? "Resumen semanal" : "Actividad individual"}
+                      </span>
+                    )}
                     {module === "reminders" && entry.data.auto_generated === true && (
                       <span className="record-status">
                         {entry.data.source_recorded_at
@@ -860,6 +955,7 @@ export function ModuleWorkspace(props: {
                         entry.data[key] !== undefined &&
                         entry.data[key] !== null &&
                         entry.data[key] !== "" &&
+                        !(module === "activity" && ["entry_type", "activity_type", "other_activity"].includes(key)) &&
                         !(module === "reminders" && entry.data.auto_generated === true && key === "repeat"),
                     )
                     .map(({ key, label, type }) => (
@@ -876,13 +972,11 @@ export function ModuleWorkspace(props: {
                         <strong>
                           {module === "reminders" && key === "reminder_at"
                             ? formatDateTime(String(entry.data[key]), userTimezone)
-                            : module === "activity" && key === "entry_type"
-                              ? entry.data.entry_type === "weekly"
-                                ? "Estadísticas semanales"
-                                : "Actividad individual"
-                              : type === "number"
-                                ? formatDecimal(Number(entry.data[key]))
-                                : String(entry.data[key])}
+                            : type === "number"
+                              ? module === "activity" && !isValidActivityMeasurement(entry.data[key])
+                                ? "Valor no válido"
+                                : formatDecimal(Number(entry.data[key]))
+                              : String(entry.data[key])}
                         </strong>
                       </div>
                     ))}
@@ -892,7 +986,11 @@ export function ModuleWorkspace(props: {
             ))}
             {!visibleEntries.length && (
               <EmptyModule
-                text={`Aún no hay registros de ${module === "symptoms" ? "check-ins semanales" : section.toLowerCase()}.`}
+                text={
+                  module === "activity"
+                    ? "No hay actividades en este período. Registra una actividad o elige otro período."
+                    : `Aún no hay registros de ${module === "symptoms" ? "check-ins semanales" : section.toLowerCase()}.`
+                }
               />
             )}
           </div>
@@ -901,7 +999,7 @@ export function ModuleWorkspace(props: {
 
       {catalogCategory && catalogModule && (
         <>
-          {catalog.length > 0 && (
+          {orderedCatalog.length > 0 && (
             <>
               <button
                 type="button"
@@ -910,7 +1008,7 @@ export function ModuleWorkspace(props: {
                 onClick={() => setCatalogChipsExpanded((current) => !current)}
               >
                 {catalogChipsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                {catalogChipsExpanded ? "Ocultar" : "Ver"} elementos de tu lista ({catalog.length})
+                {catalogChipsExpanded ? "Ocultar" : "Ver"} elementos de tu lista ({orderedCatalog.length})
               </button>
               {catalogChipsExpanded && (
                 <div className="catalog-chip-list">
@@ -986,22 +1084,25 @@ export function ModuleWorkspace(props: {
               )}
             </>
           )}
-          {section === "Laboratorios" && (
+          {(section === "Laboratorios" || bloodPressureSection) && (
             <LabEvolutionCharts
-              entries={entries.filter((entry) => entry.module === "labs")}
-              catalog={catalog}
+              key={section}
+              entries={catalogEntries}
+              catalog={chartCatalog}
               timezone={userTimezone}
+              bloodPressure={bloodPressureSection}
             />
+          )}
+          {section === "Objetivos" && (
+            <MeasurementOverview title="Progreso de objetivos" series={catalogMetricSeries} timezone={userTimezone} />
           )}
           {section === "Síntomas" && <h2 className="module-subheading">Síntomas registrados</h2>}
           <div className="record-list">
-            {entries
-              .filter((entry) => entry.module === catalogModule && Array.isArray(entry.data.results))
-              .map((entry) => (
+            {catalogEntries.map((entry) => (
                 <article className="record-card" key={entry.id}>
                   <div className="record-card-heading">
                     <div>
-                      <strong>{entry.title}</strong>
+                      <strong>{bloodPressureSection ? "Presión arterial" : entry.title}</strong>
                       <time>{formatDateTime(entry.occurred_at, userTimezone)}</time>
                     </div>
                     <RecordActions
@@ -1009,11 +1110,13 @@ export function ModuleWorkspace(props: {
                         setEditingCatalogEntry(entry)
                         setShowCatalogEntryForm(true)
                       }}
-                      onDelete={() => void props.onDelete(`/entries/${entry.id}`)}
+                      onDelete={() => void deleteCatalogEntry(entry)}
                     />
                   </div>
                   <div className="composition-results">
-                    {(entry.data.results as CatalogResult[]).map((result) => {
+                    {(catalogCategory === "lab"
+                      ? scopedCatalogResults(entry, bloodPressureSection, catalog)
+                      : entry.data.results as CatalogResult[]).map((result) => {
                       const catalogItem = catalog.find((listed) => listed.id === result.catalog_item_id)
                       const outOfRange =
                         catalogItem != null &&
@@ -1043,14 +1146,16 @@ export function ModuleWorkspace(props: {
                   {entry.notes && <p>{entry.notes}</p>}
                 </article>
               ))}
-            {!entries.some((entry) => entry.module === catalogModule && Array.isArray(entry.data.results)) && (
+            {!catalogEntries.length && (
               <EmptyModule
                 text={
                   catalogCategory === "symptom"
                     ? "Registra un síntoma seleccionándolo de tu lista."
                     : catalogCategory === "goal"
                       ? "Registra un objetivo seleccionándolo de tu lista."
-                      : "Registra resultados de laboratorio seleccionándolos de tu lista."
+                      : bloodPressureSection
+                        ? "Registra tu presión sistólica y diastólica para empezar."
+                        : "Registra resultados de laboratorio seleccionándolos de tu lista."
                 }
               />
             )}
@@ -1156,8 +1261,14 @@ export function ModuleWorkspace(props: {
                 id: `e-${item.id}`,
                 date: item.occurred_at,
                 title: item.title,
-                label: journalSectionLabels[item.module],
+                label: item.module === "labs" ? labRecordLabel(item) : journalSectionLabels[item.module],
                 edit: () => {
+                  if (item.module === "labs" && Array.isArray(item.data.results)) {
+                    setEditingCatalogEntry(item)
+                    setShowCatalogEntryForm(true)
+                    props.onNavigate(scopedCatalogResults(item, false).length ? "Laboratorios" : "Presión arterial")
+                    return
+                  }
                   setEditingEntry(item)
                   setShowEntryForm(true)
                 },
@@ -1205,8 +1316,12 @@ export function ModuleWorkspace(props: {
         ))}
       {showCatalogEntryForm && catalogCategory && (
         <CatalogEntryEditor
+          key={section}
           category={catalogCategory}
-          catalog={orderedCatalog}
+          catalog={editorCatalog}
+          bloodPressure={bloodPressureSection}
+          mixedRecord={catalogCategory === "lab" && editingCatalogEntry != null &&
+            scopedCatalogResults(editingCatalogEntry, !bloodPressureSection, catalog).length > 0}
           entry={editingCatalogEntry ?? undefined}
           timezone={userTimezone}
           onClose={() => {

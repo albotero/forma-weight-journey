@@ -315,6 +315,7 @@ class JournalEntryCreate(NumericPrecisionModel):
             "duration_min": (0, 1440),
             "distance_km": (0, 1000),
             "calories_kcal": (0, 100000),
+            "steps": (0, 2000000),
         }
         values = [self.data.get(key) for key in fields]
         if not any(value is not None for value in values):
@@ -327,6 +328,8 @@ class JournalEntryCreate(NumericPrecisionModel):
                 raise ValueError(f"{key} must be a finite number")
             if not minimum <= value <= maximum:
                 raise ValueError(f"{key} is outside the supported range")
+            if key == "steps" and not isinstance(value, int):
+                raise ValueError("steps must be a whole number")
         return self
 
 

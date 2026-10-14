@@ -9,6 +9,7 @@ export type Section =
   | "Síntomas"
   | "Actividad"
   | "Laboratorios"
+  | "Presión arterial"
   | "Fotos"
   | "Objetivos"
   | "Revisiones"

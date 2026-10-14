@@ -208,7 +208,7 @@ export function AnalysisWorkspace({
               Array.isArray(entry.data.results) &&
               (entry.data.results as CatalogResult[]).some((result) => result.systolic != null),
           ),
-          target: "Laboratorios" as Section,
+          target: "Presión arterial" as Section,
         },
         {
           label: "Revisar y confirmar medicamentos actuales",
@@ -247,7 +247,7 @@ export function AnalysisWorkspace({
         {
           label: "Presión arterial",
           done: hasRecentBloodPressure,
-          target: "Laboratorios" as Section,
+          target: "Presión arterial" as Section,
         },
         { label: "Apetito y saciedad", done: Boolean(weeklyCheckIn), target: "Síntomas" as Section },
         {

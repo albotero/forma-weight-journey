@@ -13,11 +13,15 @@ export function CatalogEntryEditor({
   onClose,
   onSave,
   onAddCatalogItem,
+  bloodPressure = false,
+  mixedRecord = false,
 }: {
   category: CatalogCategory
   catalog: CatalogItem[]
   entry?: JournalEntry
   timezone: string
+  bloodPressure?: boolean
+  mixedRecord?: boolean
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
   onAddCatalogItem: (
@@ -44,7 +48,7 @@ export function CatalogEntryEditor({
         return [
           item.id,
           {
-            checked: Boolean(existing),
+            checked: Boolean(existing) || (bloodPressure && !entry),
             value:
               existing?.value != null
                 ? String(existing.value)
@@ -86,6 +90,9 @@ export function CatalogEntryEditor({
       },
     }))
   }
+  function selectionFor(itemId: number) {
+    return selections[itemId] ?? { checked: bloodPressure, value: "", systolic: "", diastolic: "" }
+  }
 
   async function submitNewItem() {
     if (!newItemName.trim()) return
@@ -121,10 +128,14 @@ export function CatalogEntryEditor({
     setError("")
     const results: CatalogResult[] = []
     for (const item of catalog) {
-      const selection = selections[item.id]
-      if (!selection?.checked) continue
+      const selection = selectionFor(item.id)
+      if (!selection.checked) continue
       if (item.is_blood_pressure) {
-        if (!selection.systolic || !selection.diastolic) continue
+        if (!selection.systolic || !selection.diastolic) {
+          setError("Indica la presión sistólica y diastólica.")
+          setBusy(false)
+          return
+        }
         const systolic = Number(selection.systolic)
         const diastolic = Number(selection.diastolic)
         results.push({
@@ -167,16 +178,18 @@ export function CatalogEntryEditor({
     }
     const module: JournalModule = category === "symptom" ? "symptoms" : category === "goal" ? "goals" : "labs"
     const title =
-      category === "lab"
-        ? laboratory.trim() || "Resultados de laboratorio"
-        : category === "goal"
-          ? "Registro de objetivos"
-          : results.map((result) => result.name).join(", ")
+      bloodPressure
+        ? "Presión arterial"
+        : category === "lab"
+          ? laboratory.trim() || "Resultados de laboratorio"
+          : category === "goal"
+            ? "Registro de objetivos"
+            : results.map((result) => result.name).join(", ")
     const data: Record<string, unknown> = { results }
     if (category === "symptom" && tolerance) data.tolerance = tolerance
-    if (category === "lab") {
-      if (phase) data.phase = phase
-      if (laboratory) data.laboratory = laboratory
+    if (category === "lab" && !bloodPressure) {
+      data.phase = phase || null
+      data.laboratory = laboratory || null
     }
     try {
       await onSave({
@@ -199,13 +212,21 @@ export function CatalogEntryEditor({
   return (
     <Modal
       title={`${entry ? "Editar" : "Registrar"} ${
-        category === "symptom" ? "síntomas" : category === "goal" ? "objetivos" : "resultados de laboratorio"
+        bloodPressure ? "presión arterial" : category === "symptom" ? "síntomas" : category === "goal" ? "objetivos" : "resultados de laboratorio"
       }`}
-      subtitle="Selecciona los elementos de tu lista que correspondan y define su valor."
+      subtitle={bloodPressure
+        ? "Registra la presión sistólica y diastólica, sin añadir pruebas de laboratorio."
+        : "Selecciona los elementos de tu lista que correspondan y define su valor."}
       onClose={onClose}
       size="wide"
     >
       <form className="entry-form" onSubmit={submit}>
+        {mixedRecord && (
+          <p className="module-hint">
+            Este registro antiguo contiene laboratorios y presión arterial. Solo se modificarán los valores
+            de esta sección; la fecha y las notas son compartidas por ambos.
+          </p>
+        )}
         <label>
           Fecha y hora
           <input
@@ -215,7 +236,7 @@ export function CatalogEntryEditor({
             onChange={(event) => setOccurredAt(event.target.value)}
           />
         </label>
-        {category === "lab" && (
+        {category === "lab" && !bloodPressure && (
           <>
             <div className="form-two-columns">
               <label>
@@ -250,33 +271,45 @@ export function CatalogEntryEditor({
         )}
         <div className="catalog-selection-list">
           {catalog.map((item) => {
-            const selection = selections[item.id] ?? { checked: false, value: "", systolic: "", diastolic: "" }
+            const selection = selectionFor(item.id)
             return (
               <div className="catalog-selection-row" key={item.id}>
-                <label className={`catalog-selection-checkbox${selection.checked ? " selected" : ""}`}>
-                  <input type="checkbox" checked={selection.checked} onChange={() => toggle(item.id)} />
-                  {item.name}
-                  {item.unit ? ` (${item.unit})` : ""}
-                </label>
+                {!bloodPressure && (
+                  <label className={`catalog-selection-checkbox${selection.checked ? " selected" : ""}`}>
+                    <input type="checkbox" checked={selection.checked} onChange={() => toggle(item.id)} />
+                    {item.name}
+                    {item.unit ? ` (${item.unit})` : ""}
+                  </label>
+                )}
                 {selection.checked &&
                   (item.is_blood_pressure ? (
-                    <div className="catalog-selection-values">
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        placeholder="Sistólica"
-                        value={selection.systolic}
-                        onChange={(event) => updateField(item.id, "systolic", event.target.value)}
-                      />
-                      <input
-                        type="number"
-                        step="1"
-                        min="0"
-                        placeholder="Diastólica"
-                        value={selection.diastolic}
-                        onChange={(event) => updateField(item.id, "diastolic", event.target.value)}
-                      />
+                    <div className="form-two-columns blood-pressure-fields">
+                      <label>
+                        Sistólica (mmHg)
+                        <input
+                          required
+                          type="number"
+                          step="0.01"
+                          min="1"
+                          max="300"
+                          placeholder="Sistólica"
+                          value={selection.systolic}
+                          onChange={(event) => updateField(item.id, "systolic", event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        Diastólica (mmHg)
+                        <input
+                          required
+                          type="number"
+                          step="0.01"
+                          min="1"
+                          max="300"
+                          placeholder="Diastólica"
+                          value={selection.diastolic}
+                          onChange={(event) => updateField(item.id, "diastolic", event.target.value)}
+                        />
+                      </label>
                     </div>
                   ) : (
                     <input
@@ -294,10 +327,12 @@ export function CatalogEntryEditor({
             )
           })}
           {!catalog.length && (
-            <p className="module-hint">Aún no tienes elementos en tu lista. Añade el primero abajo.</p>
+            <p className="module-hint">{bloodPressure
+              ? "No se pudo cargar el elemento de presión arterial. Cierra el formulario y vuelve a intentarlo."
+              : "Aún no tienes elementos en tu lista. Añade el primero abajo."}</p>
           )}
         </div>
-        {addingItem ? (
+        {!bloodPressure && (addingItem ? (
           <div className="catalog-new-item">
             <input
               placeholder="Nombre"
@@ -351,17 +386,17 @@ export function CatalogEntryEditor({
           <button type="button" className="outline-button" onClick={() => setAddingItem(true)}>
             <Plus size={14} /> Añadir elemento nuevo a la lista
           </button>
-        )}
+        ))}
         <label>
           Notas <span className="optional">opcional</span>
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
         </label>
-        {error && <div className="error-banner">{error}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
         <div className="form-actions">
           <button type="button" className="cancel-button" onClick={onClose}>
             Cancelar
           </button>
-          <button className="primary-button" disabled={busy}>
+          <button className="primary-button" disabled={busy || (bloodPressure && !catalog.length)}>
             {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
           </button>
         </div>

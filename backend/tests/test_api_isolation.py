@@ -780,6 +780,23 @@ def test_activity_entries_support_single_activities_and_weekly_stats() -> None:
     assert single.status_code == 201
     assert single.json()["data"]["activity_type"] == "Bicicleta"
 
+    steps_only = client.post("/api/entries", headers=headers, json={
+        "module": "activity", "title": "Caminata", "data": {
+            "entry_type": "single", "activity_type": "Caminata", "steps": 3500,
+        },
+    })
+    assert steps_only.status_code == 201
+    steps_id = steps_only.json()["id"]
+    updated_steps = client.put(f"/api/entries/{steps_id}", headers=headers, json={
+        "module": "activity", "title": "Caminata", "data": {
+            "entry_type": "single", "activity_type": "Caminata", "steps": 4500,
+        },
+    })
+    assert updated_steps.status_code == 200
+    saved_steps = next(entry for entry in client.get(
+        "/api/entries/activity", headers=headers).json() if entry["id"] == steps_id)
+    assert saved_steps["data"]["steps"] == 4500
+
     other = client.post("/api/entries", headers=headers, json={
         "module": "activity", "title": "Senderismo", "data": {
             "entry_type": "single", "activity_type": "Otro",

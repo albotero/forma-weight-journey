@@ -74,6 +74,7 @@ import { AuthScreen } from "./components/auth/AuthScreen"
 import { EmailVerificationScreen } from "./components/auth/EmailVerificationScreen"
 import { EmptyInline, EmptyChart } from "./components/common/Empty"
 import { journalSectionLabels } from "./components/modules/journalDefinitions"
+import { labRecordLabel } from "./lib/catalogRecords.js"
 import { ModuleWorkspace } from "./components/modules/ModuleWorkspace"
 import { bodyFields, summarizeBodyMeasurements } from "./components/modules/bodyMeasurements"
 import { QuickModal } from "./components/modals/QuickModal"
@@ -1029,7 +1030,8 @@ export default function App() {
                         ...recentJournalEntries.map((item) => ({
                           id: `e${item.id}`,
                           icon:
-                            navigation.find(({ label }) => label === journalSectionLabels[item.module])?.icon ??
+                            navigation.find(({ label }) =>
+                              label === (item.module === "labs" ? labRecordLabel(item) : journalSectionLabels[item.module]))?.icon ??
                             FileText,
                           kind: item.module,
                           date: item.occurred_at,
@@ -1069,7 +1071,7 @@ export default function App() {
                                 : item.module === "reviews"
                                   ? [item.title, item.data.review_type, item.data.provider].filter(Boolean).join(" · ")
                                   : item.title,
-                          sub: journalSectionLabels[item.module],
+                          sub: item.module === "labs" ? labRecordLabel(item) : journalSectionLabels[item.module],
                         })),
                       ]
                         .sort((a, b) => b.date.localeCompare(a.date))
