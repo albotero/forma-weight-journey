@@ -1,9 +1,9 @@
 import { dateTimeInputValue } from "../dateTime.js"
-import { activityWeekStart, shiftActivityDate } from "./activity.js"
+import { chartPeriodStart } from "./chartPeriod.js"
 
-export function measurementPointsInPeriod(points, timezone, weeks = 4, now = new Date().toISOString()) {
+export function measurementPointsInPeriod(points, timezone, period = "90d", now = new Date().toISOString()) {
   const today = dateTimeInputValue(now, timezone).slice(0, 10)
-  const start = weeks === null ? null : shiftActivityDate(activityWeekStart(today), -(weeks - 1) * 7)
+  const start = chartPeriodStart(today, period)
   return points
     .filter(({ occurredAt, value }) => {
       if (typeof value !== "number" || !Number.isFinite(value)) return false

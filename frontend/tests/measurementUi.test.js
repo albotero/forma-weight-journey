@@ -9,12 +9,14 @@ let MeasurementOverview
 let LabEvolutionCharts
 let CatalogEntryEditor
 let ModuleWorkspace
+let ActivityEntryEditor
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" })
   ;({ MeasurementOverview } = await server.ssrLoadModule("/src/components/charts/MeasurementOverview.tsx"))
   ;({ LabEvolutionCharts } = await server.ssrLoadModule("/src/components/charts/LabEvolutionCharts.tsx"))
   ;({ CatalogEntryEditor } = await server.ssrLoadModule("/src/components/editors/CatalogEntryEditor.tsx"))
   ;({ ModuleWorkspace } = await server.ssrLoadModule("/src/components/modules/ModuleWorkspace.tsx"))
+  ;({ ActivityEntryEditor } = await server.ssrLoadModule("/src/components/editors/ActivityEntryEditor.tsx"))
 })
 after(async () => { await server?.close() })
 
@@ -53,8 +55,8 @@ test("measurement overview renders four cards, period controls and metric tabs w
   assert.match(html, /90 cm/)
   assert.match(html, /Métrica de medidas/)
   assert.match(html, /Cuello/)
-  assert.match(html, /Esta semana/)
-  assert.match(html, /12 semanas/)
+  assert.match(html, /aria-pressed="true">90 días<\/button>/)
+  assert.match(html, /6 meses/)
 })
 
 test("multiple lab tests render only one chart and preserve the normal range", () => {
@@ -64,16 +66,21 @@ test("multiple lab tests render only one chart and preserve the normal range", (
   assert.match(html, /Colesterol/)
   assert.match(html, /Normal: 70–100 mg\/dL/)
   assert.match(html, /95 mg\/dL/)
+  assert.match(html, /aria-pressed="true">1 año<\/button>/)
   assert.doesNotMatch(html, /Sistólica/)
 })
 
-test("blood pressure overview has three metric choices and one chart", () => {
+test("blood pressure overview combines three metrics in every card and one chart", () => {
   const html = markup(LabEvolutionCharts, { catalog: [bp], entries: [mixed], timezone, bloodPressure: true })
   assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
-  assert.match(html, /Métrica de presión arterial/)
-  assert.match(html, /Sistólica/)
-  assert.match(html, /Diastólica/)
-  assert.match(html, /Media registrada/)
+  assert.doesNotMatch(html, /Métrica de presión arterial/)
+  assert.equal(occurrences(html, "<dt>Sistólica</dt>"), 4)
+  assert.equal(occurrences(html, "<dt>Diastólica</dt>"), 4)
+  assert.equal(occurrences(html, "<dt>Media registrada</dt>"), 4)
+  assert.match(html, /<strong>120 mmHg<\/strong>/)
+  assert.match(html, /<strong>80 mmHg<\/strong>/)
+  assert.match(html, /<strong>100 mmHg<\/strong>/)
+  assert.match(html, /aria-pressed="true">90 días<\/button>/)
   assert.doesNotMatch(html, /Colesterol/)
 })
 
@@ -127,13 +134,77 @@ const workspaceProps = {
   onRefresh: async () => {}, onError: () => {}, onNewWeight: () => {}, onNewDose: () => {},
   onEditWeight: () => {}, onEditDose: () => {}, onEditMedication: () => {}, onDelete: async () => {},
 }
-for (const section of ["Peso", "Composición", "Medidas", "Síntomas", "Objetivos", "Laboratorios", "Presión arterial"]) {
+for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laboratorios", "Presión arterial"]) {
   test(`${section} page wires one four-card measurement overview`, () => {
     const html = markup(ModuleWorkspace, { ...workspaceProps, section })
     assert.equal(occurrences(html, 'class="measurement-overview"'), 1)
     assert.equal(occurrences(html, 'class="panel activity-total-card"'), 4)
-    assert.match(html, /Esta semana/)
-    assert.match(html, /4 semanas/)
+    const defaultLabel = section === "Laboratorios" ? "1 año" :
+      ["Medidas", "Objetivos"].includes(section) ? "6 meses" : "90 días"
+    assert.match(html, new RegExp(`aria-pressed="true">${defaultLabel}</button>`))
+  })
+
+  test("symptoms page retains its forms and histories without charts or statistics cards", () => {
+    const html = markup(ModuleWorkspace, { ...workspaceProps, section: "Síntomas" })
+    assert.equal(occurrences(html, 'class="measurement-overview"'), 0)
+    assert.equal(occurrences(html, 'class="panel activity-total-card"'), 0)
+    assert.equal(occurrences(html, 'class="chart-wrap"'), 0)
+    assert.match(html, /Check-ins semanales/)
+    assert.match(html, /Síntomas registrados/)
+  })
+
+  test("weight and moving average share all four cards and one chart without metric tabs", () => {
+    const html = markup(ModuleWorkspace, {
+      ...workspaceProps, section: "Peso",
+      weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
+    })
+    assert.equal(occurrences(html, "<dt>Peso</dt>"), 4)
+    assert.equal(occurrences(html, "<dt>Promedio móvil de 7 días</dt>"), 4)
+    assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
+    assert.doesNotMatch(html, /Métrica de peso/)
+  })
+
+  test("blood pressure handles absent systolic readings and historical catalog replacements", () => {
+    const historicalBp = { ...bp, id: 4 }
+    const entry = { ...mixed, data: { results: [
+      { ...result(3, null, { diastolic: 75, mean: 95 }), catalog_item_id: 4 },
+    ] } }
+    const html = markup(LabEvolutionCharts, {
+      catalog: [bp, historicalBp], entries: [entry], timezone, bloodPressure: true,
+    })
+    assert.equal(occurrences(html, "<dt>Sistólica</dt>"), 4)
+    assert.equal(occurrences(html, "<dt>Diastólica</dt>"), 4)
+    assert.match(html, /<strong>75 mmHg<\/strong>/)
+    assert.match(html, /<strong>95 mmHg<\/strong>/)
+    assert.match(html, /Sin datos/)
+    assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
+  })
+
+  test("weekly editor opens saved totals without multiplying again", () => {
+    const html = markup(ActivityEntryEditor, {
+      timezone, onClose: () => {}, onSave: async () => {},
+      entry: { id: 1, module: "activity", title: "Resumen semanal", occurred_at: now, notes: null,
+        data: { entry_type: "weekly", week_end: now.slice(0, 10),
+          weekly_steps: 7000, weekly_calories_kcal: 1400, weekly_distance_km: 7 } },
+    })
+    assert.match(html, /aria-pressed="true">Total semanal<\/button>/)
+    assert.match(html, /value="7000"/)
+    assert.match(html, /value="1400"/)
+    assert.match(html, /Promedio diario/)
+  })
+
+  test("activity has rolling periods and summary-date wording with a separate compact disclaimer", () => {
+    const html = markup(ModuleWorkspace, {
+      ...workspaceProps, section: "Actividad",
+      entries: [{ id: 1, module: "activity", title: "Resumen semanal", occurred_at: now,
+        data: { entry_type: "weekly", week_end: now.slice(0, 10), weekly_calories_kcal: 1400 } }],
+    })
+    assert.match(html, /aria-pressed="true">90 días<\/button>/)
+    assert.match(html, /class="activity-disclaimer"/)
+    assert.match(html, /fecha final del período/)
+    assert.match(html, /anclados al último resumen/)
+    assert.doesNotMatch(html, /lunes a domingo/)
+    assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
   })
 }
 

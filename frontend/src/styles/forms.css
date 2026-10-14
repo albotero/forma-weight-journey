@@ -812,6 +812,81 @@
 .activity-overview {
   margin-bottom: 24px;
 }
+.activity-overview .activity-disclaimer {
+  margin: 18px 0 22px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+  color: var(--sub);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.activity-overview .activity-chart-note {
+  margin-top: 12px;
+  background: transparent;
+}
+.activity-summary-heading .range-select {
+  margin: 8px 0;
+}
+.activity-bar-panel {
+  overflow: hidden;
+  border-radius: 16px;
+}
+.activity-bar-panel .chart-wrap {
+  height: 320px;
+  margin-top: 18px;
+}
+.activity-chart-tooltip {
+  min-width: 200px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  font-size: 11px;
+}
+.activity-chart-tooltip > strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--sub);
+  font-size: 10px;
+}
+.activity-chart-tooltip > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 8px;
+}
+.activity-tooltip-total {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.activity-total-card .measurement-card-values {
+  margin: 0;
+  color: var(--text);
+}
+.measurement-card-values > div {
+  flex-direction: column;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.measurement-card-values > div:last-child {
+  border-bottom: 0;
+}
+.measurement-card-values dt {
+  color: var(--sub);
+}
+.measurement-card-values strong {
+  font-size: 20px;
+}
+.measurement-card-values small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 10px;
+}
 .measurement-overview {
   margin-bottom: 24px;
 }

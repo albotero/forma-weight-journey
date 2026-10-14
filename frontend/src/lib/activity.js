@@ -1,4 +1,6 @@
 import { dateTimeInputValue } from "../dateTime.js"
+import { chartPeriodStart, shiftCalendarDate as shiftActivityDate } from "./chartPeriod.js"
+export { shiftCalendarDate as shiftActivityDate } from "./chartPeriod.js"
 
 export const activityMetrics = [
   { key: "steps", weeklyKey: "weekly_steps", label: "Pasos", unit: "pasos" },
@@ -9,17 +11,6 @@ export const activityMetrics = [
 
 export function isValidActivityMeasurement(value) {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
-}
-
-export function shiftActivityDate(day, days) {
-  const date = new Date(`${day}T12:00:00Z`)
-  date.setUTCDate(date.getUTCDate() + days)
-  return date.toISOString().slice(0, 10)
-}
-
-export function activityWeekStart(day) {
-  const weekday = new Date(`${day}T12:00:00Z`).getUTCDay()
-  return shiftActivityDate(day, -(weekday === 0 ? 6 : weekday - 1))
 }
 
 export function activityEntryDate(entry, timezone, now = new Date().toISOString()) {
@@ -41,10 +32,34 @@ function addMeasurement(metric, source, value) {
   metric.total = Number(((metric.single ?? 0) + (metric.weekly ?? 0)).toFixed(2))
 }
 
-export function summarizeActivity(entries, timezone, weekCount = 4, now = new Date().toISOString()) {
+export function weeklyActivityTotals(values, inputMode) {
+  if (inputMode !== "daily_average" && inputMode !== "weekly_total") {
+    throw new Error("Selecciona promedio diario o total semanal.")
+  }
+  return Object.fromEntries(activityMetrics.filter(({ weeklyKey }) => weeklyKey !== null).map(({ key, weeklyKey }) => {
+    const raw = values[weeklyKey]
+    const value = raw == null || String(raw).trim() === "" ? null : Number(raw)
+    if (value === null) return [weeklyKey, null]
+    if (!isValidActivityMeasurement(value)) throw new Error("Ingresa medidas numéricas no negativas.")
+    const multiplied = value * (inputMode === "daily_average" ? 7 : 1)
+    const total = key === "steps" && inputMode === "daily_average"
+      ? Math.round(multiplied) : key === "steps" ? multiplied : Number(multiplied.toFixed(2))
+    if (key === "steps" && !Number.isInteger(total)) {
+      throw new Error("Los pasos deben resultar en un total semanal entero.")
+    }
+    const maximum = key === "steps" ? 2000000 : key === "calories_kcal" ? 200000 : 10000
+    if (total > maximum) throw new Error(`El total semanal de ${key === "steps" ? "pasos" : key === "calories_kcal" ? "calorías" : "distancia"} supera el máximo permitido.`)
+    return [weeklyKey, total]
+  }))
+}
+
+export function summarizeActivity(entries, timezone, period = "90d", now = new Date().toISOString()) {
   const today = dateTimeInputValue(now, timezone).slice(0, 10)
-  const currentWeek = activityWeekStart(today)
-  const start = weekCount === null ? null : shiftActivityDate(currentWeek, -(weekCount - 1) * 7)
+  const start = chartPeriodStart(today, period)
+  const summaryEnds = [...new Set(entries.filter((entry) =>
+    entry.module === "activity" && entry.data.entry_type === "weekly",
+  ).map((entry) => activityEntryDate(entry, timezone, now)).filter((day) => day <= today))].sort()
+  const anchorEnd = summaryEnds.at(-1) ?? today
   const visibleEntries = entries
     .filter((entry) => {
       if (entry.module !== "activity") return false
@@ -59,9 +74,16 @@ export function summarizeActivity(entries, timezone, weekCount = 4, now = new Da
   const weeks = new Map()
   let invalidMeasurementCount = 0
   for (const entry of visibleEntries) {
-    const weekStart = activityWeekStart(activityEntryDate(entry, timezone, now))
-    if (!weeks.has(weekStart)) weeks.set(weekStart, { start: weekStart, metrics: emptyMetrics() })
-    const week = weeks.get(weekStart)
+    const day = activityEntryDate(entry, timezone, now)
+    // Assign individuals to one containing summary only; overlapping summaries remain additive.
+    const containingEnd = summaryEnds.find((end) => day <= end && day >= shiftActivityDate(end, -6))
+    const deltaDays = (Date.parse(`${day}T12:00:00Z`) - Date.parse(`${anchorEnd}T12:00:00Z`)) / 86400000
+    const weekEnd = entry.data.entry_type === "weekly" ? day :
+      containingEnd ?? shiftActivityDate(anchorEnd, Math.ceil(deltaDays / 7) * 7)
+    if (!weeks.has(weekEnd)) weeks.set(weekEnd, {
+      start: shiftActivityDate(weekEnd, -6), end: weekEnd, metrics: emptyMetrics(),
+    })
+    const week = weeks.get(weekEnd)
     const source = entry.data.entry_type === "weekly" ? "weekly" : "single"
     for (const { key, weeklyKey } of activityMetrics) {
       const field = source === "weekly" ? weeklyKey : key
@@ -82,7 +104,7 @@ export function summarizeActivity(entries, timezone, weekCount = 4, now = new Da
     end: today,
     totals,
     invalidMeasurementCount,
-    weeks: [...weeks.values()].sort((a, b) => a.start.localeCompare(b.start)),
+    weeks: [...weeks.values()].sort((a, b) => a.end.localeCompare(b.end)),
     singleCount: visibleEntries.filter((entry) => entry.data.entry_type !== "weekly").length,
     weeklyCount: visibleEntries.filter((entry) => entry.data.entry_type === "weekly").length,
   }

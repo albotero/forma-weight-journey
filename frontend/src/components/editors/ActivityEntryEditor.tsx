@@ -2,7 +2,8 @@ import { useState, type FormEvent } from "react"
 import type { JournalEntry } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import { activityTypes, type ActivityType } from "../../lib/types"
-import { activityEntryDate } from "../../lib/activity.js"
+import { activityEntryDate, weeklyActivityTotals } from "../../lib/activity.js"
+import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
 
 export function ActivityEntryEditor({
@@ -45,9 +46,47 @@ export function ActivityEntryEditor({
   const [weeklyCalories, setWeeklyCalories] = useState(() => String(entry?.data.weekly_calories_kcal ?? ""))
   const [weeklySteps, setWeeklySteps] = useState(() => String(entry?.data.weekly_steps ?? ""))
   const [weeklyDistance, setWeeklyDistance] = useState(() => String(entry?.data.weekly_distance_km ?? ""))
+  const [weeklyInputMode, setWeeklyInputMode] = useState<"daily_average" | "weekly_total">(() =>
+    entry?.data.entry_type === "weekly" ? "weekly_total" : "daily_average",
+  )
   const [notes, setNotes] = useState(entry?.notes ?? "")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  const weeklyValues = {
+    weekly_calories_kcal: weeklyCalories, weekly_steps: weeklySteps, weekly_distance_km: weeklyDistance,
+  }
+  let weeklyPreview: Record<string, number | null> | null = null
+  let weeklyPreviewError = ""
+  if (entryType === "weekly" && weeklyInputMode === "daily_average") {
+    try {
+      weeklyPreview = weeklyActivityTotals(weeklyValues, weeklyInputMode)
+    } catch (reason) {
+      weeklyPreviewError = reason instanceof Error ? reason.message : "No se pudieron calcular los totales semanales."
+    }
+  }
+
+  function changeWeeklyInputMode(mode: "daily_average" | "weekly_total") {
+    if (mode === weeklyInputMode) return
+    const convert = (raw: string) => raw.trim() === "" ? "" :
+      String(Number(raw) / 7)
+    if (mode === "daily_average") {
+      setWeeklyCalories(convert(weeklyCalories))
+      setWeeklySteps(convert(weeklySteps))
+      setWeeklyDistance(convert(weeklyDistance))
+    } else {
+      try {
+        const totals = weeklyActivityTotals(weeklyValues, weeklyInputMode)
+        setWeeklyCalories(String(totals.weekly_calories_kcal ?? ""))
+        setWeeklySteps(String(totals.weekly_steps ?? ""))
+        setWeeklyDistance(String(totals.weekly_distance_km ?? ""))
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "No se pudieron calcular los totales semanales.")
+        return
+      }
+    }
+    setWeeklyInputMode(mode)
+    setError("")
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -56,7 +95,7 @@ export function ActivityEntryEditor({
     if (!measurements.some((value) => value.trim() !== "")) {
       setError(
         entryType === "weekly"
-          ? "Ingresa al menos un total semanal."
+          ? "Ingresa al menos una medida semanal."
           : "Ingresa al menos una medida de esta actividad.",
       )
       return
@@ -67,14 +106,21 @@ export function ActivityEntryEditor({
     }
 
     const numberOrNull = (value: string) => (value.trim() === "" ? null : Number(value))
+    let weeklyTotals: Record<string, number | null> = {}
+    if (entryType === "weekly") {
+      try {
+        weeklyTotals = weeklyActivityTotals(weeklyValues, weeklyInputMode)
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "No se pudieron calcular los totales semanales.")
+        return
+      }
+    }
     const data =
       entryType === "weekly"
         ? {
             entry_type: "weekly",
             week_end: weekEnd,
-            weekly_calories_kcal: numberOrNull(weeklyCalories),
-            weekly_steps: numberOrNull(weeklySteps),
-            weekly_distance_km: numberOrNull(weeklyDistance),
+            ...weeklyTotals,
           }
         : {
             entry_type: "single",
@@ -234,41 +280,64 @@ export function ActivityEntryEditor({
                 onChange={(event) => setWeekEnd(event.target.value)}
               />
             </label>
+            <div className="range-select" role="group" aria-label="Valores semanales">
+              <button type="button" className={weeklyInputMode === "daily_average" ? "selected" : ""}
+                aria-pressed={weeklyInputMode === "daily_average"} onClick={() => changeWeeklyInputMode("daily_average")}>
+                Promedio diario
+              </button>
+              <button type="button" className={weeklyInputMode === "weekly_total" ? "selected" : ""}
+                aria-pressed={weeklyInputMode === "weekly_total"} onClick={() => changeWeeklyInputMode("weekly_total")}>
+                Total semanal
+              </button>
+            </div>
+            <p className="module-hint">
+              {weeklyInputMode === "daily_average"
+                ? "Ingresa el promedio de cada día. Se multiplica por 7 para guardar el total semanal; los pasos se redondean al entero más cercano."
+                : "Ingresa los totales de los siete días que terminan en la fecha seleccionada."}
+            </p>
             <div className="form-two-columns">
               <label>
-                Calorías (kcal)
+                {weeklyInputMode === "daily_average" ? "Calorías diarias (kcal)" : "Calorías semanales (kcal)"}
                 <input
                   type="number"
                   min="0"
-                  max="200000"
-                  step="0.01"
+                  max={weeklyInputMode === "daily_average" ? 200000 / 7 : 200000}
+                  step="any"
                   value={weeklyCalories}
                   onChange={(event) => setWeeklyCalories(event.target.value)}
                 />
               </label>
               <label>
-                Pasos
+                {weeklyInputMode === "daily_average" ? "Pasos diarios" : "Pasos semanales"}
                 <input
                   type="number"
                   min="0"
-                  max="2000000"
-                  step="1"
+                  max={weeklyInputMode === "daily_average" ? 2000000 / 7 : 2000000}
+                  step={weeklyInputMode === "daily_average" ? "any" : "1"}
                   value={weeklySteps}
                   onChange={(event) => setWeeklySteps(event.target.value)}
                 />
               </label>
               <label>
-                Distancia (km)
+                {weeklyInputMode === "daily_average" ? "Distancia diaria (km)" : "Distancia semanal (km)"}
                 <input
                   type="number"
                   min="0"
-                  max="10000"
-                  step="0.01"
+                  max={weeklyInputMode === "daily_average" ? 10000 / 7 : 10000}
+                  step="any"
                   value={weeklyDistance}
                   onChange={(event) => setWeeklyDistance(event.target.value)}
                 />
               </label>
             </div>
+            {weeklyPreview && (
+              <p className="module-hint activity-weekly-preview">
+                Totales de 7 días: {weeklyPreview.weekly_steps != null ? `${formatDecimal(weeklyPreview.weekly_steps)} pasos` : "pasos sin datos"}
+                {" · "}{weeklyPreview.weekly_calories_kcal != null ? `${formatDecimal(weeklyPreview.weekly_calories_kcal)} kcal` : "calorías sin datos"}
+                {" · "}{weeklyPreview.weekly_distance_km != null ? `${formatDecimal(weeklyPreview.weekly_distance_km)} km` : "distancia sin datos"}
+              </p>
+            )}
+            {weeklyPreviewError && <p className="error-banner" role="alert">{weeklyPreviewError}</p>}
           </>
         )}
         <label>

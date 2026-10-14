@@ -23,6 +23,7 @@ import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../..
 import { estimatedNextDose, compositionFields } from "../../lib/records"
 import { activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
 import { ActivityOverview } from "./ActivityOverview"
+import type { ChartPeriod } from "../../lib/chartPeriod.js"
 import { catalogWithHistoricalItems, labRecordLabel, mergeScopedCatalogEntry, scopedCatalogResults } from "../../lib/catalogRecords.js"
 import { weightMovingAverageSeries } from "../../lib/weightTrend.js"
 import { AnalysisWorkspace } from "../analysis/AnalysisWorkspace"
@@ -69,8 +70,8 @@ export function ModuleWorkspace(props: {
   const compositionWeights = [...weights]
     .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
-  const [activityWeekCount, setActivityWeekCount] = useState<number | null>(4)
-  const activitySummary = module === "activity" ? summarizeActivity(entries, userTimezone, activityWeekCount) : null
+  const [activityPeriod, setActivityPeriod] = useState<ChartPeriod>("90d")
+  const activitySummary = module === "activity" ? summarizeActivity(entries, userTimezone, activityPeriod) : null
   const activityDateLabel = (day: string) =>
     `${formatDate(localDateTimeToIso(`${day}T12:00`, userTimezone), userTimezone)} ${day.slice(0, 4)}`
   const visibleEntries = activitySummary?.entries ?? entries
@@ -167,36 +168,16 @@ export function ModuleWorkspace(props: {
       }]
     }),
   }))
-  if (catalogCategory === "symptom") {
-    catalogMetricSeries.push({
-      id: "hydration",
-      label: "Hidratación",
-      unit: "L/día",
-      points: entries.filter((entry) => entry.module === "symptoms" && typeof entry.data.hydration_l === "number")
-        .map((entry) => ({
-          id: entry.id,
-          occurredAt: entry.occurred_at,
-          date: formatDate(entry.occurred_at, userTimezone),
-          value: Number(entry.data.hydration_l),
-        })),
-    })
-  }
   const weightTrend = weightMovingAverageSeries(weights)
-  const heightMeters = props.profile ? props.profile.height_cm / 100 : null
   const weightMetricSeries: MeasurementSeries[] = [
     { id: "weight", label: "Peso", unit: "kg", points: weights.map((item) => ({
       id: item.id,
       occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.weight_kg,
     })) },
-    { id: "average", label: "Promedio móvil de 7 días", unit: "kg", points: weightTrend.map((item) => ({
+    { id: "average", label: "Promedio móvil de 7 días", unit: "kg", dashed: true, points: weightTrend.map((item) => ({
       id: item.id,
       occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.moving_average_7d_kg,
     })) },
-    ...(heightMeters != null ? [{ id: "bmi", label: "IMC", unit: "kg/m²", points: weights.map((item) => ({
-      id: item.id,
-      occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone),
-      value: Number((item.weight_kg / heightMeters ** 2).toFixed(2)),
-    })) }] : []),
   ]
 
   useEffect(() => {
@@ -572,6 +553,7 @@ export function ModuleWorkspace(props: {
           </p>
           <MeasurementOverview
             title="Composición corporal"
+            defaultPeriod="90d"
             timezone={userTimezone}
             series={compositionFields.map(([key, label, unit]) => ({
               id: key,
@@ -640,7 +622,7 @@ export function ModuleWorkspace(props: {
 
       {section === "Peso" && (
         <>
-          <MeasurementOverview title="Peso" series={weightMetricSeries} timezone={userTimezone} />
+          <MeasurementOverview title="Peso y tendencia" series={weightMetricSeries} timezone={userTimezone} combined />
           <div className="record-list">
             {weights.map((item) => (
               <article className="record-card" key={item.id}>
@@ -666,6 +648,7 @@ export function ModuleWorkspace(props: {
         <>
           <MeasurementOverview
             title="Medidas corporales"
+            defaultPeriod="6m"
             timezone={userTimezone}
             series={bodyFields.map(([key, label, unit]) => ({
               id: key,
@@ -839,9 +822,6 @@ export function ModuleWorkspace(props: {
 
       {module && (!catalogCategory || module === "symptoms") && (
         <>
-          {module === "symptoms" && (
-            <MeasurementOverview title="Síntomas e hidratación" series={catalogMetricSeries} timezone={userTimezone} />
-          )}
           {module === "reminders" && (
             <div className="telegram-panel">
               <div>
@@ -877,8 +857,8 @@ export function ModuleWorkspace(props: {
             <ActivityOverview
               summary={activitySummary}
               timezone={userTimezone}
-              weekCount={activityWeekCount}
-              onPeriodChange={setActivityWeekCount}
+              period={activityPeriod}
+              onPeriodChange={setActivityPeriod}
             />
           )}
           {module === "symptoms" && <h2 className="module-subheading">Check-ins semanales</h2>}
@@ -1094,7 +1074,7 @@ export function ModuleWorkspace(props: {
             />
           )}
           {section === "Objetivos" && (
-            <MeasurementOverview title="Progreso de objetivos" series={catalogMetricSeries} timezone={userTimezone} />
+            <MeasurementOverview title="Progreso de objetivos" series={catalogMetricSeries} timezone={userTimezone} defaultPeriod="6m" />
           )}
           {section === "Síntomas" && <h2 className="module-subheading">Síntomas registrados</h2>}
           <div className="record-list">

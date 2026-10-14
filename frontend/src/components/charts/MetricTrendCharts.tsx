@@ -20,6 +20,7 @@ export function MetricTrendCharts({
   series: {
     label: string
     unit: string
+    dashed?: boolean
     points: { occurredAt: string; date: string; value: number }[]
   }[]
   title: string
@@ -136,7 +137,7 @@ export function MetricTrendCharts({
               }}
             />
             {populated.map(
-              ({ label }, index) =>
+              ({ label, dashed }, index) =>
                 !hidden.includes(label) && (
                   <Line
                     key={label}
@@ -147,6 +148,7 @@ export function MetricTrendCharts({
                     connectNulls
                     stroke={colors[index % colors.length]}
                     strokeWidth={2.2}
+                    strokeDasharray={dashed ? "5 4" : undefined}
                     dot={{ fill: colors[index % colors.length], stroke: colors[index % colors.length], r: 2.5 }}
                   />
                 ),

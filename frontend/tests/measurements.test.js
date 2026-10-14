@@ -13,22 +13,22 @@ test("measurement cards show latest, previous change, average and count, not sum
     point("2026-10-13T15:00:00Z", 80),
     point("2026-10-12T15:00:00Z", 82),
     point("2026-10-14T15:00:00Z", 79),
-  ], "America/Bogota", 4, now)
+  ], "America/Bogota", "90d", now)
   assert.deepEqual(measurementStats(points), { latest: 79, change: -1, average: 80.33, count: 3 })
 })
 
-test("periods use local calendar weeks and exclude invalid and future readings", () => {
+test("periods use local rolling dates and exclude invalid and future readings", () => {
   const points = [
-    point("2026-09-21T05:00:00Z", 1),
-    point("2026-09-21T04:59:00Z", 2),
+    point("2026-07-17T05:00:00Z", 1),
+    point("2026-07-17T04:59:00Z", 2),
     point("2026-10-12T05:00:00Z", 0),
     point("2026-10-15T05:00:00Z", 3),
     point("2026-10-13T15:00:00Z", NaN),
     point("2026-10-13T15:00:00Z", null),
   ]
-  assert.equal(measurementPointsInPeriod(points, "America/Bogota", 4, now).length, 2)
-  assert.equal(measurementPointsInPeriod(points, "America/Bogota", 1, now).length, 1)
-  assert.equal(measurementPointsInPeriod(points, "America/Bogota", 12, now).length, 3)
+  assert.equal(measurementPointsInPeriod(points, "America/Bogota", "90d", now).length, 2)
+  assert.equal(measurementPointsInPeriod(points, "America/Bogota", "30d", now).length, 1)
+  assert.equal(measurementPointsInPeriod(points, "America/Bogota", "6m", now).length, 3)
   assert.equal(measurementPointsInPeriod(points, "America/Bogota", null, now).length, 3)
 })
 
@@ -75,7 +75,7 @@ test("measurement chronology uses actual timestamps and ID tie breaks", () => {
     { ...point("2026-10-13T15:00:00Z", 10), id: 2 },
     { ...point("2026-10-13T15:00:00Z", 12), id: 1 },
     point("2026-10-13T09:00:00-05:00", 14),
-  ], "America/Bogota", 4, now)
+  ], "America/Bogota", "90d", now)
   assert.deepEqual(points.map(({ value }) => value), [14, 12, 10])
   assert.equal(measurementStats(points).latest, 10)
 })

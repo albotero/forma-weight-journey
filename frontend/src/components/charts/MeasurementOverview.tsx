@@ -2,11 +2,13 @@ import { useState, type ReactNode } from "react"
 import { measurementPointsInPeriod, measurementStats, type MeasurementPoint } from "../../lib/measurements.js"
 import { formatDateTime, formatDecimal } from "../../lib/format"
 import { MetricTrendCharts } from "./MetricTrendCharts"
+import { chartPeriods, type ChartPeriod } from "../../lib/chartPeriod.js"
 
 export type MeasurementSeries = {
   id: string
   label: string
   unit: string
+  dashed?: boolean
   points: MeasurementPoint[]
 }
 
@@ -15,53 +17,54 @@ export function MeasurementOverview({
   series,
   timezone,
   renderChart,
+  defaultPeriod = "90d",
+  combined = false,
 }: {
   title: string
   series: MeasurementSeries[]
   timezone: string
-  renderChart?: (selected: MeasurementSeries) => ReactNode
+  renderChart?: (selected: MeasurementSeries, visibleSeries: MeasurementSeries[]) => ReactNode
+  defaultPeriod?: ChartPeriod
+  combined?: boolean
 }) {
   const [selectedId, setSelectedId] = useState("")
-  const [weeks, setWeeks] = useState<number | null>(4)
+  const [period, setPeriod] = useState<ChartPeriod>(defaultPeriod)
   const available = series.filter(({ points }) => points.length > 0)
   const selected = available.find(({ id }) => id === selectedId) ?? available[0]
   const dateFormatter = new Intl.DateTimeFormat("es-CO", {
     day: "numeric", month: "short", year: "numeric", timeZone: timezone,
   })
-  const filtered = selected && {
-    ...selected,
-    points: measurementPointsInPeriod(selected.points, timezone, weeks)
+  const visibleSeries = (combined ? series : selected ? [selected] : []).map((item) => ({
+    ...item,
+    points: measurementPointsInPeriod(item.points, timezone, period)
       .map((point) => ({ ...point, date: dateFormatter.format(new Date(point.occurredAt)) })),
-  }
-  const stats = measurementStats(filtered?.points ?? [])
-  const latestPoint = filtered?.points.at(-1)
-  const valueLabel = (value: number | null) =>
-    value === null ? "Sin datos" : `${formatDecimal(value)}${selected?.unit ? ` ${selected.unit}` : ""}`
+  }))
+  const filtered = visibleSeries[0]
+  const summaries = visibleSeries.map((item) => ({
+    ...item, stats: measurementStats(item.points), latestPoint: item.points.at(-1),
+  }))
+  const valueLabel = (value: number | null, unit: string) =>
+    value === null ? "Sin datos" : `${formatDecimal(value)}${unit ? ` ${unit}` : ""}`
 
   return (
     <section className="measurement-overview" aria-label={`Resumen de ${title.toLowerCase()}`}>
       <div className="activity-summary-heading">
         <h2 className="module-subheading">{title}</h2>
         <div className="range-select" role="group" aria-label={`Período de ${title.toLowerCase()}`}>
-          {[
-            { value: 1, label: "Esta semana" },
-            { value: 4, label: "4 semanas" },
-            { value: 12, label: "12 semanas" },
-            { value: null, label: "Todo" },
-          ].map(({ value, label }) => (
+          {chartPeriods.map(({ value, label }) => (
             <button
               key={label}
               type="button"
-              className={weeks === value ? "selected" : ""}
-              aria-pressed={weeks === value}
-              onClick={() => setWeeks(value)}
+              className={period === value ? "selected" : ""}
+              aria-pressed={period === value}
+              onClick={() => setPeriod(value)}
             >
               {label}
             </button>
           ))}
         </div>
       </div>
-      {available.length > 0 && (
+      {!combined && available.length > 1 && (
         <div className="range-select measurement-tabs" role="group" aria-label={`Métrica de ${title.toLowerCase()}`}>
           {available.map(({ id, label }) => (
             <button
@@ -78,41 +81,46 @@ export function MeasurementOverview({
       )}
       <div className="activity-total-grid">
         {[
-          {
-            label: "Último valor",
-            value: valueLabel(stats.latest),
-            detail: latestPoint ? formatDateTime(latestPoint.occurredAt, timezone) : "Sin lecturas en el período",
-          },
-          {
-            label: "Cambio entre últimas lecturas",
-            value: `${stats.change != null && stats.change > 0 ? "+" : ""}${valueLabel(stats.change)}`,
-            detail: "No representa un objetivo clínico",
-          },
-          {
-            label: "Promedio del período",
-            value: valueLabel(stats.average),
-            detail: "Promedio de las lecturas disponibles",
-          },
-          {
-            label: "Lecturas",
-            value: formatDecimal(stats.count),
-            detail: selected?.label ?? "Sin medidas registradas",
-          },
-        ].map(({ label, value, detail }) => (
+          { key: "latest" as const, label: "Último valor", detail: "Última lectura disponible en el período" },
+          { key: "change" as const, label: "Cambio entre últimas lecturas", detail: "No representa un objetivo clínico" },
+          { key: "average" as const, label: "Promedio del período", detail: "Promedio de las lecturas disponibles" },
+          { key: "count" as const, label: "Lecturas", detail: "Número de valores disponibles" },
+        ].map(({ key, label, detail }) => (
           <article className="panel activity-total-card" key={label}>
             <h3>{label}</h3>
-            <strong>{value}</strong>
+            {combined && summaries.length > 0 ? (
+              <dl className="measurement-card-values">
+                {summaries.map(({ id, label: metricLabel, unit, stats, latestPoint }) => (
+                  <div key={id}>
+                    <dt>{metricLabel}</dt>
+                    <dd>
+                      <strong>
+                        {key === "count" ? formatDecimal(stats.count) :
+                          `${key === "change" && stats.change != null && stats.change > 0 ? "+" : ""}${valueLabel(stats[key], unit)}`}
+                      </strong>
+                      {key === "latest" && latestPoint && <small>{formatDateTime(latestPoint.occurredAt, timezone)}</small>}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <strong>
+                {summaries[0] ? key === "count" ? formatDecimal(summaries[0].stats.count) :
+                  `${key === "change" && summaries[0].stats.change != null && summaries[0].stats.change > 0 ? "+" : ""}${valueLabel(summaries[0].stats[key], summaries[0].unit)}`
+                  : key === "count" ? "0" : "Sin datos"}
+              </strong>
+            )}
             <p className="module-hint">{detail}</p>
           </article>
         ))}
       </div>
-      {filtered?.points.length ? (
-        renderChart ? renderChart(filtered) : (
+      {visibleSeries.some(({ points }) => points.length > 0) ? (
+        renderChart ? renderChart(filtered, visibleSeries) : (
           <MetricTrendCharts
-            key={filtered.id}
-            title={filtered.label}
-            hideLegend
-            series={[filtered]}
+            key={combined ? title : filtered.id}
+            title={combined ? title : filtered.label}
+            hideLegend={!combined}
+            series={visibleSeries}
           />
         )
       ) : (
@@ -121,7 +129,7 @@ export function MeasurementOverview({
         </p>
       )}
       <p className="module-hint">
-        Las tarjetas y la gráfica muestran la medida seleccionada. Las lecturas no se suman;
+        {combined ? "Las tarjetas y la gráfica comparan todas las series." : "Las tarjetas y la gráfica muestran la medida seleccionada."} Las lecturas no se suman;
         los campos vacíos no se estiman. El historial completo permanece debajo.
       </p>
     </section>

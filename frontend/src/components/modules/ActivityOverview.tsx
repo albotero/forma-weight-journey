@@ -1,26 +1,27 @@
-import { useState } from "react"
+import { useId, useState } from "react"
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import {
   activityMetrics,
-  shiftActivityDate,
   type ActivityMetricKey,
   type summarizeActivity,
 } from "../../lib/activity.js"
 import { localDateTimeToIso } from "../../dateTime.js"
 import { formatDate, formatDecimal } from "../../lib/format"
+import { chartPeriods, type ChartPeriod } from "../../lib/chartPeriod.js"
 
 export function ActivityOverview({
   summary,
   timezone,
-  weekCount,
+  period,
   onPeriodChange,
 }: {
   summary: ReturnType<typeof summarizeActivity>
   timezone: string
-  weekCount: number | null
-  onPeriodChange: (weeks: number | null) => void
+  period: ChartPeriod
+  onPeriodChange: (period: ChartPeriod) => void
 }) {
   const [metricKey, setMetricKey] = useState<ActivityMetricKey>("calories_kcal")
+  const gradientId = useId().replaceAll(":", "")
   const metric = activityMetrics.find(({ key }) => key === metricKey)!
   const dateLabel = (day: string) =>
     `${formatDate(localDateTimeToIso(`${day}T12:00`, timezone), timezone)} ${day.slice(0, 4)}`
@@ -30,10 +31,11 @@ export function ActivityOverview({
     return values.total === null
       ? []
       : [{
-          date: dateLabel(week.start),
-          range: `${dateLabel(week.start)} – ${dateLabel(shiftActivityDate(week.start, 6))}`,
+          date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
+          range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
           single: values.single,
           weekly: values.weekly,
+          total: values.total,
         }]
   })
   const hasSingle = points.some(({ single }) => single !== null)
@@ -51,29 +53,23 @@ export function ActivityOverview({
           </p>
         </div>
         <div className="range-select" role="group" aria-label="Período de actividad">
-          {[
-            { weeks: 1, label: "Esta semana" },
-            { weeks: 4, label: "4 semanas" },
-            { weeks: 12, label: "12 semanas" },
-            { weeks: null, label: "Todo" },
-          ].map(({ weeks, label }) => (
+          {chartPeriods.map(({ value, label }) => (
             <button
               key={label}
               type="button"
-              className={weekCount === weeks ? "selected" : ""}
-              aria-pressed={weekCount === weeks}
-              onClick={() => onPeriodChange(weeks)}
+              className={period === value ? "selected" : ""}
+              aria-pressed={period === value}
+              onClick={() => onPeriodChange(value)}
             >
               {label}
             </button>
           ))}
         </div>
       </div>
-      <p className="module-hint">
+      <p className="activity-disclaimer">
         Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden.
         Si un resumen ya incluye una actividad, se contará dos veces.
-        Las semanas van de lunes a domingo; cada resumen se asigna completo a la semana de su fecha final.
-        Solo se suman medidas registradas, sin estimar pasos ni calorías.
+        Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.
       </p>
       {summary.invalidMeasurementCount > 0 && (
         <p className="error-banner" role="alert">
@@ -118,23 +114,34 @@ export function ActivityOverview({
             ))}
           </div>
           {points.length > 0 && (
-            <div className="panel analysis-chart-panel trend-chart-panel">
+            <div className="panel analysis-chart-panel trend-chart-panel activity-bar-panel">
               <div className="panel-heading">
                 <div>
-                  <div className="eyebrow">TOTALES SEMANALES</div>
+                  <div className="eyebrow">PERÍODOS DE 7 DÍAS</div>
                   <h2>{metric.label} por semana</h2>
                 </div>
-                <span className="goal-caption">{metric.unit} · individuales + resúmenes</span>
+                <span className="goal-caption">{metric.unit} · fecha final del período</span>
               </div>
               <div className="chart-wrap">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={points} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
+                  <BarChart data={points} barCategoryGap="28%" margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                    <defs>
+                      <linearGradient id={`${gradientId}-single`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#52a985" />
+                        <stop offset="100%" stopColor="#307a58" />
+                      </linearGradient>
+                      <linearGradient id={`${gradientId}-weekly`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#6d9de0" />
+                        <stop offset="100%" stopColor="#3d6fb4" />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="2 6" vertical={false} stroke="var(--line)" />
                     <XAxis
                       dataKey="date"
                       axisLine={false}
                       tickLine={false}
                       minTickGap={30}
+                      tickMargin={12}
                       tick={{ fill: "var(--muted)", fontSize: 11 }}
                     />
                     <YAxis
@@ -146,17 +153,26 @@ export function ActivityOverview({
                       tickFormatter={(value) => formatDecimal(Number(value))}
                       tick={{ fill: "var(--muted)", fontSize: 11 }}
                     />
-                    <Tooltip
-                      labelFormatter={(label, payload) => payload[0]?.payload.range ?? label}
-                      formatter={(value, name) => [`${formatDecimal(Number(value))} ${metric.unit}`, name]}
-                      contentStyle={{ background: "var(--panel)", borderColor: "var(--line)", color: "var(--text)" }}
-                    />
-                    <Legend />
+                    <Tooltip cursor={{ fill: "var(--green-soft)", opacity: 0.35 }} content={({ active, payload }) => {
+                      const point = payload?.[0]?.payload as (typeof points)[number] | undefined
+                      if (!active || !point) return null
+                      return (
+                        <div className="activity-chart-tooltip">
+                          <strong>{point.range}</strong>
+                          {point.single != null && <div><span>Individuales</span><b>{formatDecimal(point.single)} {metric.unit}</b></div>}
+                          {point.weekly != null && <div><span>Resúmenes</span><b>{formatDecimal(point.weekly)} {metric.unit}</b></div>}
+                          <div className="activity-tooltip-total"><span>Total</span><b>{formatDecimal(point.total)} {metric.unit}</b></div>
+                        </div>
+                      )
+                    }} />
+                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 11 }} />
                     {hasSingle && (
-                      <Bar dataKey="single" name="Individuales" stackId="total" fill="#398766" maxBarSize={64} />
+                      <Bar dataKey="single" name="Individuales" stackId="total" fill={`url(#${gradientId}-single)`}
+                        legendType="circle" maxBarSize={44} radius={hasWeekly ? [0, 0, 0, 0] : [5, 5, 0, 0]} />
                     )}
                     {hasWeekly && (
-                      <Bar dataKey="weekly" name="Resúmenes semanales" stackId="total" fill="#3d6fb4" maxBarSize={64} />
+                      <Bar dataKey="weekly" name="Resúmenes semanales" stackId="total" fill={`url(#${gradientId}-weekly)`}
+                        legendType="circle" maxBarSize={44} radius={[5, 5, 0, 0]} />
                     )}
                   </BarChart>
                 </ResponsiveContainer>
@@ -164,7 +180,11 @@ export function ActivityOverview({
             </div>
           )}
           {!points.length && <p className="module-hint">No hay datos de {metric.label.toLowerCase()} en este período.</p>}
-          <p className="module-hint">Las semanas sin esta medida no se representan como cero.</p>
+          <p className="activity-disclaimer activity-chart-note">
+            Cada resumen cubre los siete días que terminan en su fecha. Las actividades individuales se asignan
+            a un único período coincidente; fuera de ellos se usan bloques de siete días anclados al último resumen
+            (o a hoy si no hay resúmenes). Los períodos sin medidas no se representan como cero.
+          </p>
         </>
       )}
     </section>
