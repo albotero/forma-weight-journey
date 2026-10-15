@@ -25,7 +25,6 @@ import { activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summa
 import { ActivityOverview } from "./ActivityOverview"
 import type { ChartPeriod } from "../../lib/chartPeriod.js"
 import { catalogWithHistoricalItems, labRecordLabel, mergeScopedCatalogEntry, scopedCatalogResults } from "../../lib/catalogRecords.js"
-import { weightMovingAverageSeries } from "../../lib/weightTrend.js"
 import { AnalysisWorkspace } from "../analysis/AnalysisWorkspace"
 import { RecordActions, EmptyModule } from "../common/Empty"
 import { journalModuleBySection, journalDefinitions, journalSectionLabels } from "./journalDefinitions"
@@ -168,15 +167,10 @@ export function ModuleWorkspace(props: {
       }]
     }),
   }))
-  const weightTrend = weightMovingAverageSeries(weights)
   const weightMetricSeries: MeasurementSeries[] = [
     { id: "weight", label: "Peso", unit: "kg", points: weights.map((item) => ({
       id: item.id,
       occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.weight_kg,
-    })) },
-    { id: "average", label: "Promedio móvil de 7 días", unit: "kg", dashed: true, points: weightTrend.map((item) => ({
-      id: item.id,
-      occurredAt: item.measured_at, date: formatDate(item.measured_at, userTimezone), value: item.moving_average_7d_kg,
     })) },
   ]
 
@@ -622,7 +616,7 @@ export function ModuleWorkspace(props: {
 
       {section === "Peso" && (
         <>
-          <MeasurementOverview title="Peso y tendencia" series={weightMetricSeries} timezone={userTimezone} combined />
+          <MeasurementOverview title="Peso" series={weightMetricSeries} timezone={userTimezone} combined showChart={false} />
           <div className="record-list">
             {weights.map((item) => (
               <article className="record-card" key={item.id}>

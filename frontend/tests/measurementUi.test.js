@@ -154,14 +154,18 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
     assert.match(html, /Síntomas registrados/)
   })
 
-  test("weight and moving average share all four cards and one chart without metric tabs", () => {
+  test("weight page retains four cards and history without a chart or moving average", () => {
     const html = markup(ModuleWorkspace, {
       ...workspaceProps, section: "Peso",
       weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
     })
     assert.equal(occurrences(html, "<dt>Peso</dt>"), 4)
-    assert.equal(occurrences(html, "<dt>Promedio móvil de 7 días</dt>"), 4)
-    assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
+    assert.equal(occurrences(html, "<dt>Promedio móvil de 7 días</dt>"), 0)
+    assert.doesNotMatch(html, /Promedio móvil de 7 días/)
+    assert.match(html, /Las tarjetas resumen las lecturas registradas/)
+    assert.equal(occurrences(html, 'class="chart-wrap"'), 0)
+    assert.equal(occurrences(html, 'class="record-card"'), 1)
+    assert.equal(occurrences(html, 'class="panel activity-total-card"'), 4)
     assert.doesNotMatch(html, /Métrica de peso/)
   })
 
@@ -226,7 +230,7 @@ test("blood pressure page scopes both its chart and history away from labs", () 
   assert.doesNotMatch(html, /Colesterol/)
 })
 
-test("weight cards and chart use the newest reading when timestamps match", () => {
+test("weight cards use the newest reading when timestamps match without rendering a chart", () => {
   const html = markup(ModuleWorkspace, {
     ...workspaceProps, section: "Peso",
     weights: [{ id: 2, measured_at: now, weight_kg: 80 }, { id: 1, measured_at: now, weight_kg: 82 }],
@@ -234,7 +238,7 @@ test("weight cards and chart use the newest reading when timestamps match", () =
   assert.match(html, /<strong>80 kg<\/strong>/)
   assert.match(html, /<strong>-2 kg<\/strong>/)
   assert.match(html, /<strong>81 kg<\/strong>/)
-  assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
+  assert.equal(occurrences(html, 'class="chart-wrap"'), 0)
 })
 
 test("history labels independent blood pressure readings separately", () => {

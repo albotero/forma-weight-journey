@@ -19,6 +19,7 @@ export function MeasurementOverview({
   renderChart,
   defaultPeriod = "90d",
   combined = false,
+  showChart = true,
 }: {
   title: string
   series: MeasurementSeries[]
@@ -26,6 +27,7 @@ export function MeasurementOverview({
   renderChart?: (selected: MeasurementSeries, visibleSeries: MeasurementSeries[]) => ReactNode
   defaultPeriod?: ChartPeriod
   combined?: boolean
+  showChart?: boolean
 }) {
   const [selectedId, setSelectedId] = useState("")
   const [period, setPeriod] = useState<ChartPeriod>(defaultPeriod)
@@ -114,7 +116,7 @@ export function MeasurementOverview({
           </article>
         ))}
       </div>
-      {visibleSeries.some(({ points }) => points.length > 0) ? (
+      {showChart && (visibleSeries.some(({ points }) => points.length > 0) ? (
         renderChart ? renderChart(filtered, visibleSeries) : (
           <MetricTrendCharts
             key={combined ? title : filtered.id}
@@ -127,9 +129,13 @@ export function MeasurementOverview({
         <p className="module-hint">
           {selected ? "No hay lecturas de esta medida en el período. Elige otro período." : "Registra medidas para ver su evolución."}
         </p>
-      )}
+      ))}
       <p className="activity-disclaimer">
-        {combined ? "Las tarjetas y la gráfica comparan todas las series." : "Las tarjetas y la gráfica muestran la medida seleccionada."} Las lecturas no se suman;
+        {!showChart
+          ? "Las tarjetas resumen las lecturas registradas."
+          : combined
+          ? "Las tarjetas y la gráfica comparan todas las series."
+          : "Las tarjetas y la gráfica muestran la medida seleccionada."} Las lecturas no se suman;
         los campos vacíos no se estiman. El historial completo permanece debajo.
       </p>
     </section>
