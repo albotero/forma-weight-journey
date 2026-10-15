@@ -159,7 +159,11 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
       ...workspaceProps, section: "Peso",
       weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
     })
-    assert.equal(occurrences(html, "<dt>Peso</dt>"), 4)
+    assert.equal(occurrences(html, "<dt>Peso</dt>"), 0)
+    assert.doesNotMatch(html, /measurement-card-values/)
+    assert.match(html, /<h3>Último valor<\/h3><strong>80 kg<\/strong>/)
+    assert.match(html, /<h3>Promedio del período<\/h3><strong>80 kg<\/strong>/)
+    assert.match(html, /<h3>Lecturas<\/h3><strong>1<\/strong>/)
     assert.equal(occurrences(html, "<dt>Promedio móvil de 7 días</dt>"), 0)
     assert.doesNotMatch(html, /Promedio móvil de 7 días/)
     assert.match(html, /Las tarjetas resumen las lecturas registradas/)

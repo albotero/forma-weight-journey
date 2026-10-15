@@ -616,7 +616,7 @@ export function ModuleWorkspace(props: {
 
       {section === "Peso" && (
         <>
-          <MeasurementOverview title="Peso" series={weightMetricSeries} timezone={userTimezone} combined showChart={false} />
+          <MeasurementOverview title="Peso" series={weightMetricSeries} timezone={userTimezone} showChart={false} />
           <div className="record-list">
             {weights.map((item) => (
               <article className="record-card" key={item.id}>
