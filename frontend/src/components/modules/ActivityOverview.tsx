@@ -34,6 +34,7 @@ export function ActivityOverview({
           date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
           range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
           single: values.single,
+          estimated: metricKey === "calories_kcal" ? week.estimatedCalories : null,
           weekly: values.weekly,
           total: values.total,
         }]
@@ -70,6 +71,10 @@ export function ActivityOverview({
         Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden.
         Si un resumen ya incluye una actividad, se contará dos veces.
         Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.
+        {" "}Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad.
+        Requiere tipo e intensidad compatibles; Yoga/Pilates y Otro no se estiman.
+        Son estimaciones de gasto total, incluido el reposo, no mediciones ni calorías activas de un reloj.
+        Los pasos y la distancia no se estiman.
       </p>
       {summary.invalidMeasurementCount > 0 && (
         <p className="error-banner" role="alert">
@@ -84,6 +89,10 @@ export function ActivityOverview({
             <strong>{display(summary.totals[key].total)}</strong>
             {summary.totals[key].total !== null && <span className="activity-total-unit">{unit}</span>}
             <dl>
+              {key === "calories_kcal" && <>
+                <div><dt>Registradas</dt><dd>{display(summary.calories.recorded)}</dd></div>
+                <div><dt>Estimadas ({summary.calories.estimatedCount})</dt><dd>{display(summary.calories.estimated)}</dd></div>
+              </>}
               <div>
                 <dt>Individuales</dt>
                 <dd>{display(summary.totals[key].single)}</dd>
@@ -160,6 +169,7 @@ export function ActivityOverview({
                         <div className="activity-chart-tooltip">
                           <strong>{point.range}</strong>
                           {point.single != null && <div><span>Individuales</span><b>{formatDecimal(point.single)} {metric.unit}</b></div>}
+                          {point.estimated != null && <div><span>De ellas, estimadas</span><b>{formatDecimal(point.estimated)} kcal</b></div>}
                           {point.weekly != null && <div><span>Resúmenes</span><b>{formatDecimal(point.weekly)} {metric.unit}</b></div>}
                           <div className="activity-tooltip-total"><span>Total</span><b>{formatDecimal(point.total)} {metric.unit}</b></div>
                         </div>
@@ -167,7 +177,7 @@ export function ActivityOverview({
                     }} />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 11 }} />
                     {hasSingle && (
-                      <Bar dataKey="single" name="Individuales" stackId="total" fill={`url(#${gradientId}-single)`}
+                      <Bar dataKey="single" name={metricKey === "calories_kcal" && summary.calories.estimatedCount > 0 ? "Individuales (incluye estimadas)" : "Individuales"} stackId="total" fill={`url(#${gradientId}-single)`}
                         legendType="circle" maxBarSize={44} radius={hasWeekly ? [0, 0, 0, 0] : [5, 5, 0, 0]} />
                     )}
                     {hasWeekly && (

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { activityEntryDate, summarizeActivity, weeklyActivityTotals } from "../src/lib/activity.js"
+import { activityCalculations, activityEntryDate, summarizeActivity, weeklyActivityTotals } from "../src/lib/activity.js"
 
 const now = "2026-10-14T15:00:00Z"
 const timezone = "America/Bogota"
@@ -8,6 +8,70 @@ const entry = (id, data, occurred_at = "2026-10-13T15:00:00Z", module = "activit
   id, module, occurred_at, data,
 })
 const summary = (entries, period = "90d") => summarizeActivity(entries, timezone, period, now)
+
+const walking = entry(10, { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 })
+const weights = [
+  { id: 1, measured_at: "2026-10-01T15:00:00Z", weight_kg: 85 },
+  { id: 2, measured_at: "2026-10-12T15:00:00Z", weight_kg: 80 },
+  { id: 3, measured_at: "2026-10-14T15:00:00Z", weight_kg: 70 },
+]
+
+test("derives gross kcal and speed/pace from historical activity without modifying it", () => {
+  const original = { ...walking, data: { ...walking.data } }
+  assert.deepEqual(activityCalculations(walking, weights), {
+    estimatedCalories: 159.6, speedKmh: 4, paceMinKm: 15, weightKg: 80, met: 3.8,
+  })
+  assert.deepEqual(walking, original)
+  assert.equal(activityCalculations(walking, [...weights, {
+    id: 4, measured_at: "2026-10-12T15:00:00Z", weight_kg: 100,
+  }]).estimatedCalories, 199.5)
+})
+
+test("never replaces entered calories, including zero and invalid values", () => {
+  for (const calories_kcal of [0, 100, -1, "bad", Infinity]) {
+    assert.equal(activityCalculations({ ...walking, data: { ...walking.data, calories_kcal } }, weights).estimatedCalories, null)
+  }
+  assert.equal(activityCalculations({ ...walking, data: { ...walking.data, calories_kcal: null } }, weights).estimatedCalories, 159.6)
+})
+
+test("requires a prior valid weight, duration and supported type/intensity for kcal", () => {
+  assert.equal(activityCalculations(walking).estimatedCalories, null)
+  assert.equal(activityCalculations(walking, weights.slice(2)).estimatedCalories, null)
+  for (const patch of [
+    { duration_min: 0 }, { duration_min: -1 }, { duration_min: NaN }, { duration_min: "30" },
+    { activity_type: "Otro" }, { activity_type: "Yoga/Pilates" }, { activity_type: "__proto__" },
+    { intensity: "" }, { intensity: "constructor" }, { entry_type: "weekly" },
+  ]) {
+    assert.equal(activityCalculations({ ...walking, data: { ...walking.data, ...patch } }, weights).estimatedCalories, null)
+  }
+  assert.equal(activityCalculations({ ...walking, occurred_at: "invalid" }, weights).estimatedCalories, null)
+})
+
+test("calculates speed without weight and pace only for walking/running, without estimating steps/distance", () => {
+  assert.equal(activityCalculations(walking).speedKmh, 4)
+  assert.equal(activityCalculations({ ...walking, data: { ...walking.data, activity_type: "Bicicleta" } }).paceMinKm, null)
+  for (const distance_km of [null, 0, -1, Infinity, "2"]) {
+    assert.equal(activityCalculations({ ...walking, data: { ...walking.data, distance_km } }).speedKmh, null)
+  }
+})
+
+test("adds existing estimated kcal once to totals and weeks and separates sources, preserving weekly addition", () => {
+  const result = summarizeActivity([
+    walking,
+    entry(11, { ...walking.data, calories_kcal: 0 }),
+    entry(12, { entry_type: "weekly", week_end: "2026-10-13", weekly_calories_kcal: 200 }),
+  ], timezone, "90d", now, weights)
+  assert.deepEqual(result.totals.calories_kcal, { single: 159.6, weekly: 200, total: 359.6 })
+  assert.deepEqual(result.calories, { recorded: 200, estimated: 159.6, estimatedCount: 1 })
+  assert.equal(result.weeks[0].estimatedCalories, 159.6)
+  assert.equal(result.weeks[0].metrics.calories_kcal.total, 359.6)
+  assert.equal(result.totals.steps.total, null)
+  assert.equal(result.totals.distance_km.total, 4)
+  const invalid = summarizeActivity([entry(13, { ...walking.data, calories_kcal: -1 })], timezone, "90d", now, weights)
+  assert.equal(invalid.invalidMeasurementCount, 1)
+  assert.equal(invalid.totals.calories_kcal.total, null)
+  assert.equal(summarizeActivity([walking], timezone, "30d", "2026-12-01T15:00:00Z", weights).calories.estimatedCount, 0)
+})
 
 test("adds individual activities and overlapping weekly summaries per metric", () => {
   const result = summary([

@@ -21,7 +21,7 @@ import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../../lib/format"
 import { estimatedNextDose, compositionFields } from "../../lib/records"
-import { activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
+import { activityCalculations, activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
 import { ActivityOverview } from "./ActivityOverview"
 import type { ChartPeriod } from "../../lib/chartPeriod.js"
 import { catalogWithHistoricalItems, labRecordLabel, mergeScopedCatalogEntry, scopedCatalogResults } from "../../lib/catalogRecords.js"
@@ -70,7 +70,7 @@ export function ModuleWorkspace(props: {
     .sort((a, b) => b.measured_at.localeCompare(a.measured_at) || b.id - a.id)
     .filter((item) => compositionFields.some(([key]) => item[key] != null))
   const [activityPeriod, setActivityPeriod] = useState<ChartPeriod>("90d")
-  const activitySummary = module === "activity" ? summarizeActivity(entries, userTimezone, activityPeriod) : null
+  const activitySummary = module === "activity" ? summarizeActivity(entries, userTimezone, activityPeriod, undefined, weights) : null
   const activityDateLabel = (day: string) =>
     `${formatDate(localDateTimeToIso(`${day}T12:00`, userTimezone), userTimezone)} ${day.slice(0, 4)}`
   const visibleEntries = activitySummary?.entries ?? entries
@@ -923,6 +923,20 @@ export function ModuleWorkspace(props: {
                   )}
                 </div>
                 <div className="composition-results">
+                  {module === "activity" && (() => {
+                    const calculated = activityCalculations(entry, weights)
+                    return <>
+                      {calculated.estimatedCalories !== null && <div>
+                        <span>Calorías estimadas</span><strong>{formatDecimal(calculated.estimatedCalories)} kcal</strong>
+                      </div>}
+                      {calculated.speedKmh !== null && <div>
+                        <span>Velocidad media calculada</span><strong>{formatDecimal(calculated.speedKmh)} km/h</strong>
+                      </div>}
+                      {calculated.paceMinKm !== null && <div>
+                        <span>Ritmo medio calculado (minutos decimales)</span><strong>{formatDecimal(calculated.paceMinKm)} min/km</strong>
+                      </div>}
+                    </>
+                  })()}
                   {journalDefinitions[module].fields
                     .filter(
                       ({ key }) =>
@@ -1269,6 +1283,7 @@ export function ModuleWorkspace(props: {
         (module === "activity" ? (
           <ActivityEntryEditor
             entry={editingEntry ?? undefined}
+            weights={weights}
             timezone={userTimezone}
             onClose={() => {
               setShowEntryForm(false)

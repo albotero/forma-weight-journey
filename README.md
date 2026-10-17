@@ -190,7 +190,9 @@ Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notifi
 
 ### Actividad
 
-Registra actividades individuales con duración, distancia, calorías y pasos opcionales, o guarda resúmenes semanales. Completa solo las medidas disponibles: no se calculan pasos ni calorías a partir de otras medidas.
+Registra actividades individuales con duración, distancia, calorías y pasos opcionales, o guarda resúmenes semanales. Si faltan calorías, se estima el gasto total (incluido el reposo) mediante `MET × 3,5 × peso en kg / 200 × minutos`. Se usa el último peso registrado anterior o simultáneo a la actividad, sin recurrir a pesos futuros ni al peso inicial del perfil. Requiere duración positiva, tipo compatible e intensidad explícita. Los MET representativos para intensidad suave/moderada/intensa son: Caminata 2,5/3,8/5; Correr 6/8/11; Bicicleta 4/6,8/10; Natación 5,8/6/9,8; Fuerza 3/3,5/6. Son supuestos aproximados, no mediciones personalizadas ni calorías activas de un reloj; Yoga/Pilates y Otro no se estiman por su ambigüedad.
+
+Los cálculos se aplican también al historial existente, sin modificar datos guardados. Los valores ingresados (incluido cero) tienen prioridad; los valores inválidos no se sustituyen por estimaciones. Las tarjetas separan calorías registradas y estimadas y el detalle de las barras identifica las estimadas incluidas. Sin datos suficientes, las calorías permanecen vacías. La distancia y la duración permiten calcular velocidad media (km/h) y, para caminata y carrera, ritmo (min/km en minutos decimales), visibles en el formulario y el historial. No se estiman pasos ni distancia.
 
 La página muestra totales y evolución por períodos de siete días, con 90 días seleccionados por defecto. Puedes elegir 30 días, 90 días, seis meses, un año o todo el historial hasta hoy, según la zona horaria del perfil. Los registros del período aparecen debajo y pueden editarse o eliminarse. Cada total desglosa el aporte de actividades individuales y resúmenes; la duración suma solo actividades individuales. Un campo vacío aparece como «Sin datos», no como cero.
 

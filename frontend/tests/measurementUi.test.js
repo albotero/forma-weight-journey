@@ -41,6 +41,35 @@ const mixed = {
 const markup = (component, props) => renderToStaticMarkup(createElement(component, props))
 const occurrences = (html, text) => html.split(text).length - 1
 
+test("existing individual activities show estimated kcal, speed and pace in history and statistics", () => {
+  const html = markup(ModuleWorkspace, {
+    ...workspaceProps, section: "Actividad",
+    weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
+    entries: [{ id: 20, module: "activity", title: "Caminata", occurred_at: now,
+      data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 } }],
+  })
+  assert.match(html, /Calorías estimadas/)
+  assert.match(html, /159,6 kcal/)
+  assert.match(html, /Registradas/)
+  assert.match(html, /Estimadas \(1\)/)
+  assert.match(html, /Velocidad media calculada/)
+  assert.match(html, /4 km\/h/)
+  assert.match(html, /15 min\/km/)
+})
+
+test("activity editor previews estimates for existing data without filling the entered-calories field", () => {
+  const html = markup(ActivityEntryEditor, {
+    timezone, weights: [{ id: 1, measured_at: "2020-01-01T12:00:00Z", weight_kg: 80 }],
+    entry: { id: 20, module: "activity", title: "Caminata", occurred_at: now,
+      data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 } },
+    onClose: () => {}, onSave: async () => {},
+  })
+  assert.match(html, /Calorías estimadas: 159,6 kcal/)
+  assert.match(html, /Velocidad media: 4 km\/h/)
+  assert.match(html, /Ritmo medio: 15 min\/km/)
+  assert.match(html, /Calorías \(kcal\)<input[^>]*value=""/)
+})
+
 test("measurement overview renders four cards, period controls and metric tabs with one chart", () => {
   const html = markup(MeasurementOverview, {
     title: "Medidas", timezone,

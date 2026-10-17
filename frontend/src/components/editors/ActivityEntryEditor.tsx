@@ -1,19 +1,21 @@
 import { useState, type FormEvent } from "react"
-import type { JournalEntry } from "../../api"
+import type { JournalEntry, WeightEntry } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import { activityTypes, type ActivityType } from "../../lib/types"
-import { activityEntryDate, weeklyActivityTotals } from "../../lib/activity.js"
+import { activityCalculations, activityEntryDate, weeklyActivityTotals } from "../../lib/activity.js"
 import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
 
 export function ActivityEntryEditor({
   entry,
   timezone,
+  weights = [],
   onClose,
   onSave,
 }: {
   entry?: JournalEntry
   timezone: string
+  weights?: WeightEntry[]
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
 }) {
@@ -52,6 +54,24 @@ export function ActivityEntryEditor({
   const [notes, setNotes] = useState(entry?.notes ?? "")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  let calculationError = ""
+  let calculationTimestamp = ""
+  if (entryType === "single") {
+    try {
+      calculationTimestamp = localDateTimeToIso(occurredAt, timezone)
+    } catch (reason) {
+      calculationError = reason instanceof Error ? reason.message : "Selecciona una fecha y hora válidas."
+    }
+  }
+  const calculated = activityCalculations({
+    occurred_at: calculationTimestamp,
+    data: {
+      entry_type: entryType, activity_type: activityType, intensity,
+      duration_min: duration.trim() === "" ? null : Number(duration),
+      distance_km: distance.trim() === "" ? null : Number(distance),
+      calories_kcal: calories.trim() === "" ? null : Number(calories),
+    },
+  }, weights)
   const weeklyValues = {
     weekly_calories_kcal: weeklyCalories, weekly_steps: weeklySteps, weekly_distance_km: weeklyDistance,
   }
@@ -267,6 +287,15 @@ export function ActivityEntryEditor({
                 </select>
               </label>
             </div>
+            <p className="module-hint">
+              {calculated.estimatedCalories !== null && calculated.weightKg !== null
+                ? `Calorías estimadas: ${formatDecimal(calculated.estimatedCalories)} kcal (MET ${calculated.met}, peso ${formatDecimal(calculated.weightKg)} kg). `
+                : "Si dejas calorías vacías, se estiman cuando hay duración, tipo e intensidad compatibles y un peso anterior registrado. "}
+              Gasto total aproximado, incluido el reposo; los valores ingresados tienen prioridad.
+              {calculated.speedKmh !== null && ` Velocidad media: ${formatDecimal(calculated.speedKmh)} km/h.`}
+              {calculated.paceMinKm !== null && ` Ritmo medio: ${formatDecimal(calculated.paceMinKm)} min/km (minutos decimales).`}
+            </p>
+            {calculationError && <p className="error-banner" role="alert">{calculationError}</p>}
           </>
         ) : (
           <>
