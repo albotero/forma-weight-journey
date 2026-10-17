@@ -93,11 +93,11 @@ export function ActivityOverview({
                 <div><dt>Registradas</dt><dd>{display(summary.calories.recorded)}</dd></div>
                 <div><dt>Estimadas ({summary.calories.estimatedCount})</dt><dd>{display(summary.calories.estimated)}</dd></div>
               </>}
-              <div>
+              {key !== "calories_kcal" && <div>
                 <dt>Individuales</dt>
                 <dd>{display(summary.totals[key].single)}</dd>
-              </div>
-              {key !== "duration_min" && (
+              </div>}
+              {key !== "duration_min" && key !== "calories_kcal" && (
                 <div>
                   <dt>Resúmenes</dt>
                   <dd>{display(summary.totals[key].weekly)}</dd>

@@ -52,6 +52,10 @@ test("existing individual activities show estimated kcal, speed and pace in hist
   assert.match(html, /159,6 kcal/)
   assert.match(html, /Registradas/)
   assert.match(html, /Estimadas \(1\)/)
+  const caloriesCard = html.match(/<article class="panel activity-total-card"><h3>Calorías<\/h3>(.*?)<\/article>/s)?.[1]
+  assert.ok(caloriesCard)
+  assert.equal(occurrences(caloriesCard, "<dt>"), 2)
+  assert.doesNotMatch(caloriesCard, /Individuales|Resúmenes/)
   assert.match(html, /Velocidad media calculada/)
   assert.match(html, /4 km\/h/)
   assert.match(html, /15 min\/km/)
