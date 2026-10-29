@@ -4,6 +4,7 @@ import type { WeightEntry } from "../../api"
 import { activityCalculations } from "../../lib/activity.js"
 import { addActivityPosition, emptyActivityTrack, type ActivityTrack } from "../../lib/activityTracking.js"
 import { formatDecimal } from "../../lib/format"
+import { keepScreenAwake, type ScreenWakeLockStatus } from "../../lib/screenWakeLock.js"
 
 export type RecordedActivity = {
   startedAt: string
@@ -55,6 +56,12 @@ export function ActivityRecorder({
   const [track, setTrack] = useState(emptyActivityTrack)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+  const [wakeLockStatus, setWakeLockStatus] = useState<ScreenWakeLockStatus>("requesting")
+
+  useEffect(() => {
+    if (!running) return
+    return keepScreenAwake(setWakeLockStatus)
+  }, [running])
 
   useEffect(() => {
     function hide() {
@@ -222,9 +229,18 @@ export function ActivityRecorder({
         <MapPin size={18} aria-hidden="true" /> Sesión GPS
       </h3>
       <p className="module-hint">
-        En iPhone, mantén esta pantalla abierta y sin bloquear; al salir, la sesión se pausa. El GPS consume batería y
-        puede perder precisión. No se guarda tu ruta ni se miden pulsaciones.
+        La sesión se pausa si bloqueas el teléfono o cambias de app. El GPS consume batería y puede perder precisión.
+        No se guarda tu ruta ni se miden pulsaciones.
       </p>
+      {running && (
+        <p className="module-hint" role="status">
+          {wakeLockStatus === "active"
+            ? "Pantalla encendida durante la grabación. No bloquees el teléfono ni cambies de app."
+            : wakeLockStatus === "requesting"
+              ? "Solicitando mantener la pantalla encendida..."
+              : "No se puede impedir el bloqueo automático. Desactívalo temporalmente en los ajustes del teléfono y mantén esta pantalla abierta."}
+        </p>
+      )}
       {hasSession && (
         <dl className="activity-recorder-metrics">
           <div>

@@ -9,6 +9,89 @@ import {
   weeklyActivityTotals,
 } from "../src/lib/activity.js"
 import { addActivityPosition, emptyActivityTrack } from "../src/lib/activityTracking.js"
+import { keepScreenAwake } from "../src/lib/screenWakeLock.js"
+
+const { Event, EventTarget, setImmediate } = globalThis
+
+function wakeLockFixture(request) {
+  const visibility = Object.assign(new EventTarget(), { visibilityState: "visible" })
+  const sentinel = Object.assign(new EventTarget(), {
+    released: false,
+    releaseCalls: 0,
+    async release() {
+      this.released = true
+      this.releaseCalls++
+      this.dispatchEvent(new Event("release"))
+    },
+  })
+  const states = []
+  const environment = { visibility, wakeLock: { request: request ?? (async () => sentinel) } }
+  return { visibility, sentinel, states, environment }
+}
+
+const flushWakeLock = () => new Promise((resolve) => setImmediate(resolve))
+
+test("GPS screen wake lock is acquired and released when recording stops", async () => {
+  const { states, sentinel, environment } = wakeLockFixture()
+  const stop = keepScreenAwake((state) => states.push(state), environment)
+  await flushWakeLock()
+  assert.deepEqual(states, ["requesting", "active"])
+  stop()
+  stop()
+  assert.equal(sentinel.releaseCalls, 1)
+  assert.deepEqual(states, ["requesting", "active"])
+})
+
+test("GPS recording tolerates unsupported or denied screen wake lock", async () => {
+  const unsupported = wakeLockFixture()
+  unsupported.environment.wakeLock = null
+  const stopUnsupported = keepScreenAwake((state) => unsupported.states.push(state), unsupported.environment)
+  assert.deepEqual(unsupported.states, ["unavailable"])
+  stopUnsupported()
+  const denied = wakeLockFixture(async () => { throw new Error("NotAllowedError") })
+  const stopDenied = keepScreenAwake((state) => denied.states.push(state), denied.environment)
+  await flushWakeLock()
+  assert.deepEqual(denied.states, ["requesting", "unavailable"])
+  stopDenied()
+})
+
+test("GPS screen wake lock acquired after pause is immediately released", async () => {
+  let complete
+  const fixture = wakeLockFixture(() => new Promise((resolve) => { complete = resolve }))
+  const stop = keepScreenAwake((state) => fixture.states.push(state), fixture.environment)
+  stop()
+  complete(fixture.sentinel)
+  await flushWakeLock()
+  assert.equal(fixture.sentinel.releaseCalls, 1)
+  assert.deepEqual(fixture.states, ["requesting"])
+})
+
+test("GPS screen wake lock reports system release and reacquires on return to visible", async () => {
+  const fixture = wakeLockFixture()
+  let requests = 0
+  fixture.environment.wakeLock.request = async () => {
+    requests++
+    fixture.sentinel.released = false
+    return fixture.sentinel
+  }
+  const stop = keepScreenAwake((state) => fixture.states.push(state), fixture.environment)
+  await flushWakeLock()
+  fixture.visibility.dispatchEvent(new Event("visibilitychange"))
+  assert.equal(requests, 1)
+  fixture.visibility.visibilityState = "hidden"
+  await fixture.sentinel.release()
+  assert.equal(fixture.states.at(-1), "released")
+  fixture.visibility.dispatchEvent(new Event("visibilitychange"))
+  assert.equal(requests, 1)
+  fixture.visibility.visibilityState = "visible"
+  fixture.visibility.dispatchEvent(new Event("visibilitychange"))
+  await flushWakeLock()
+  assert.equal(requests, 2)
+  assert.equal(fixture.states.at(-1), "active")
+  stop()
+  fixture.visibility.dispatchEvent(new Event("visibilitychange"))
+  assert.equal(requests, 2)
+})
 
 const now = "2026-10-14T15:00:00Z"
 const timezone = "America/Bogota"
