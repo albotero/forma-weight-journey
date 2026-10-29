@@ -151,18 +151,18 @@ Haz primero una copia de seguridad, especialmente antes de cambios de esquema o 
 
 ### Secciones principales
 
-| Sección       | Qué registrar                                                                                          |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| Peso          | Peso, fecha y hora; las métricas de composición son opcionales.                                        |
-| Composición   | Evolución de métricas estimadas por la báscula.                                                        |
-| Medidas       | Cuello, pecho, brazo, abdomen, cintura, cadera y muslo, en orden cefalocaudal.                         |
-| Síntomas      | Elementos de tu catálogo, intensidad, tolerancia, hidratación y check-in semanal.                      |
-| Actividad     | Actividad individual o totales semanales de pasos, calorías y distancia.                               |
-| Laboratorios  | Resultados de laboratorio numéricos o de texto.                                                        |
-| Presión arterial | Sistólica, diastólica y media registrada, con formulario independiente.                             |
-| Medicación    | Medicamentos orales o inyectables, estado activo/archivado, principal e historial de dosis con unidad. |
-| Análisis      | Tendencias descriptivas y checklists contextuales.                                                     |
-| Recordatorios | Recordatorios manuales y automáticos.                                                                  |
+| Sección          | Qué registrar                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| Peso             | Peso, fecha y hora; las métricas de composición son opcionales.                                        |
+| Composición      | Evolución de métricas estimadas por la báscula.                                                        |
+| Medidas          | Cuello, pecho, brazo, abdomen, cintura, cadera y muslo, en orden cefalocaudal.                         |
+| Síntomas         | Elementos de tu catálogo, intensidad, tolerancia, hidratación y check-in semanal.                      |
+| Actividad        | Actividad individual o totales semanales de pasos, calorías y distancia.                               |
+| Laboratorios     | Resultados de laboratorio numéricos o de texto.                                                        |
+| Presión arterial | Sistólica, diastólica y media registrada, con formulario independiente.                                |
+| Medicación       | Medicamentos orales o inyectables, estado activo/archivado, principal e historial de dosis con unidad. |
+| Análisis         | Tendencias descriptivas y checklists contextuales.                                                     |
+| Recordatorios    | Recordatorios manuales y automáticos.                                                                  |
 
 ### Checklists y recordatorios
 
@@ -190,7 +190,25 @@ Los recordatorios manuales permiten elegir fecha, hora y repetición. Las notifi
 
 ### Actividad
 
-Registra actividades individuales con duración, distancia, calorías y pasos opcionales, o guarda resúmenes semanales. Si faltan calorías, se estima el gasto total (incluido el reposo) mediante `MET × 3,5 × peso en kg / 200 × minutos`. Se usa el último peso registrado anterior o simultáneo a la actividad, sin recurrir a pesos futuros ni al peso inicial del perfil. Requiere duración positiva, tipo compatible e intensidad explícita. Los MET representativos para intensidad suave/moderada/intensa son: Caminata 2,5/3,8/5; Correr 6/8/11; Bicicleta 4/6,8/10; Natación 5,8/6/9,8; Fuerza 3/3,5/6. Son supuestos aproximados, no mediciones personalizadas ni calorías activas de un reloj; Yoga/Pilates y Otro no se estiman por su ambigüedad.
+#### Sesiones GPS desde el iPhone
+
+En una actividad individual nueva de Caminata, Correr o Bicicleta puedes pulsar **Iniciar**, permitir ubicación precisa en Safari y registrar tiempo, distancia y velocidad media. El sitio requiere HTTPS (o localhost para desarrollo). Puedes pausar y reanudar; **Finalizar** transfiere los totales al formulario y después debes **Guardar registro**. Solo se guardan totales, no coordenadas ni rutas. La sesión en curso vive en memoria: recargar, cerrar la página o descartarla pierde los datos todavía no guardados.
+
+**Mantén la app visible y la pantalla desbloqueada.** Safari en iPhone no garantiza GPS en segundo plano, aunque instales la web en la pantalla de inicio. Al ocultarse la página se pausa la sesión y debes reanudarla al volver. También se pausa si pasan 30 segundos sin ubicación precisa; los intervalos pausados no cuentan como duración. No manipules el teléfono mientras conduces la bicicleta: detente para usar los controles. El GPS aumenta el consumo de batería.
+
+La distancia filtra posiciones imprecisas, desplazamientos pequeños y saltos incompatibles con la actividad; no une huecos de más de 30 segundos. Puede infravalorar trayectos con mala cobertura. El ascenso y descenso son orientativos, se acumulan solo con lecturas de altitud suficientemente precisas y permanecen sin datos si no hay cambios fiables. No se utiliza el desnivel para calcular calorías: el ruido GPS no permite inferir potencia o esfuerzo con fiabilidad.
+
+En bicicleta GPS se selecciona un MET aproximado por velocidad media: menos de 16 km/h: 4; 16–<19: 6,8; 19–<22: 8; 22–<25: 10; 25–<30: 12; desde 30: 15,8. Se combina con duración y el último peso anterior usando la fórmula de gasto total descrita abajo. Es una aproximación para bicicleta convencional: no corrige viento, terreno, paradas, pendientes ni asistencia eléctrica. Con distancia cero o sin peso previo no se estiman calorías. Las calorías introducidas manualmente siempre tienen prioridad.
+
+#### Relojes y pulsaciones
+
+Esta versión no conecta relojes ni lee Apple Health/HealthKit. Safari en iPhone no admite Web Bluetooth; conceder permisos no habilita conexión directa a un reloj o pulsómetro desde esta web. Tampoco se pueden medir pulsaciones, presión arterial o saturación con el GPS del teléfono.
+
+Para seguimiento fiable con pantalla bloqueada, la vía adecuada es una aplicación iOS con ubicación en segundo plano. Para incorporar pulsaciones se necesitaría además HealthKit, Bluetooth nativo o la API/exportación del fabricante. Antes de comprar un reloj económico, comprueba que sincroniza **entrenamientos y frecuencia cardíaca** con Apple Health o permite exportarlos; muchos dispositivos baratos solo comparten datos con su aplicación propietaria. Una banda pectoral con Bluetooth y servicio estándar Heart Rate puede ser una alternativa para el pulso, pero también requiere una app iOS compatible y una futura integración con Forma. No hay sincronización automática implementada.
+
+#### Registros y resúmenes
+
+Registra actividades individuales con duración, distancia, calorías y pasos opcionales, o guarda resúmenes semanales. Si faltan calorías, se estima el gasto total (incluido el reposo) mediante `MET × 3,5 × peso en kg / 200 × minutos`. Se usa el último peso registrado anterior o simultáneo a la actividad, sin recurrir a pesos futuros ni al peso inicial del perfil. Requiere duración positiva, tipo compatible e intensidad explícita, salvo bicicleta GPS, que usa velocidad media. Los MET representativos para intensidad suave/moderada/intensa son: Caminata 2,5/3,8/5; Correr 6/8/11; Bicicleta 4/6,8/10; Natación 5,8/6/9,8; Fuerza 3/3,5/6. Son supuestos aproximados, no mediciones personalizadas ni calorías activas de un reloj; Yoga/Pilates y Otro no se estiman por su ambigüedad.
 
 Los cálculos se aplican también al historial existente, sin modificar datos guardados. Los valores ingresados (incluido cero) tienen prioridad; los valores inválidos no se sustituyen por estimaciones. Las tarjetas separan calorías registradas y estimadas y el detalle de las barras identifica las estimadas incluidas. Sin datos suficientes, las calorías permanecen vacías. La distancia y la duración permiten calcular velocidad media (km/h) y, para caminata y carrera, ritmo (min/km en minutos decimales), visibles en el formulario y el historial. No se estiman pasos ni distancia.
 

@@ -1,10 +1,6 @@
 import { useId, useState } from "react"
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
-import {
-  activityMetrics,
-  type ActivityMetricKey,
-  type summarizeActivity,
-} from "../../lib/activity.js"
+import { activityMetrics, type ActivityMetricKey, type summarizeActivity } from "../../lib/activity.js"
 import { localDateTimeToIso } from "../../dateTime.js"
 import { formatDate, formatDecimal } from "../../lib/format"
 import { chartPeriods, type ChartPeriod } from "../../lib/chartPeriod.js"
@@ -30,14 +26,16 @@ export function ActivityOverview({
     const values = week.metrics[metricKey]
     return values.total === null
       ? []
-      : [{
-          date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
-          range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
-          single: values.single,
-          estimated: metricKey === "calories_kcal" ? week.estimatedCalories : null,
-          weekly: values.weekly,
-          total: values.total,
-        }]
+      : [
+          {
+            date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
+            range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
+            single: values.single,
+            estimated: metricKey === "calories_kcal" ? week.estimatedCalories : null,
+            weekly: values.weekly,
+            total: values.total,
+          },
+        ]
   })
   const hasSingle = points.some(({ single }) => single !== null)
   const hasWeekly = points.some(({ weekly }) => weekly !== null)
@@ -49,8 +47,10 @@ export function ActivityOverview({
           <h2 className="module-subheading">Tu actividad en cifras</h2>
           <p className="module-hint">
             {summary.start ? `${dateLabel(summary.start)} – ${dateLabel(summary.end)}` : "Todo el historial hasta hoy"}
-            {" · "}{summary.singleCount} {summary.singleCount === 1 ? "actividad individual" : "actividades individuales"}
-            {" · "}{summary.weeklyCount} {summary.weeklyCount === 1 ? "resumen semanal" : "resúmenes semanales"}
+            {" · "}
+            {summary.singleCount} {summary.singleCount === 1 ? "actividad individual" : "actividades individuales"}
+            {" · "}
+            {summary.weeklyCount} {summary.weeklyCount === 1 ? "resumen semanal" : "resúmenes semanales"}
           </p>
         </div>
         <div className="range-select" role="group" aria-label="Período de actividad">
@@ -68,18 +68,17 @@ export function ActivityOverview({
         </div>
       </div>
       <p className="activity-disclaimer">
-        Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden.
-        Si un resumen ya incluye una actividad, se contará dos veces.
-        Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.
-        {" "}Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad.
-        Requiere tipo e intensidad compatibles; Yoga/Pilates y Otro no se estiman.
-        Son estimaciones de gasto total, incluido el reposo, no mediciones ni calorías activas de un reloj.
-        Los pasos y la distancia no se estiman.
+        Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden. Si un resumen ya incluye
+        una actividad, se contará dos veces. Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.{" "}
+        Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad. Requiere
+        tipo e intensidad compatibles; en bicicleta GPS se usa la velocidad media en lugar de la intensidad.
+        Yoga/Pilates y Otro no se estiman. Son estimaciones de gasto total, incluido el reposo, no mediciones ni
+        calorías activas de un reloj. Los pasos y la distancia no se estiman.
       </p>
       {summary.invalidMeasurementCount > 0 && (
         <p className="error-banner" role="alert">
-          Algunas medidas de este período no son válidas ({summary.invalidMeasurementCount}).
-          No se incluyeron en los totales; revisa y corrige los registros.
+          Algunas medidas de este período no son válidas ({summary.invalidMeasurementCount}). No se incluyeron en los
+          totales; revisa y corrige los registros.
         </p>
       )}
       <div className="activity-total-grid">
@@ -89,14 +88,24 @@ export function ActivityOverview({
             <strong>{display(summary.totals[key].total)}</strong>
             {summary.totals[key].total !== null && <span className="activity-total-unit">{unit}</span>}
             <dl>
-              {key === "calories_kcal" && <>
-                <div><dt>Registradas</dt><dd>{display(summary.calories.recorded)}</dd></div>
-                <div><dt>Estimadas ({summary.calories.estimatedCount})</dt><dd>{display(summary.calories.estimated)}</dd></div>
-              </>}
-              {key !== "calories_kcal" && <div>
-                <dt>Individuales</dt>
-                <dd>{display(summary.totals[key].single)}</dd>
-              </div>}
+              {key === "calories_kcal" && (
+                <>
+                  <div>
+                    <dt>Registradas</dt>
+                    <dd>{display(summary.calories.recorded)}</dd>
+                  </div>
+                  <div>
+                    <dt>Estimadas ({summary.calories.estimatedCount})</dt>
+                    <dd>{display(summary.calories.estimated)}</dd>
+                  </div>
+                </>
+              )}
+              {key !== "calories_kcal" && (
+                <div>
+                  <dt>Individuales</dt>
+                  <dd>{display(summary.totals[key].single)}</dd>
+                </div>
+              )}
               {key !== "duration_min" && key !== "calories_kcal" && (
                 <div>
                   <dt>Resúmenes</dt>
@@ -162,38 +171,85 @@ export function ActivityOverview({
                       tickFormatter={(value) => formatDecimal(Number(value))}
                       tick={{ fill: "var(--muted)", fontSize: 11 }}
                     />
-                    <Tooltip cursor={{ fill: "var(--green-soft)", opacity: 0.35 }} content={({ active, payload }) => {
-                      const point = payload?.[0]?.payload as (typeof points)[number] | undefined
-                      if (!active || !point) return null
-                      return (
-                        <div className="activity-chart-tooltip">
-                          <strong>{point.range}</strong>
-                          {point.single != null && <div><span>Individuales</span><b>{formatDecimal(point.single)} {metric.unit}</b></div>}
-                          {point.estimated != null && <div><span>De ellas, estimadas</span><b>{formatDecimal(point.estimated)} kcal</b></div>}
-                          {point.weekly != null && <div><span>Resúmenes</span><b>{formatDecimal(point.weekly)} {metric.unit}</b></div>}
-                          <div className="activity-tooltip-total"><span>Total</span><b>{formatDecimal(point.total)} {metric.unit}</b></div>
-                        </div>
-                      )
-                    }} />
+                    <Tooltip
+                      cursor={{ fill: "var(--green-soft)", opacity: 0.35 }}
+                      content={({ active, payload }) => {
+                        const point = payload?.[0]?.payload as (typeof points)[number] | undefined
+                        if (!active || !point) return null
+                        return (
+                          <div className="activity-chart-tooltip">
+                            <strong>{point.range}</strong>
+                            {point.single != null && (
+                              <div>
+                                <span>Individuales</span>
+                                <b>
+                                  {formatDecimal(point.single)} {metric.unit}
+                                </b>
+                              </div>
+                            )}
+                            {point.estimated != null && (
+                              <div>
+                                <span>De ellas, estimadas</span>
+                                <b>{formatDecimal(point.estimated)} kcal</b>
+                              </div>
+                            )}
+                            {point.weekly != null && (
+                              <div>
+                                <span>Resúmenes</span>
+                                <b>
+                                  {formatDecimal(point.weekly)} {metric.unit}
+                                </b>
+                              </div>
+                            )}
+                            <div className="activity-tooltip-total">
+                              <span>Total</span>
+                              <b>
+                                {formatDecimal(point.total)} {metric.unit}
+                              </b>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
                     <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 11 }} />
-                    {hasSingle && (
-                      <Bar dataKey="single" name={metricKey === "calories_kcal" && summary.calories.estimatedCount > 0 ? "Individuales (incluye estimadas)" : "Individuales"} stackId="total" fill={`url(#${gradientId}-single)`}
-                        legendType="circle" maxBarSize={44} radius={hasWeekly ? [0, 0, 0, 0] : [5, 5, 0, 0]} />
-                    )}
                     {hasWeekly && (
-                      <Bar dataKey="weekly" name="Resúmenes semanales" stackId="total" fill={`url(#${gradientId}-weekly)`}
-                        legendType="circle" maxBarSize={44} radius={[5, 5, 0, 0]} />
+                      <Bar
+                        dataKey="weekly"
+                        name="Resúmenes semanales"
+                        stackId="total"
+                        fill={`url(#${gradientId}-weekly)`}
+                        legendType="circle"
+                        maxBarSize={44}
+                        radius={hasSingle ? [0, 0, 0, 0] : [5, 5, 0, 0]}
+                      />
+                    )}
+                    {hasSingle && (
+                      <Bar
+                        dataKey="single"
+                        name={
+                          metricKey === "calories_kcal" && summary.calories.estimatedCount > 0
+                            ? "Individuales (incluye estimadas)"
+                            : "Individuales"
+                        }
+                        stackId="total"
+                        fill={`url(#${gradientId}-single)`}
+                        legendType="circle"
+                        maxBarSize={44}
+                        radius={[5, 5, 0, 0]}
+                      />
                     )}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
           )}
-          {!points.length && <p className="module-hint">No hay datos de {metric.label.toLowerCase()} en este período.</p>}
+          {!points.length && (
+            <p className="module-hint">No hay datos de {metric.label.toLowerCase()} en este período.</p>
+          )}
           <p className="activity-disclaimer activity-chart-note">
-            Cada resumen cubre los siete días que terminan en su fecha. Las actividades individuales se asignan
-            a un único período coincidente; fuera de ellos se usan bloques de siete días anclados al último resumen
-            (o a hoy si no hay resúmenes). Los períodos sin medidas no se representan como cero.
+            Cada resumen cubre los siete días que terminan en su fecha. Las actividades individuales se asignan a un
+            único período coincidente; fuera de ellos se usan bloques de siete días anclados al último resumen (o a hoy
+            si no hay resúmenes). Los períodos sin medidas no se representan como cero.
           </p>
         </>
       )}

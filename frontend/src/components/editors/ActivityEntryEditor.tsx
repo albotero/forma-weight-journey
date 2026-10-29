@@ -5,6 +5,7 @@ import { activityTypes, type ActivityType } from "../../lib/types"
 import { activityCalculations, activityEntryDate, weeklyActivityTotals } from "../../lib/activity.js"
 import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
+import { ActivityRecorder, type RecordedActivity } from "./ActivityRecorder"
 
 export function ActivityEntryEditor({
   entry,
@@ -54,6 +55,19 @@ export function ActivityEntryEditor({
   const [notes, setNotes] = useState(entry?.notes ?? "")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
+  const [tracking, setTracking] = useState(false)
+  const [recorded, setRecorded] = useState<RecordedActivity | null>(null)
+  const trackingSource = recorded ? "gps" : entry?.data.tracking_source
+  function close() {
+    if (tracking && !window.confirm("¿Salir y descartar la sesión GPS sin guardar?")) return
+    onClose()
+  }
+  function finishRecording(activity: RecordedActivity) {
+    setRecorded(activity)
+    setOccurredAt(dateTimeInputValue(activity.startedAt, timezone))
+    setDuration(String(activity.durationMin))
+    setDistance(String(activity.distanceKm))
+  }
   let calculationError = ""
   let calculationTimestamp = ""
   if (entryType === "single") {
@@ -63,17 +77,25 @@ export function ActivityEntryEditor({
       calculationError = reason instanceof Error ? reason.message : "Selecciona una fecha y hora válidas."
     }
   }
-  const calculated = activityCalculations({
-    occurred_at: calculationTimestamp,
-    data: {
-      entry_type: entryType, activity_type: activityType, intensity,
-      duration_min: duration.trim() === "" ? null : Number(duration),
-      distance_km: distance.trim() === "" ? null : Number(distance),
-      calories_kcal: calories.trim() === "" ? null : Number(calories),
+  const calculated = activityCalculations(
+    {
+      occurred_at: calculationTimestamp,
+      data: {
+        entry_type: entryType,
+        activity_type: activityType,
+        intensity,
+        tracking_source: trackingSource,
+        duration_min: duration.trim() === "" ? null : Number(duration),
+        distance_km: distance.trim() === "" ? null : Number(distance),
+        calories_kcal: calories.trim() === "" ? null : Number(calories),
+      },
     },
-  }, weights)
+    weights,
+  )
   const weeklyValues = {
-    weekly_calories_kcal: weeklyCalories, weekly_steps: weeklySteps, weekly_distance_km: weeklyDistance,
+    weekly_calories_kcal: weeklyCalories,
+    weekly_steps: weeklySteps,
+    weekly_distance_km: weeklyDistance,
   }
   let weeklyPreview: Record<string, number | null> | null = null
   let weeklyPreviewError = ""
@@ -87,8 +109,7 @@ export function ActivityEntryEditor({
 
   function changeWeeklyInputMode(mode: "daily_average" | "weekly_total") {
     if (mode === weeklyInputMode) return
-    const convert = (raw: string) => raw.trim() === "" ? "" :
-      String(Number(raw) / 7)
+    const convert = (raw: string) => (raw.trim() === "" ? "" : String(Number(raw) / 7))
     if (mode === "daily_average") {
       setWeeklyCalories(convert(weeklyCalories))
       setWeeklySteps(convert(weeklySteps))
@@ -110,6 +131,7 @@ export function ActivityEntryEditor({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (tracking) return
     const measurements =
       entryType === "weekly" ? [weeklyCalories, weeklySteps, weeklyDistance] : [duration, distance, calories, steps]
     if (!measurements.some((value) => value.trim() !== "")) {
@@ -151,6 +173,13 @@ export function ActivityEntryEditor({
             calories_kcal: numberOrNull(calories),
             steps: numberOrNull(steps),
             intensity: intensity || null,
+            ...(trackingSource === "gps"
+              ? {
+                  tracking_source: "gps",
+                  elevation_gain_m: recorded?.ascentM ?? entry?.data.elevation_gain_m ?? null,
+                  elevation_loss_m: recorded?.descentM ?? entry?.data.elevation_loss_m ?? null,
+                }
+              : {}),
           }
 
     setBusy(true)
@@ -180,12 +209,13 @@ export function ActivityEntryEditor({
     <Modal
       title={entry ? "Editar actividad" : "Registrar actividad"}
       subtitle="Guarda una actividad individual o los totales de una semana."
-      onClose={onClose}
+      onClose={close}
     >
       <form className="entry-form" onSubmit={(event) => void submit(event)}>
         <div className="range-select" role="group" aria-label="Tipo de registro">
           <button
             type="button"
+            disabled={tracking}
             className={entryType === "single" ? "selected" : ""}
             aria-pressed={entryType === "single"}
             onClick={() => setEntryType("single")}
@@ -194,6 +224,7 @@ export function ActivityEntryEditor({
           </button>
           <button
             type="button"
+            disabled={tracking}
             className={entryType === "weekly" ? "selected" : ""}
             aria-pressed={entryType === "weekly"}
             onClick={() => setEntryType("weekly")}
@@ -206,12 +237,36 @@ export function ActivityEntryEditor({
           <>
             <label>
               Actividad
-              <select value={activityType} onChange={(event) => setActivityType(event.target.value as ActivityType)}>
+              <select
+                disabled={tracking}
+                value={activityType}
+                onChange={(event) => setActivityType(event.target.value as ActivityType)}
+              >
                 {activityTypes.map((type) => (
                   <option key={type}>{type}</option>
                 ))}
               </select>
             </label>
+            {!entry && ["Caminata", "Correr", "Bicicleta"].includes(activityType) && (
+              <ActivityRecorder
+                activityType={activityType}
+                intensity={intensity}
+                weights={weights}
+                onActiveChange={setTracking}
+                onFinish={finishRecording}
+              />
+            )}
+            {trackingSource === "gps" && (
+              <p className="module-hint">
+                Origen: GPS. El desnivel es orientativo y no modifica las calorías.
+                {activityType === "Bicicleta" &&
+                  " La estimación usa velocidad media, duración y peso; no contempla viento, terreno ni asistencia eléctrica."}
+                {(recorded?.ascentM ?? entry?.data.elevation_gain_m) != null &&
+                  ` Ascenso: ${formatDecimal(Number(recorded?.ascentM ?? entry?.data.elevation_gain_m))} m.`}
+                {(recorded?.descentM ?? entry?.data.elevation_loss_m) != null &&
+                  ` Descenso: ${formatDecimal(Number(recorded?.descentM ?? entry?.data.elevation_loss_m))} m.`}
+              </p>
+            )}
             {activityType === "Otro" && (
               <label>
                 ¿Qué actividad?
@@ -228,6 +283,7 @@ export function ActivityEntryEditor({
               <input
                 required
                 type="datetime-local"
+                disabled={tracking}
                 value={occurredAt}
                 onChange={(event) => setOccurredAt(event.target.value)}
               />
@@ -239,7 +295,8 @@ export function ActivityEntryEditor({
                   type="number"
                   min="0"
                   max="1440"
-                  step="1"
+                  step="0.01"
+                  disabled={tracking}
                   value={duration}
                   onChange={(event) => setDuration(event.target.value)}
                 />
@@ -251,6 +308,7 @@ export function ActivityEntryEditor({
                   min="0"
                   max="1000"
                   step="0.01"
+                  disabled={tracking}
                   value={distance}
                   onChange={(event) => setDistance(event.target.value)}
                 />
@@ -290,12 +348,17 @@ export function ActivityEntryEditor({
             <p className="module-hint">
               {calculated.estimatedCalories !== null && calculated.weightKg !== null
                 ? `Calorías estimadas: ${formatDecimal(calculated.estimatedCalories)} kcal (MET ${calculated.met}, peso ${formatDecimal(calculated.weightKg)} kg). `
-                : "Si dejas calorías vacías, se estiman cuando hay duración, tipo e intensidad compatibles y un peso anterior registrado. "}
+                : "Si dejas calorías vacías, se estiman con duración, peso anterior y tipo e intensidad compatibles (o velocidad media en bicicleta GPS). "}
               Gasto total aproximado, incluido el reposo; los valores ingresados tienen prioridad.
               {calculated.speedKmh !== null && ` Velocidad media: ${formatDecimal(calculated.speedKmh)} km/h.`}
-              {calculated.paceMinKm !== null && ` Ritmo medio: ${formatDecimal(calculated.paceMinKm)} min/km (minutos decimales).`}
+              {calculated.paceMinKm !== null &&
+                ` Ritmo medio: ${formatDecimal(calculated.paceMinKm)} min/km (minutos decimales).`}
             </p>
-            {calculationError && <p className="error-banner" role="alert">{calculationError}</p>}
+            {calculationError && (
+              <p className="error-banner" role="alert">
+                {calculationError}
+              </p>
+            )}
           </>
         ) : (
           <>
@@ -310,12 +373,20 @@ export function ActivityEntryEditor({
               />
             </label>
             <div className="range-select" role="group" aria-label="Valores semanales">
-              <button type="button" className={weeklyInputMode === "daily_average" ? "selected" : ""}
-                aria-pressed={weeklyInputMode === "daily_average"} onClick={() => changeWeeklyInputMode("daily_average")}>
+              <button
+                type="button"
+                className={weeklyInputMode === "daily_average" ? "selected" : ""}
+                aria-pressed={weeklyInputMode === "daily_average"}
+                onClick={() => changeWeeklyInputMode("daily_average")}
+              >
                 Promedio diario
               </button>
-              <button type="button" className={weeklyInputMode === "weekly_total" ? "selected" : ""}
-                aria-pressed={weeklyInputMode === "weekly_total"} onClick={() => changeWeeklyInputMode("weekly_total")}>
+              <button
+                type="button"
+                className={weeklyInputMode === "weekly_total" ? "selected" : ""}
+                aria-pressed={weeklyInputMode === "weekly_total"}
+                onClick={() => changeWeeklyInputMode("weekly_total")}
+              >
                 Total semanal
               </button>
             </div>
@@ -361,12 +432,25 @@ export function ActivityEntryEditor({
             </div>
             {weeklyPreview && (
               <p className="module-hint activity-weekly-preview">
-                Totales de 7 días: {weeklyPreview.weekly_steps != null ? `${formatDecimal(weeklyPreview.weekly_steps)} pasos` : "pasos sin datos"}
-                {" · "}{weeklyPreview.weekly_calories_kcal != null ? `${formatDecimal(weeklyPreview.weekly_calories_kcal)} kcal` : "calorías sin datos"}
-                {" · "}{weeklyPreview.weekly_distance_km != null ? `${formatDecimal(weeklyPreview.weekly_distance_km)} km` : "distancia sin datos"}
+                Totales de 7 días:{" "}
+                {weeklyPreview.weekly_steps != null
+                  ? `${formatDecimal(weeklyPreview.weekly_steps)} pasos`
+                  : "pasos sin datos"}
+                {" · "}
+                {weeklyPreview.weekly_calories_kcal != null
+                  ? `${formatDecimal(weeklyPreview.weekly_calories_kcal)} kcal`
+                  : "calorías sin datos"}
+                {" · "}
+                {weeklyPreview.weekly_distance_km != null
+                  ? `${formatDecimal(weeklyPreview.weekly_distance_km)} km`
+                  : "distancia sin datos"}
               </p>
             )}
-            {weeklyPreviewError && <p className="error-banner" role="alert">{weeklyPreviewError}</p>}
+            {weeklyPreviewError && (
+              <p className="error-banner" role="alert">
+                {weeklyPreviewError}
+              </p>
+            )}
           </>
         )}
         <label>
@@ -374,8 +458,8 @@ export function ActivityEntryEditor({
           <textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
         </label>
         <p className="module-hint">
-          Completa solo las medidas disponibles para esta actividad; los campos vacíos no se estiman.
-          Los resúmenes semanales se suman a los registros individuales, incluso si cubren el mismo período.
+          Completa solo las medidas disponibles; solo las calorías pueden estimarse si hay datos suficientes. Los
+          resúmenes semanales se suman a los registros individuales, incluso si cubren el mismo período.
         </p>
         {error && (
           <div className="error-banner" role="alert">
@@ -383,10 +467,10 @@ export function ActivityEntryEditor({
           </div>
         )}
         <div className="form-actions">
-          <button type="button" className="cancel-button" onClick={onClose}>
+          <button type="button" className="cancel-button" onClick={close}>
             Cancelar
           </button>
-          <button className="primary-button" disabled={busy}>
+          <button className="primary-button" disabled={busy || tracking}>
             {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
           </button>
         </div>

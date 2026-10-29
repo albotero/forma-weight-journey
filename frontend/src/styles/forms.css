@@ -756,6 +756,41 @@
 .trend-chart-panel {
   margin-bottom: 20px;
 }
+.activity-recorder {
+  min-width: 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--line);
+}
+.activity-recorder h3,
+.activity-recorder-actions,
+.activity-recorder-actions .cancel-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.activity-recorder h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.activity-recorder-actions {
+  flex-wrap: wrap;
+}
+.activity-recorder-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.activity-recorder-metrics dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-recorder-metrics dd {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
 .activity-total-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
