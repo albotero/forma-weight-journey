@@ -105,7 +105,9 @@ const summary = (entries, period = "90d") => summarizeActivity(entries, timezone
 
 test("activity chart stacks blue weekly summaries below green individual activities", () => {
   const source = readFileSync(new URL("../src/components/modules/ActivityOverview.tsx", import.meta.url), "utf8")
-  assert.ok(source.indexOf('<Bar dataKey="weekly"') < source.indexOf('<Bar dataKey="single"'))
+  const weeklyBar = source.search(/<Bar\s+dataKey="weekly"/)
+  const individualBar = source.search(/<Bar\s+dataKey="single"/)
+  assert.ok(weeklyBar >= 0 && individualBar > weeklyBar)
   assert.match(source, /dataKey="weekly"[^]*?radius=\{hasSingle \? \[0, 0, 0, 0\] : \[5, 5, 0, 0\]\}/)
   assert.match(source, /dataKey="single"[^]*?radius=\{\[5, 5, 0, 0\]\}/)
 })
