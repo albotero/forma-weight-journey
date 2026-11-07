@@ -331,6 +331,20 @@ class JournalEntryCreate(NumericPrecisionModel):
                 raise ValueError(f"{key} is outside the supported range")
             if key == "steps" and not isinstance(value, int):
                 raise ValueError("steps must be a whole number")
+        moving_duration = self.data.get("moving_duration_min")
+        if moving_duration is not None:
+            duration = self.data.get("duration_min")
+            if (
+                isinstance(moving_duration, bool)
+                or not isinstance(moving_duration, (int, float))
+                or not math.isfinite(moving_duration)
+                or not 0 <= moving_duration <= 1440
+            ):
+                raise ValueError("moving_duration_min is outside the supported range")
+            if self.data.get("tracking_source") != "gps":
+                raise ValueError("moving_duration_min only applies to GPS activity")
+            if duration is None or moving_duration > duration:
+                raise ValueError("moving_duration_min cannot exceed duration_min")
         route = self.data.get("route")
         if route is not None:
             if not isinstance(route, list) or len(route) > 5000:

@@ -177,6 +177,18 @@ test("GPS route stores accepted points and starts a new segment after a signal g
   assert.equal(track.route[2].longitude, 0.002)
 })
 
+test("GPS movement time excludes stationary fixes while keeping route and distance", () => {
+  let track = addActivityPosition(emptyActivityTrack(), position(0, 1000), "Bicicleta")
+  track = addActivityPosition(track, position(0.001, 21000), "Bicicleta")
+  const distanceAfterMoving = track.distanceM
+  track = addActivityPosition(track, position(0.001, 31000, { speed: 0 }), "Bicicleta")
+  track = addActivityPosition(track, position(0.001, 41000, { speed: 0 }), "Bicicleta")
+  assert.equal(track.movingMs, 20000)
+  assert.equal(track.distanceM, distanceAfterMoving)
+  track = addActivityPosition(track, position(0.002, 51000), "Bicicleta")
+  assert.equal(track.movingMs, 30000)
+})
+
 test("GPS cycling estimates gross calories by average speed without requiring manual intensity", () => {
   const ride = entry(30, {
     entry_type: "single",
@@ -196,6 +208,21 @@ test("GPS cycling estimates gross calories by average speed without requiring ma
     null,
   )
   assert.equal(activityCalculations(ride).estimatedCalories, null)
+})
+
+test("GPS cycling estimates separate moving effort from stopped resting time", () => {
+  const ride = entry(32, {
+    entry_type: "single",
+    tracking_source: "gps",
+    activity_type: "Bicicleta",
+    duration_min: 60,
+    moving_duration_min: 30,
+    distance_km: 20,
+  })
+  const calculation = activityCalculations(ride, weights)
+  assert.equal(calculation.speedKmh, 20)
+  assert.equal(calculation.met, 8.4)
+  assert.equal(calculation.estimatedCalories, 705.6)
 })
 
 test("GPS cycling estimates include additional energy for recorded ascent", () => {

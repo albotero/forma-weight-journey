@@ -65,13 +65,9 @@ export function MetricTrendCharts({
       ),
     )
     .filter((value): value is number => typeof value === "number")
-  const domainValues = [
-    ...values,
-    ...clinicalBands.flatMap(({ from, to }) => [from, to].filter(Number.isFinite)),
-  ]
   const { domain, ticks } = niceAxis(
-    domainValues,
-    Math.max(0.01, Math.min(1, Math.max(...domainValues) * 0.05)),
+    values,
+    Math.max(0.01, Math.min(1, Math.max(...values) * 0.05)),
   )
   const visibleClinicalBands = clinicalBands
     .map((band) => ({

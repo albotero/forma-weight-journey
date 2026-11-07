@@ -88,6 +88,7 @@ export function ActivityEntryEditor({
         activity_type: activityType,
         intensity,
         tracking_source: trackingSource,
+        moving_duration_min: recorded?.movingDurationMin ?? entry?.data.moving_duration_min,
         elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m,
         duration_min: duration.trim() === "" ? null : Number(duration),
         distance_km: distance.trim() === "" ? null : Number(distance),
@@ -180,6 +181,9 @@ export function ActivityEntryEditor({
             ...(trackingSource === "gps"
               ? {
                   tracking_source: "gps",
+                  moving_duration_min: recorded
+                    ? recorded.movingDurationMin
+                    : entry?.data.moving_duration_min ?? null,
                   elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m ?? null,
                   elevation_loss_m: recorded ? recorded.descentM : entry?.data.elevation_loss_m ?? null,
                   route: recorded ? recorded.route : entry?.data.route ?? null,
@@ -265,6 +269,8 @@ export function ActivityEntryEditor({
               <p className="module-hint">
                 Origen: GPS. La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no
                 contempla viento, terreno ni asistencia eléctrica.
+                {(recorded?.movingDurationMin ?? entry?.data.moving_duration_min) != null &&
+                  ` Tiempo en movimiento: ${formatDecimal(Number(recorded?.movingDurationMin ?? entry?.data.moving_duration_min))} min; las pausas se estiman a 1 MET.`}
                 {(recorded?.ascentM ?? entry?.data.elevation_gain_m) != null &&
                   ` Ascenso: ${formatDecimal(Number(recorded?.ascentM ?? entry?.data.elevation_gain_m))} m.`}
                 {(recorded?.descentM ?? entry?.data.elevation_loss_m) != null &&

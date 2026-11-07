@@ -59,3 +59,32 @@ def test_gps_route_accepts_precise_coordinates_and_rejects_out_of_range_points()
                 "route": [{**route[0], "latitude": 91}],
             },
         )
+
+
+def test_gps_moving_duration_must_be_within_total_duration() -> None:
+    entry = JournalEntryCreate(
+        module="activity",
+        title="Bicicleta",
+        data={
+            "entry_type": "single",
+            "activity_type": "Bicicleta",
+            "tracking_source": "gps",
+            "duration_min": 40,
+            "moving_duration_min": 30,
+            "distance_km": 10,
+        },
+    )
+    assert entry.data["moving_duration_min"] == 30
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        JournalEntryCreate(
+            module="activity",
+            title="Bicicleta",
+            data={
+                "entry_type": "single",
+                "activity_type": "Bicicleta",
+                "tracking_source": "gps",
+                "duration_min": 30,
+                "moving_duration_min": 31,
+                "distance_km": 10,
+            },
+        )

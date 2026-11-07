@@ -3,6 +3,7 @@ export type ActivityPosition = {
   longitude: number
   accuracy: number
   timestamp: number
+  speed?: number | null
   altitude: number | null
   altitudeAccuracy: number | null
 }
@@ -16,8 +17,10 @@ export type ActivityTrack = {
   distanceM: number
   ascentM: number | null
   descentM: number | null
+  movingMs: number
   samples: number
   last: ActivityPosition | null
+  sample: ActivityPosition | null
   altitude: ActivityPosition | null
   route: ActivityRoutePoint[]
 }

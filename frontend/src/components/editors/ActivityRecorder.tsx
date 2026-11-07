@@ -14,6 +14,7 @@ export type RecordedActivity = {
   distanceKm: number
   ascentM: number | null
   descentM: number | null
+  movingDurationMin: number
   route: ActivityTrack["route"]
 }
 
@@ -36,7 +37,7 @@ function stopSession(session: Session, end = performance.now()) {
   session.watch = null
   session.segmentStarted = null
   session.lastFix = null
-  session.track = { ...session.track, last: null, altitude: null }
+  session.track = { ...session.track, last: null, sample: null, altitude: null }
 }
 
 export function ActivityRecorder({
@@ -122,7 +123,7 @@ export function ActivityRecorder({
         (position) => {
           const current = session.current
           if (current.watch !== watch) return
-          const { latitude, longitude, accuracy, altitude, altitudeAccuracy } = position.coords
+          const { latitude, longitude, accuracy, altitude, altitudeAccuracy, speed } = position.coords
           if (Date.now() - position.timestamp > 15000 || accuracy > 35) {
             current.track = { ...current.track, last: null, altitude: null }
             setMessage("Señal GPS imprecisa; no se suma distancia hasta recuperar una ubicación fiable.")
@@ -140,6 +141,7 @@ export function ActivityRecorder({
               accuracy,
               altitude,
               altitudeAccuracy,
+              speed,
               timestamp: position.timestamp,
             },
             activityType,
@@ -200,6 +202,7 @@ export function ActivityRecorder({
       distanceKm: Number((current.track.distanceM / 1000).toFixed(2)),
       ascentM: current.track.ascentM === null ? null : Number(current.track.ascentM.toFixed(2)),
       descentM: current.track.descentM === null ? null : Number(current.track.descentM.toFixed(2)),
+      movingDurationMin: Number((Math.min(current.track.movingMs, current.elapsedMs) / 60000).toFixed(2)),
       route: current.track.route,
     })
     session.current = newSession()
@@ -221,6 +224,7 @@ export function ActivityRecorder({
         activity_type: activityType,
         intensity,
         duration_min: elapsedMs / 60000,
+        moving_duration_min: Math.min(track.movingMs, elapsedMs) / 60000,
         distance_km: track.distanceM / 1000,
         elevation_gain_m: track.ascentM,
       },
@@ -252,6 +256,12 @@ export function ActivityRecorder({
             <dt>Tiempo</dt>
             <dd>
               {Math.floor(elapsedMs / 60000)}:{String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}
+            </dd>
+          </div>
+          <div>
+            <dt>En movimiento</dt>
+            <dd>
+              {Math.floor(track.movingMs / 60000)}:{String(Math.floor(track.movingMs / 1000) % 60).padStart(2, "0")}
             </dd>
           </div>
           <div>

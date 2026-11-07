@@ -34,6 +34,7 @@ export const journalDefinitions: Record<
       { key: "activity_type", label: "Actividad" },
       { key: "other_activity", label: "Otra actividad" },
       { key: "duration_min", label: "Duración (min)", type: "number" },
+      { key: "moving_duration_min", label: "Tiempo en movimiento (min)", type: "number" },
       { key: "distance_km", label: "Distancia (km)", type: "number" },
       { key: "calories_kcal", label: "Calorías (kcal)", type: "number" },
       { key: "steps", label: "Pasos", type: "number" },

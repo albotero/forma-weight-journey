@@ -27,6 +27,12 @@ export function activityCalculations(entry, weights = []) {
   if (entry.data.entry_type === "weekly") return result
   const { duration_min: duration, distance_km: distance, calories_kcal: calories } = entry.data
   if (!isValidActivityMeasurement(duration) || duration <= 0) return result
+  const hasGpsMovingDuration =
+    entry.data.tracking_source === "gps" && isValidActivityMeasurement(entry.data.moving_duration_min)
+  const movingDuration = hasGpsMovingDuration
+    ? Math.min(duration, entry.data.moving_duration_min)
+    : duration
+  const stoppedDuration = duration - movingDuration
   if (isValidActivityMeasurement(distance) && distance > 0) {
     result.speedKmh = (distance / duration) * 60
     if (["Caminata", "Correr"].includes(entry.data.activity_type)) result.paceMinKm = duration / distance
@@ -36,19 +42,28 @@ export function activityCalculations(entry, weights = []) {
     ? activityMets[entry.data.activity_type][entry.data.intensity]
     : undefined
   if (entry.data.activity_type === "Bicicleta") {
-    if (result.speedKmh === null) return result
-    met =
-      result.speedKmh < 16
-        ? 4
-        : result.speedKmh < 19
-          ? 6.8
-          : result.speedKmh < 22
-            ? 8
-            : result.speedKmh < 25
-              ? 10
-              : result.speedKmh < 30
-                ? 12
-                : 15.8
+    const movementSpeedKmh = hasGpsMovingDuration
+      ? movingDuration > 0 && isValidActivityMeasurement(distance) && distance > 0
+        ? (distance / movingDuration) * 60
+        : null
+      : result.speedKmh
+    if (hasGpsMovingDuration && movingDuration === 0) {
+      met = 1
+    } else {
+      if (movementSpeedKmh === null) return result
+      met =
+        movementSpeedKmh < 16
+          ? 4
+          : movementSpeedKmh < 19
+            ? 6.8
+            : movementSpeedKmh < 22
+              ? 8
+              : movementSpeedKmh < 25
+                ? 10
+                : movementSpeedKmh < 30
+                  ? 12
+                  : 15.8
+    }
   }
   if (typeof met !== "number") return result
   const timestamp = Date.parse(entry.occurred_at)
@@ -60,19 +75,23 @@ export function activityCalculations(entry, weights = []) {
     .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at) || b.id - a.id)[0]
   if (!weight) return result
   result.weightKg = weight.weight_kg
-  const baseCalories = ((met * 3.5 * weight.weight_kg) / 200) * duration
+  const caloriesPerMetMinute = (3.5 * weight.weight_kg) / 200
+  const movementCalories = met * caloriesPerMetMinute * movingDuration
+  const stoppedCalories = hasGpsMovingDuration ? caloriesPerMetMinute * stoppedDuration : 0
   let climbingCalories = 0
   const elevationGain = entry.data.elevation_gain_m
   if (
     entry.data.tracking_source === "gps" &&
     entry.data.activity_type === "Bicicleta" &&
+    movingDuration > 0 &&
     isValidActivityMeasurement(elevationGain)
   ) {
     climbingCalories = (weight.weight_kg * 9.80665 * elevationGain) / (4184 * 0.23)
     met += climbingCalories / ((3.5 * weight.weight_kg * duration) / 200)
   }
-  result.met = met
-  result.estimatedCalories = Math.round((baseCalories + climbingCalories) * 100) / 100
+  const totalCalories = movementCalories + stoppedCalories + climbingCalories
+  result.met = totalCalories / (caloriesPerMetMinute * duration)
+  result.estimatedCalories = Math.round(totalCalories * 100) / 100
   return result
 }
 
