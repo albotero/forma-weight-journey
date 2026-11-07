@@ -33,7 +33,7 @@ export function BmiRangeLegend({ age }: { age: number | null }) {
           </span>
         ))}
       </div>
-      <p className="clinical-reference-note">
+      <p className="activity-disclaimer clinical-reference-note">
         Referencia adulta NICE. Los umbrales de BMI pueden ser menores para algunos grupos étnicos y requieren cautela
         en personas de 65 años o más.
       </p>

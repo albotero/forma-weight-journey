@@ -939,7 +939,8 @@
   margin-bottom: 24px;
 }
 .activity-overview .activity-disclaimer,
-.measurement-overview .activity-disclaimer {
+.measurement-overview .activity-disclaimer,
+.clinical-reference-note {
   margin: 18px 0 22px;
   padding: 12px 14px;
   border: 1px solid var(--line);
@@ -948,6 +949,9 @@
   color: var(--sub);
   font-size: 11px;
   line-height: 1.7;
+}
+.clinical-reference-note {
+  margin: 10px 0 0;
 }
 .activity-overview .activity-chart-note {
   margin-top: 12px;
@@ -963,6 +967,24 @@
 .activity-bar-panel .chart-wrap {
   height: 320px;
   margin-top: 18px;
+}
+.activity-week-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--sub);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.activity-week-navigation > span {
+  min-width: 180px;
+  text-align: center;
+}
+.activity-week-navigation .icon-button:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 .activity-chart-tooltip {
   min-width: 200px;

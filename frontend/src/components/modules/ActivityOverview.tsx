@@ -1,5 +1,6 @@
 import { useId, useState } from "react"
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 import { activityMetrics, type ActivityMetricKey, type summarizeActivity } from "../../lib/activity.js"
 import { localDateTimeToIso } from "../../dateTime.js"
 import { formatDate, formatDecimal } from "../../lib/format"
@@ -17,6 +18,7 @@ export function ActivityOverview({
   onPeriodChange: (period: ChartPeriod) => void
 }) {
   const [metricKey, setMetricKey] = useState<ActivityMetricKey>("calories_kcal")
+  const [weekWindowEnd, setWeekWindowEnd] = useState<string | null>(null)
   const gradientId = useId().replaceAll(":", "")
   const metric = activityMetrics.find(({ key }) => key === metricKey)!
   const averagePerWeek = (key: ActivityMetricKey) => {
@@ -39,23 +41,29 @@ export function ActivityOverview({
   const dateLabel = (day: string) =>
     `${formatDate(localDateTimeToIso(`${day}T12:00`, timezone), timezone)} ${day.slice(0, 4)}`
   const display = (value: number | null) => (value === null ? "Sin datos" : formatDecimal(value))
-  const points = summary.weeks.flatMap((week) => {
+  const points = summary.weeks.map((week) => {
     const values = week.metrics[metricKey]
-    return values.total === null
-      ? []
-      : [
-          {
-            date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
-            range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
-            single: values.single,
-            estimated: metricKey === "calories_kcal" ? week.estimatedCalories : null,
-            weekly: values.weekly,
-            total: values.total,
-          },
-        ]
+    return {
+      date: formatDate(localDateTimeToIso(`${week.end}T12:00`, timezone), timezone),
+      startLabel: dateLabel(week.start),
+      endLabel: dateLabel(week.end),
+      end: week.end,
+      range: `${dateLabel(week.start)} – ${dateLabel(week.end)}`,
+      single: values.single,
+      estimated: metricKey === "calories_kcal" ? week.estimatedCalories : null,
+      weekly: values.weekly,
+      total: values.total,
+    }
   })
-  const hasSingle = points.some(({ single }) => single !== null)
-  const hasWeekly = points.some(({ weekly }) => weekly !== null)
+  const selectedEndIndex = weekWindowEnd === null ? -1 : points.findIndex(({ end }) => end === weekWindowEnd)
+  const windowEndIndex = selectedEndIndex >= 0 ? selectedEndIndex : points.length - 1
+  const windowStartIndex = Math.max(0, windowEndIndex - 5)
+  const windowPoints = points.slice(windowStartIndex, windowEndIndex + 1)
+  const windowHasMetricData = windowPoints.some(({ total }) => total !== null)
+  const hasMetricData = points.some(({ total }) => total !== null)
+  const hasSingle = windowPoints.some(({ single }) => single !== null)
+  const hasWeekly = windowPoints.some(({ weekly }) => weekly !== null)
+  const chartAverage = weeklyAverages[metricKey]
 
   return (
     <section className="activity-overview" aria-label="Resumen de actividad">
@@ -147,18 +155,48 @@ export function ActivityOverview({
               </button>
             ))}
           </div>
-          {points.length > 0 && (
+          {points.length > 0 && hasMetricData && (
             <div className="panel analysis-chart-panel trend-chart-panel activity-bar-panel">
               <div className="panel-heading">
                 <div>
                   <div className="eyebrow">PERÍODOS DE 7 DÍAS</div>
                   <h2>{metric.label} por semana</h2>
                 </div>
-                <span className="goal-caption">{metric.unit} · fecha final del período</span>
+                <span className="goal-caption">
+                  {chartAverage === null
+                    ? `${metric.unit} · período de 7 días`
+                    : `Promedio semanal: ${formatDecimal(chartAverage)} ${metric.unit}`}
+                </span>
               </div>
-              <div className="chart-wrap">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={points} barCategoryGap="28%" margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+              <div className="activity-week-navigation" aria-label="Navegar por semanas">
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Ver semanas anteriores"
+                  title="Ver semanas anteriores"
+                  disabled={windowStartIndex === 0}
+                  onClick={() => setWeekWindowEnd(points[windowEndIndex - 1]?.end ?? null)}
+                >
+                  <ChevronLeft size={17} />
+                </button>
+                <span>
+                  {windowPoints[0].startLabel} – {windowPoints.at(-1)!.endLabel}
+                </span>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Ver semanas siguientes"
+                  title="Ver semanas siguientes"
+                  disabled={windowEndIndex >= points.length - 1}
+                  onClick={() => setWeekWindowEnd(points[windowEndIndex + 1]?.end ?? null)}
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </div>
+              {windowHasMetricData ? (
+                <div className="chart-wrap">
+                  <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={windowPoints} barCategoryGap="28%" margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                     <defs>
                       <linearGradient id={`${gradientId}-single`} x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#52a985" />
@@ -187,6 +225,9 @@ export function ActivityOverview({
                       tickFormatter={(value) => formatDecimal(Number(value))}
                       tick={{ fill: "var(--muted)", fontSize: 11 }}
                     />
+                    {chartAverage !== null && (
+                      <ReferenceLine y={chartAverage} stroke="#a65e43" strokeDasharray="5 5" />
+                    )}
                     <Tooltip
                       cursor={{ fill: "var(--green-soft)", opacity: 0.35 }}
                       content={({ active, payload }) => {
@@ -220,7 +261,9 @@ export function ActivityOverview({
                             <div className="activity-tooltip-total">
                               <span>Total</span>
                               <b>
-                                {formatDecimal(point.total)} {metric.unit}
+                                {point.total === null
+                                  ? "Sin datos"
+                                  : `${formatDecimal(point.total)} ${metric.unit}`}
                               </b>
                             </div>
                           </div>
@@ -255,9 +298,17 @@ export function ActivityOverview({
                       />
                     )}
                   </BarChart>
-                </ResponsiveContainer>
-              </div>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="module-hint activity-week-empty">
+                  No hay datos de {metric.label.toLowerCase()} en estas semanas. Puedes seguir navegando hacia atrás.
+                </p>
+              )}
             </div>
+          )}
+          {points.length > 0 && !hasMetricData && (
+            <p className="module-hint">No hay datos de {metric.label.toLowerCase()} en este período.</p>
           )}
           {!points.length && (
             <p className="module-hint">No hay datos de {metric.label.toLowerCase()} en este período.</p>

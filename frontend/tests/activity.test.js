@@ -108,6 +108,7 @@ test("activity chart stacks blue weekly summaries below green individual activit
   const weeklyBar = source.search(/<Bar\s+dataKey="weekly"/)
   const individualBar = source.search(/<Bar\s+dataKey="single"/)
   assert.ok(weeklyBar >= 0 && individualBar > weeklyBar)
+  assert.match(source, /<ReferenceLine y=\{chartAverage\}/)
   assert.match(source, /dataKey="weekly"[^]*?radius=\{hasSingle \? \[0, 0, 0, 0\] : \[5, 5, 0, 0\]\}/)
   assert.match(source, /dataKey="single"[^]*?radius=\{\[5, 5, 0, 0\]\}/)
 })

@@ -52,6 +52,7 @@ test("existing individual activities show estimated kcal, speed and pace in hist
   assert.match(html, /159,6 kcal/)
   assert.match(html, /Registradas \/ semana/)
   assert.match(html, /Estimadas \/ semana/)
+  assert.match(html, /Promedio semanal: 159,6 kcal/)
   const caloriesCard = html.match(/<article class="panel activity-total-card"><h3>Calorías<\/h3>(.*?)<\/article>/s)?.[1]
   assert.ok(caloriesCard)
   assert.equal(occurrences(caloriesCard, "<dt>"), 3)
@@ -243,7 +244,8 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
     })
     assert.match(html, /aria-pressed="true">90 días<\/button>/)
     assert.match(html, /class="activity-disclaimer"/)
-    assert.match(html, /fecha final del período/)
+    assert.match(html, /Promedio semanal: 1\.400 kcal/)
+    assert.match(html, /Navegar por semanas/)
     assert.match(html, /anclados al último resumen/)
     assert.doesNotMatch(html, /lunes a domingo/)
     assert.equal(occurrences(html, 'class="chart-wrap"'), 1)
