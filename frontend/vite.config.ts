@@ -11,6 +11,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("/node_modules/leaflet/")) return "leaflet"
           if (id.includes("/node_modules/recharts/") || id.includes("/node_modules/victory-vendor/")) return "charts"
           if (id.includes("/node_modules/")) return "vendor"
         },

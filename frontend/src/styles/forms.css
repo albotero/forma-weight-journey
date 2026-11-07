@@ -481,13 +481,13 @@
 }
 .record-list {
   display: grid;
-  gap: 12px;
+  gap: 9px;
 }
 .record-card {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 13px;
-  padding: 16px;
+  border-radius: 8px;
+  padding: 14px;
   box-shadow: var(--shadow);
 }
 .record-card p {
@@ -789,6 +789,97 @@
   margin: 4px 0 0;
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+.activity-route {
+  margin: 14px 0;
+  min-width: 0;
+}
+.activity-route-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.activity-route-heading label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--sub);
+  font-weight: 500;
+}
+.activity-route-map {
+  height: 240px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #e9efed;
+}
+.activity-route-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+  background-color: #e9efed;
+  background-image: linear-gradient(30deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
+    linear-gradient(150deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
+    linear-gradient(30deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
+    linear-gradient(150deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
+    linear-gradient(60deg, #edf2ef 25%, transparent 25.5%, transparent 75%, #edf2ef 75%, #edf2ef),
+    linear-gradient(60deg, #edf2ef 25%, transparent 25.5%, transparent 75%, #edf2ef 75%, #edf2ef);
+  background-position: 0 0, 0 0, 24px 42px, 24px 42px, 0 0, 24px 42px;
+  background-size: 48px 84px;
+}
+.activity-route-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 8px;
+  color: var(--sub);
+  font-size: 10px;
+}
+.activity-route-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.activity-route-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.activity-route-legend .ascent { background: #d36f38; }
+.activity-route-legend .level { background: #238274; }
+.activity-route-legend .descent { background: #377baa; }
+.activity-route > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.activity-route-loading {
+  display: grid;
+  min-height: 120px;
+  place-items: center;
+  color: var(--sub);
+  font-size: 12px;
+}
+.clinical-band-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  color: var(--sub);
+  font-size: 10px;
+}
+.clinical-band-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.clinical-band-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
 }
 
 .activity-total-grid {

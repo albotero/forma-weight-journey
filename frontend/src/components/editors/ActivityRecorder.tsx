@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { MapPin, Pause, Play, Square, Trash2 } from "lucide-react"
 import type { WeightEntry } from "../../api"
 import { activityCalculations } from "../../lib/activity.js"
@@ -6,12 +6,15 @@ import { addActivityPosition, emptyActivityTrack, type ActivityTrack } from "../
 import { formatDecimal } from "../../lib/format"
 import { keepScreenAwake, type ScreenWakeLockStatus } from "../../lib/screenWakeLock.js"
 
+const ActivityRouteMap = lazy(() => import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
+
 export type RecordedActivity = {
   startedAt: string
   durationMin: number
   distanceKm: number
   ascentM: number | null
   descentM: number | null
+  route: ActivityTrack["route"]
 }
 
 type Session = {
@@ -197,6 +200,7 @@ export function ActivityRecorder({
       distanceKm: Number((current.track.distanceM / 1000).toFixed(2)),
       ascentM: current.track.ascentM === null ? null : Number(current.track.ascentM.toFixed(2)),
       descentM: current.track.descentM === null ? null : Number(current.track.descentM.toFixed(2)),
+      route: current.track.route,
     })
     session.current = newSession()
     setRunning(false)
@@ -218,6 +222,7 @@ export function ActivityRecorder({
         intensity,
         duration_min: elapsedMs / 60000,
         distance_km: track.distanceM / 1000,
+        elevation_gain_m: track.ascentM,
       },
     },
     weights,
@@ -229,8 +234,8 @@ export function ActivityRecorder({
         <MapPin size={18} aria-hidden="true" /> Sesión GPS
       </h3>
       <p className="module-hint">
-        La sesión se pausa si bloqueas el teléfono o cambias de app. El GPS consume batería y puede perder precisión.
-        No se guarda tu ruta ni se miden pulsaciones.
+        Mantén esta pantalla abierta; al salir, la sesión se pausa. El GPS consume batería y puede perder precisión.
+        La ruta se guarda junto con esta actividad.
       </p>
       {running && (
         <p className="module-hint" role="status">
@@ -274,6 +279,11 @@ export function ActivityRecorder({
             </dd>
           </div>
         </dl>
+      )}
+      {track.route.length > 1 && (
+        <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
+          <ActivityRouteMap points={track.route} />
+        </Suspense>
       )}
       <div className="activity-recorder-actions">
         {running ? (

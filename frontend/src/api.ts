@@ -99,6 +99,7 @@ export type Profile = {
   timezone: string
   reminder_time: string
   birth_date: string | null
+  body_fat_reference: "female" | "male" | null
   medications_reviewed: boolean
 }
 export type Account = {

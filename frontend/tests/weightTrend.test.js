@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { weightMovingAverageSeries } from "../src/lib/weightTrend.js"
+import { weightAverageChangeBetweenWeeks, weightMovingAverageSeries } from "../src/lib/weightTrend.js"
 
 test("excludes the seven-day-old boundary, handles gaps and duplicate timestamps", () => {
   const weights = [
@@ -35,4 +35,16 @@ test("uses history before the visible range and normalizes timezone offsets", ()
   ]
   const visible = weightMovingAverageSeries(weights).filter((point) => point.measured_at >= "2026-09-04")
   assert.equal(visible[0].moving_average_7d_kg, 81.17)
+})
+
+test("compares the averages of two consecutive seven-day windows", () => {
+  const now = "2026-09-15T00:00:00Z"
+  const weights = [
+    { measured_at: "2026-09-14T00:00:00Z", weight_kg: 78 },
+    { measured_at: "2026-09-12T00:00:00Z", weight_kg: 80 },
+    { measured_at: "2026-09-07T00:00:00Z", weight_kg: 82 },
+    { measured_at: "2026-09-04T00:00:00Z", weight_kg: 84 },
+  ]
+  assert.equal(weightAverageChangeBetweenWeeks(weights, now), -4)
+  assert.equal(weightAverageChangeBetweenWeeks(weights.slice(0, 2), now), null)
 })

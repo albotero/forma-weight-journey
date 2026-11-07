@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react"
+import { lazy, Suspense, useState, type FormEvent } from "react"
 import type { JournalEntry, WeightEntry } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import { activityTypes, type ActivityType } from "../../lib/types"
@@ -6,6 +6,9 @@ import { activityCalculations, activityEntryDate, weeklyActivityTotals } from ".
 import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
 import { ActivityRecorder, type RecordedActivity } from "./ActivityRecorder"
+import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
+
+const ActivityRouteMap = lazy(() => import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
 
 export function ActivityEntryEditor({
   entry,
@@ -85,6 +88,7 @@ export function ActivityEntryEditor({
         activity_type: activityType,
         intensity,
         tracking_source: trackingSource,
+        elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m,
         duration_min: duration.trim() === "" ? null : Number(duration),
         distance_km: distance.trim() === "" ? null : Number(distance),
         calories_kcal: calories.trim() === "" ? null : Number(calories),
@@ -176,8 +180,9 @@ export function ActivityEntryEditor({
             ...(trackingSource === "gps"
               ? {
                   tracking_source: "gps",
-                  elevation_gain_m: recorded?.ascentM ?? entry?.data.elevation_gain_m ?? null,
-                  elevation_loss_m: recorded?.descentM ?? entry?.data.elevation_loss_m ?? null,
+                  elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m ?? null,
+                  elevation_loss_m: recorded ? recorded.descentM : entry?.data.elevation_loss_m ?? null,
+                  route: recorded ? recorded.route : entry?.data.route ?? null,
                 }
               : {}),
           }
@@ -258,15 +263,23 @@ export function ActivityEntryEditor({
             )}
             {trackingSource === "gps" && (
               <p className="module-hint">
-                Origen: GPS. El desnivel es orientativo y no modifica las calorías.
-                {activityType === "Bicicleta" &&
-                  " La estimación usa velocidad media, duración y peso; no contempla viento, terreno ni asistencia eléctrica."}
+                Origen: GPS. La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no
+                contempla viento, terreno ni asistencia eléctrica.
                 {(recorded?.ascentM ?? entry?.data.elevation_gain_m) != null &&
                   ` Ascenso: ${formatDecimal(Number(recorded?.ascentM ?? entry?.data.elevation_gain_m))} m.`}
                 {(recorded?.descentM ?? entry?.data.elevation_loss_m) != null &&
                   ` Descenso: ${formatDecimal(Number(recorded?.descentM ?? entry?.data.elevation_loss_m))} m.`}
               </p>
             )}
+            {(() => {
+              const route = recorded?.route ??
+                (Array.isArray(entry?.data.route) ? (entry.data.route as ActivityRoutePoint[]) : [])
+              return route.length > 1 ? (
+                <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
+                  <ActivityRouteMap points={route} />
+                </Suspense>
+              ) : null
+            })()}
             {activityType === "Otro" && (
               <label>
                 ¿Qué actividad?
@@ -335,15 +348,17 @@ export function ActivityEntryEditor({
                   onChange={(event) => setSteps(event.target.value)}
                 />
               </label>
-              <label>
-                Intensidad
-                <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
-                  <option value="">Sin especificar</option>
-                  <option>Suave</option>
-                  <option>Moderada</option>
-                  <option>Intensa</option>
-                </select>
-              </label>
+              {activityType !== "Bicicleta" && (
+                <label>
+                  Intensidad
+                  <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
+                    <option value="">Sin especificar</option>
+                    <option>Suave</option>
+                    <option>Moderada</option>
+                    <option>Intensa</option>
+                  </select>
+                </label>
+              )}
             </div>
             <p className="module-hint">
               {calculated.estimatedCalories !== null && calculated.weightKg !== null

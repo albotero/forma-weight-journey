@@ -2,7 +2,7 @@
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: var(--shadow);
 }
 .metric-card {
@@ -28,20 +28,20 @@
   place-items: center;
 }
 .metric-icon.green {
-  color: #3e8862;
-  background: #eaf4ee;
+  color: #176f65;
+  background: #e4f2ef;
 }
 .metric-icon.blue {
-  color: #648ba0;
-  background: #edf4f7;
+  color: #426d8a;
+  background: #eaf1f5;
 }
 .metric-icon.purple {
-  color: #8b7bae;
-  background: #f2eff8;
+  color: #895b6e;
+  background: #f4eaf0;
 }
 .metric-icon.amber {
-  color: #ad8a50;
-  background: #f8f3e9;
+  color: #a45e37;
+  background: #f7ede5;
 }
 .metric-value {
   font:

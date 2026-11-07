@@ -4,21 +4,21 @@
 
 :root {
   font-family: "DM Sans", sans-serif;
-  color: #24312b;
-  background: #f6f8f6;
+  color: #24323a;
+  background: #f2f5f6;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   font-smooth: always;
   font-weight: 400;
-  --canvas: #f6f8f6;
+  --canvas: #f2f5f6;
   --panel: #fff;
-  --text: #24312b;
-  --sub: #7a8780;
-  --muted: #9ba69f;
-  --line: #edf0ed;
-  --green: #347a5b;
-  --green-soft: #eaf4ef;
-  --shadow: 0 3px 14px rgba(38, 65, 51, 0.035);
+  --text: #24323a;
+  --sub: #65747d;
+  --muted: #87949b;
+  --line: #e2e8eb;
+  --green: #177b72;
+  --green-soft: #e4f2ef;
+  --shadow: 0 5px 18px rgba(31, 52, 61, 0.045);
 }
 * {
   box-sizing: border-box;
@@ -41,13 +41,15 @@ button {
   min-height: 100vh;
   background: var(--canvas);
   color: var(--text);
-  --canvas: #f6f8f6;
+  --canvas: #f2f5f6;
   --panel: #fff;
-  --text: #26342c;
-  --sub: #7b8780;
-  --muted: #a0aaa3;
-  --line: #edf0ed;
-  --shadow: 0 3px 14px rgba(38, 65, 51, 0.035);
+  --text: #24323a;
+  --sub: #65747d;
+  --muted: #87949b;
+  --line: #e2e8eb;
+  --green: #177b72;
+  --green-soft: #e4f2ef;
+  --shadow: 0 5px 18px rgba(31, 52, 61, 0.045);
 }
 .app-shell.dark {
   --canvas: #151c19;

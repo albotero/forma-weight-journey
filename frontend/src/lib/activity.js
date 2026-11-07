@@ -35,7 +35,7 @@ export function activityCalculations(entry, weights = []) {
   let met = Object.hasOwn(activityMets, entry.data.activity_type)
     ? activityMets[entry.data.activity_type][entry.data.intensity]
     : undefined
-  if (entry.data.tracking_source === "gps" && entry.data.activity_type === "Bicicleta") {
+  if (entry.data.activity_type === "Bicicleta") {
     if (result.speedKmh === null) return result
     met =
       result.speedKmh < 16
@@ -60,8 +60,19 @@ export function activityCalculations(entry, weights = []) {
     .sort((a, b) => Date.parse(b.measured_at) - Date.parse(a.measured_at) || b.id - a.id)[0]
   if (!weight) return result
   result.weightKg = weight.weight_kg
+  const baseCalories = ((met * 3.5 * weight.weight_kg) / 200) * duration
+  let climbingCalories = 0
+  const elevationGain = entry.data.elevation_gain_m
+  if (
+    entry.data.tracking_source === "gps" &&
+    entry.data.activity_type === "Bicicleta" &&
+    isValidActivityMeasurement(elevationGain)
+  ) {
+    climbingCalories = (weight.weight_kg * 9.80665 * elevationGain) / (4184 * 0.23)
+    met += climbingCalories / ((3.5 * weight.weight_kg * duration) / 200)
+  }
   result.met = met
-  result.estimatedCalories = Math.round(((met * 3.5 * weight.weight_kg) / 200) * duration * 100) / 100
+  result.estimatedCalories = Math.round((baseCalories + climbingCalories) * 100) / 100
   return result
 }
 

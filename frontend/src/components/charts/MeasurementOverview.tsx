@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react"
 import { measurementPointsInPeriod, measurementStats, type MeasurementPoint } from "../../lib/measurements.js"
 import { formatDateTime, formatDecimal } from "../../lib/format"
+import type { ClinicalRangeBand } from "../../lib/clinicalRanges.js"
 import { MetricTrendCharts } from "./MetricTrendCharts"
 import { chartPeriods, type ChartPeriod } from "../../lib/chartPeriod.js"
 
@@ -20,6 +21,7 @@ export function MeasurementOverview({
   defaultPeriod = "90d",
   combined = false,
   showChart = true,
+  clinicalBands = {},
 }: {
   title: string
   series: MeasurementSeries[]
@@ -28,6 +30,7 @@ export function MeasurementOverview({
   defaultPeriod?: ChartPeriod
   combined?: boolean
   showChart?: boolean
+  clinicalBands?: Record<string, ClinicalRangeBand[]>
 }) {
   const [selectedId, setSelectedId] = useState("")
   const [period, setPeriod] = useState<ChartPeriod>(defaultPeriod)
@@ -122,6 +125,7 @@ export function MeasurementOverview({
             key={combined ? title : filtered.id}
             title={combined ? title : filtered.label}
             hideLegend={!combined}
+            clinicalBands={combined ? [] : clinicalBands[filtered.id] ?? []}
             series={visibleSeries}
           />
         )
@@ -136,7 +140,8 @@ export function MeasurementOverview({
           : combined
           ? "Las tarjetas y la gráfica comparan todas las series."
           : "Las tarjetas y la gráfica muestran la medida seleccionada."} Las lecturas no se suman;
-        los campos vacíos no se estiman. El historial completo permanece debajo.
+        los campos vacíos no se estiman. Las bandas disponibles muestran referencias publicadas cuando aplican; no
+        diagnostican ni reemplazan una valoración profesional. El historial completo permanece debajo.
       </p>
     </section>
   )

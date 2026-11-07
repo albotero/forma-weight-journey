@@ -1,7 +1,7 @@
 import { getDistance } from "geolib"
 
 export function emptyActivityTrack() {
-  return { distanceM: 0, ascentM: null, descentM: null, samples: 0, last: null, altitude: null }
+  return { distanceM: 0, ascentM: null, descentM: null, samples: 0, last: null, altitude: null, route: [] }
 }
 
 export function addActivityPosition(track, point, activityType) {
@@ -18,12 +18,32 @@ export function addActivityPosition(track, point, activityType) {
   if (track.last && point.timestamp <= track.last.timestamp) return track
   const next = { ...track, samples: track.samples + 1, last: point }
   const seconds = track.last ? (point.timestamp - track.last.timestamp) / 1000 : 0
-  if (!track.last || seconds > 30) return { ...next, altitude: null }
+  const appendRoutePoint = () => {
+    const previousSegment = track.route.at(-1)?.segment ?? -1
+    const segment = !track.last || seconds > 30 ? previousSegment + 1 : previousSegment
+    next.route = [
+      ...track.route,
+      {
+        latitude: point.latitude,
+        longitude: point.longitude,
+        altitude_m:
+          Number.isFinite(point.altitude) && Number.isFinite(point.altitudeAccuracy) && point.altitudeAccuracy <= 10
+            ? Number(point.altitude.toFixed(2))
+            : null,
+        segment,
+      },
+    ].slice(-5000)
+  }
+  if (!track.last || seconds > 30) {
+    appendRoutePoint()
+    return { ...next, altitude: null }
+  }
   const distance = getDistance(track.last, point, 0.1)
   const maxKmh = activityType === "Bicicleta" ? 100 : activityType === "Correr" ? 35 : 15
   if ((distance / seconds) * 3.6 > maxKmh) return { ...track, last: null, altitude: null }
   if (distance < Math.max(5, (point.accuracy + track.last.accuracy) / 2)) return track
   next.distanceM += distance
+  appendRoutePoint()
   const hasAltitude =
     Number.isFinite(point.altitude) &&
     Number.isFinite(point.altitudeAccuracy) &&

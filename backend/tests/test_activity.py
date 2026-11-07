@@ -38,3 +38,24 @@ def test_empty_individual_activity_is_rejected() -> None:
             module="activity", title="Caminata",
             data={"entry_type": "single", "activity_type": "Caminata", "steps": None},
         )
+
+
+def test_gps_route_accepts_precise_coordinates_and_rejects_out_of_range_points() -> None:
+    route = [{"latitude": 4.711123, "longitude": -74.072321, "altitude_m": 2600.25, "segment": 0}]
+    entry = JournalEntryCreate(
+        module="activity",
+        title="Bicicleta",
+        data={"entry_type": "single", "activity_type": "Bicicleta", "distance_km": 1, "route": route},
+    )
+    assert entry.data["route"] == route
+    with pytest.raises(ValidationError, match="Route latitude"):
+        JournalEntryCreate(
+            module="activity",
+            title="Bicicleta",
+            data={
+                "entry_type": "single",
+                "activity_type": "Bicicleta",
+                "distance_km": 1,
+                "route": [{**route[0], "latitude": 91}],
+            },
+        )

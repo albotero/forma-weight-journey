@@ -50,14 +50,14 @@ class NumericPrecisionModel(BaseModel):
         if not isinstance(value, dict):
             return value
 
-        def validate_dynamic_numbers(item: object) -> None:
+        def validate_dynamic_numbers(item: object, in_route: bool = False) -> None:
             if isinstance(item, dict):
-                for nested in item.values():
-                    validate_dynamic_numbers(nested)
+                for name, nested in item.items():
+                    validate_dynamic_numbers(nested, in_route or name == "route")
             elif isinstance(item, (list, tuple)):
                 for nested in item:
-                    validate_dynamic_numbers(nested)
-            elif isinstance(item, (int, float)) and not isinstance(item, bool):
+                    validate_dynamic_numbers(nested, in_route)
+            elif isinstance(item, (int, float)) and not isinstance(item, bool) and not in_route:
                 check_precision(item)
 
         def check_precision(item: object) -> None:
@@ -103,6 +103,7 @@ class ProfileUpdate(NumericPrecisionModel):
     reminder_time: str = Field(
         default="05:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     birth_date: str | None = None
+    body_fat_reference: Literal["female", "male"] | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -330,6 +331,40 @@ class JournalEntryCreate(NumericPrecisionModel):
                 raise ValueError(f"{key} is outside the supported range")
             if key == "steps" and not isinstance(value, int):
                 raise ValueError("steps must be a whole number")
+        route = self.data.get("route")
+        if route is not None:
+            if not isinstance(route, list) or len(route) > 5000:
+                raise ValueError("route must contain at most 5000 points")
+            for point in route:
+                if not isinstance(point, dict):
+                    raise ValueError("Each route point must be an object")
+                if set(point) - {"latitude", "longitude", "altitude_m", "segment"}:
+                    raise ValueError("Route point contains unsupported fields")
+                latitude = point.get("latitude")
+                longitude = point.get("longitude")
+                if (
+                    isinstance(latitude, bool) or not isinstance(latitude, (int, float))
+                    or not math.isfinite(latitude) or not -90 <= latitude <= 90
+                ):
+                    raise ValueError("Route latitude is outside the supported range")
+                if (
+                    isinstance(longitude, bool) or not isinstance(longitude, (int, float))
+                    or not math.isfinite(longitude) or not -180 <= longitude <= 180
+                ):
+                    raise ValueError("Route longitude is outside the supported range")
+                for coordinate in (latitude, longitude):
+                    if max(0, -Decimal(str(coordinate)).as_tuple().exponent) > 8:
+                        raise ValueError("Route coordinates support at most eight decimal places")
+                altitude = point.get("altitude_m")
+                if altitude is not None and (
+                    isinstance(altitude, bool) or not isinstance(altitude, (int, float))
+                    or not math.isfinite(altitude) or not -500 <= altitude <= 10000
+                    or max(0, -Decimal(str(altitude)).as_tuple().exponent) > 2
+                ):
+                    raise ValueError("Route altitude is invalid")
+                segment = point.get("segment")
+                if isinstance(segment, bool) or not isinstance(segment, int) or not 0 <= segment <= 5000:
+                    raise ValueError("Route segment is invalid")
         return self
 
 

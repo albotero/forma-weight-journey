@@ -3,11 +3,13 @@ import {
   CartesianGrid,
   Line,
   LineChart as RechartsLineChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts"
+import type { ClinicalRangeBand } from "../../lib/clinicalRanges.js"
 import { formatDecimal, niceAxis, formatAxisTick } from "../../lib/format"
 
 export function MetricTrendCharts({
@@ -16,6 +18,7 @@ export function MetricTrendCharts({
   rightAxisLabels = [],
   rightAxisLabel,
   hideLegend = false,
+  clinicalBands = [],
 }: {
   series: {
     label: string
@@ -27,6 +30,7 @@ export function MetricTrendCharts({
   rightAxisLabels?: string[]
   rightAxisLabel?: string
   hideLegend?: boolean
+  clinicalBands?: ClinicalRangeBand[]
 }) {
   const [hidden, setHidden] = useState<string[]>([])
   const populated = series.filter(({ points }) => points.length)
@@ -61,7 +65,21 @@ export function MetricTrendCharts({
       ),
     )
     .filter((value): value is number => typeof value === "number")
-  const { domain, ticks } = niceAxis(values, Math.max(0.01, Math.min(1, Math.max(...values) * 0.05)))
+  const domainValues = [
+    ...values,
+    ...clinicalBands.flatMap(({ from, to }) => [from, to].filter(Number.isFinite)),
+  ]
+  const { domain, ticks } = niceAxis(
+    domainValues,
+    Math.max(0.01, Math.min(1, Math.max(...domainValues) * 0.05)),
+  )
+  const visibleClinicalBands = clinicalBands
+    .map((band) => ({
+      ...band,
+      from: Math.max(domain[0], band.from),
+      to: Math.min(domain[1], band.to),
+    }))
+    .filter(({ from, to }) => from < to)
   const tickStep = ticks.length > 1 ? ticks[1] - ticks[0] : 1
   const rightAxisValues = chartData.flatMap((row) =>
     [...rightAxisIndexes].flatMap((index) =>
@@ -99,6 +117,17 @@ export function MetricTrendCharts({
       <div className="chart-wrap">
         <ResponsiveContainer width="100%" height="100%">
           <RechartsLineChart data={chartData} margin={{ top: 20, right: 4, left: 0, bottom: 0 }}>
+            {visibleClinicalBands.map(({ from, to, color, label }) => (
+              <ReferenceArea
+                key={label}
+                yAxisId="values"
+                y1={from}
+                y2={to}
+                fill={color}
+                fillOpacity={0.82}
+                stroke="none"
+              />
+            ))}
             <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
             <XAxis
               dataKey="date"
@@ -156,6 +185,13 @@ export function MetricTrendCharts({
           </RechartsLineChart>
         </ResponsiveContainer>
       </div>
+      {visibleClinicalBands.length > 0 && (
+        <div className="clinical-band-legend">
+          {visibleClinicalBands.map(({ label, color }) => (
+            <span key={label}><i style={{ backgroundColor: color }} /> {label}</span>
+          ))}
+        </div>
+      )}
       {!hideLegend && (
         <div className="trend-series-legend">
           {populated.map(({ label, unit }, index) => (

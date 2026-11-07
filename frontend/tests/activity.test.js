@@ -166,6 +166,15 @@ test("GPS elevation ignores unavailable and noisy altitude and accumulates relia
   assert.equal(missing.ascentM, 10)
 })
 
+test("GPS route stores accepted points and starts a new segment after a signal gap", () => {
+  let track = addActivityPosition(emptyActivityTrack(), position(0, 1000), "Bicicleta")
+  track = addActivityPosition(track, position(0.001, 21000), "Bicicleta")
+  track = addActivityPosition(track, position(0.002, 60000), "Bicicleta")
+  assert.equal(track.route.length, 3)
+  assert.deepEqual(track.route.map(({ segment }) => segment), [0, 0, 1])
+  assert.equal(track.route[2].longitude, 0.002)
+})
+
 test("GPS cycling estimates gross calories by average speed without requiring manual intensity", () => {
   const ride = entry(30, {
     entry_type: "single",
@@ -185,6 +194,21 @@ test("GPS cycling estimates gross calories by average speed without requiring ma
     null,
   )
   assert.equal(activityCalculations(ride).estimatedCalories, null)
+})
+
+test("GPS cycling estimates include additional energy for recorded ascent", () => {
+  const ride = entry(31, {
+    entry_type: "single",
+    tracking_source: "gps",
+    activity_type: "Bicicleta",
+    duration_min: 60,
+    distance_km: 20,
+    elevation_gain_m: 100,
+  })
+  const calculation = activityCalculations(ride, weights)
+  const expectedClimbingCalories = (80 * 9.80665 * 100) / (4184 * 0.23)
+  assert.equal(calculation.estimatedCalories, Math.round((672 + expectedClimbingCalories) * 100) / 100)
+  assert.ok(calculation.met > 8)
 })
 
 test("derives gross kcal and speed/pace from historical activity without modifying it", () => {

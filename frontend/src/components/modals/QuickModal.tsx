@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, FileText, Footprints, HeartPulse, Ruler, Scale, Syringe } from "lucide-react"
+import { ArrowRight, FileText, Footprints, HeartPulse, Ruler, Scale, Syringe } from "lucide-react"
 import type { Section, ModalType } from "../../lib/types"
 import { Modal } from "./Modal"
 
@@ -10,8 +10,7 @@ export function QuickModal({
   onChoose: (target: { modal?: ModalType; section?: Section }) => void
 }) {
   const options = [
-    { label: "Peso", icon: Scale, modal: "weight" as const, color: "green", available: true },
-    { label: "Composición", icon: Activity, modal: "weight" as const, color: "blue", available: true },
+    { label: "Peso y composición", icon: Scale, modal: "weight" as const, color: "green", available: true },
     { label: "Dosis", icon: Syringe, modal: "dose" as const, color: "purple", available: true },
     { label: "Medidas", icon: Ruler, section: "Medidas" as const, color: "blue", available: true },
     { label: "Síntomas", icon: HeartPulse, section: "Síntomas" as const, color: "rose", available: true },

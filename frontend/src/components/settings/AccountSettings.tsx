@@ -104,6 +104,9 @@ export function AccountSettings({
           timezone: String(values.get("timezone")),
           reminder_time: String(values.get("reminder_time")),
           birth_date: values.get("birth_date") ? String(values.get("birth_date")) : null,
+          body_fat_reference: values.get("body_fat_reference")
+            ? String(values.get("body_fat_reference"))
+            : null,
         }),
       })
       setProfile(updated)
@@ -286,6 +289,15 @@ export function AccountSettings({
                   <label>
                     Fecha de nacimiento <span className="optional">opcional</span>
                     <input name="birth_date" type="date" defaultValue={profile.birth_date ?? ""} />
+                  </label>
+                  <label>
+                    Referencia de grasa corporal <span className="optional">opcional</span>
+                    <select name="body_fat_reference" defaultValue={profile.body_fat_reference ?? ""}>
+                      <option value="">Sin referencia</option>
+                      <option value="female">Femenina</option>
+                      <option value="male">Masculina</option>
+                    </select>
+                    <small>Elige la tabla publicada que corresponda; requiere fecha de nacimiento entre 20 y 79 años y no es diagnóstica.</small>
                   </label>
                   <label>
                     Zona horaria

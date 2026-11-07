@@ -23,7 +23,8 @@ import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick } from "../../lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "../charts/BmiRange"
 import { weeklyActivityChecklistDate, compositionFields } from "../../lib/records"
-import { weightMovingAverageSeries } from "../../lib/weightTrend.js"
+import { weightAverageChangeBetweenWeeks, weightMovingAverageSeries } from "../../lib/weightTrend.js"
+import { ageOnDate } from "../../lib/clinicalRanges.js"
 import { MetricCard } from "../common/MetricCard"
 import { EmptyModule } from "../common/Empty"
 import { bodyFields } from "../modules/bodyMeasurements"
@@ -52,6 +53,7 @@ export function AnalysisWorkspace({
   onToggleMedicationsReviewed: (reviewed: boolean) => void
 }) {
   const now = Date.now()
+  const profileAge = ageOnDate(profile?.birth_date, new Date(now))
   const isWithinDays = (date: string, days: number) => {
     const elapsed = now - new Date(date).getTime()
     return elapsed >= 0 && elapsed <= days * 86400000
@@ -64,15 +66,9 @@ export function AnalysisWorkspace({
     .filter((item) => new Date(item.measured_at).getTime() <= now)
     .sort((a, b) => a.measured_at.localeCompare(b.measured_at) || a.id - b.id)
   const latest = pastWeights.at(-1)
-  const previous = pastWeights.at(-2)
   const recent = pastWeights.filter((item) => isWithinDays(item.measured_at, 7))
   const average = recent.length ? recent.reduce((sum, item) => sum + item.weight_kg, 0) / recent.length : null
-  const elapsedDays =
-    latest && previous
-      ? (new Date(latest.measured_at).getTime() - new Date(previous.measured_at).getTime()) / 86400000
-      : 0
-  const weeklyChange =
-    latest && previous && elapsedDays > 0 ? ((latest.weight_kg - previous.weight_kg) / elapsedDays) * 7 : null
+  const weeklyChange = weightAverageChangeBetweenWeeks(pastWeights, now)
   const monthlyWeights = pastWeights.filter((item) => isWithinDays(item.measured_at, 28))
   const weeklyWeights = pastWeights.filter((item) => isWithinDays(item.measured_at, 7))
   const monthlyTrend =
@@ -402,7 +398,7 @@ export function AnalysisWorkspace({
           icon={<TrendingDown size={18} />}
           value={weeklyChange == null ? "—" : `${weeklyChange > 0 ? "+" : ""}${formatDecimal(weeklyChange)}`}
           unit={weeklyChange == null ? "" : "kg/sem"}
-          foot="Entre las dos lecturas más recientes"
+          foot="Comparación de los promedios de dos semanas"
           accent="purple"
         />
         <MetricCard
@@ -501,7 +497,7 @@ export function AnalysisWorkspace({
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={chart} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
-                {bmiRangeAreas(profile?.height_cm, weightAxis.domain)}
+                {bmiRangeAreas(profile?.height_cm, weightAxis.domain, profileAge)}
                 <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                 <XAxis
                   dataKey="date"
@@ -551,7 +547,7 @@ export function AnalysisWorkspace({
             </span>
           </div>
         )}
-        {chart.length > 0 && profile && <BmiRangeLegend />}
+        {chart.length > 0 && profile && <BmiRangeLegend age={profileAge} />}
       </div>
       <h2 className="module-subheading">Cambio de composición entre las dos últimas lecturas</h2>
       {compositionChanges.length ? (

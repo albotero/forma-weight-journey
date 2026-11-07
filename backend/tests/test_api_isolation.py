@@ -352,6 +352,25 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
         "email": "data-transfer-other@example.com", "password": "data-transfer-other-password-123"})
     headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
     other_headers = {"Authorization": f"Bearer {other.json()['access_token']}"}
+    profile = client.get("/api/profile", headers=headers).json()
+    updated_profile = client.put("/api/profile", headers=headers, json={
+        "height_cm": profile["height_cm"],
+        "initial_weight_kg": profile["initial_weight_kg"],
+        "timezone": profile["timezone"],
+        "reminder_time": profile["reminder_time"],
+        "birth_date": "1986-01-01",
+        "body_fat_reference": "female",
+    })
+    assert updated_profile.status_code == 200
+    assert updated_profile.json()["body_fat_reference"] == "female"
+    invalid_reference = client.put("/api/profile", headers=headers, json={
+        "height_cm": profile["height_cm"],
+        "initial_weight_kg": profile["initial_weight_kg"],
+        "timezone": profile["timezone"],
+        "reminder_time": profile["reminder_time"],
+        "body_fat_reference": "other",
+    })
+    assert invalid_reference.status_code == 422
     medication = client.post("/api/medications", headers=headers, json={
         "name": "Registro de prueba", "concentration_mg": 10,
         "concentration_volume_ml": 0.5, "units_per_ml": 100,
@@ -411,6 +430,7 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     assert json_export.content.isascii()
     assert b"Presi\\u00f3n arterial" in json_export.content
     json_document = json_export.json()
+    assert json_document["profile"]["body_fat_reference"] == "female"
     assert json.loads(json_export.content.decode("cp1252")) == json_document
     assert json_document["medications"][0]["notes"] == medication["notes"]
     assert next(item for item in json_document["catalog_items"] if item["is_blood_pressure"])[
@@ -471,6 +491,8 @@ def test_account_export_preview_and_restore_round_trip(monkeypatch, tmp_path) ->
     login = client.post("/api/auth/login", data={
         "username": "data-transfer@example.com", "password": "data-transfer-password-123"})
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    restored_profile = client.get("/api/profile", headers=headers).json()
+    assert restored_profile["body_fat_reference"] == "female"
     weights = client.get("/api/weights", headers=headers).json()
     assert len(weights) == 1 and weights[0]["weight_kg"] == 82.5
     restored_medications = client.get(
@@ -1504,10 +1526,16 @@ def test_body_measurement_and_dose_crud_and_medication_archival() -> None:
     }).json()
     dose = client.post("/api/doses", headers=headers,
                        json={"medication_id": medication["id"], "dose_mg": 5}).json()
+    changed_medication = client.put(f"/api/medications/{medication['id']}", headers=headers, json={
+        "name": "Medicamento de prueba", "concentration_mg": 20,
+        "concentration_volume_ml": 0.5, "units_per_ml": 100,
+    })
+    assert changed_medication.status_code == 200
     updated_dose = client.put(f"/api/doses/{dose['id']}", headers=headers, json={
                               "medication_id": medication["id"], "dose_mg": 2.5, "administered_at": "2025-02-01T12:00:00Z"})
     assert updated_dose.status_code == 200 and updated_dose.json()[
         "calculated_volume_ml"] == 0.125
+    assert updated_dose.json()["calculated_u100_units"] == 12.5
     assert client.put(f"/api/doses/{dose['id']}", headers=other_headers, json={
                       "medication_id": medication["id"], "dose_mg": 2}).status_code == 404
     assert client.delete(

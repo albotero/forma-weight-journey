@@ -87,6 +87,21 @@ def update_dose(dose_id: int, payload: DoseCreate, user: User = Depends(current_
     if medication is None:
         raise HTTPException(status_code=404, detail="Medication not found")
     dose_values = dose_storage_values(payload, medication)
+    if (
+        medication.id == dose.medication_id
+        and medication.route == "injectable"
+        and dose.dose_unit == "mg"
+        and dose.dose_mg is not None
+        and dose.dose_mg > 0
+        and dose.calculated_volume_ml is not None
+    ):
+        ratio = payload.dose_amount / dose.dose_mg
+        dose_values["calculated_volume_ml"] = dose.calculated_volume_ml * ratio
+        dose_values["calculated_u100_units"] = (
+            dose.calculated_u100_units * ratio
+            if dose.calculated_u100_units is not None
+            else None
+        )
     dose.medication_id = medication.id
     dose.administered_at = utc_datetime(payload.administered_at)
     for field, value in dose_values.items():

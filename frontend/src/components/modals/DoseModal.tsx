@@ -8,6 +8,7 @@ export function DoseModal({
   medication,
   onSubmit,
   entry,
+  medications,
   timezone,
 }: {
   onClose: () => void
@@ -20,10 +21,17 @@ export function DoseModal({
     medicationId?: number,
   ) => Promise<void>
   entry?: DoseEntry
+  medications: Medication[]
   medication: Medication | undefined
   timezone: string
 }) {
-  const isOral = medication?.route === "oral"
+  const availableMedications = entry ? medications : medications.filter((item) => item.active)
+  const [selectedMedicationId, setSelectedMedicationId] = useState<number | null>(
+    entry?.medication_id ?? medication?.id ?? null,
+  )
+  const selectedMedication =
+    availableMedications.find((item) => item.id === selectedMedicationId) ?? medication ?? availableMedications[0]
+  const isOral = selectedMedication?.route === "oral"
   const [dose, setDose] = useState(entry ? String(entry.dose_amount) : "")
   const [unit, setUnit] = useState<DoseEntry["dose_unit"] | "">(entry?.dose_unit ?? (isOral ? "" : "mg"))
   const [site, setSite] = useState(entry?.injection_site ?? "")
@@ -33,21 +41,32 @@ export function DoseModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const amount = Number(dose)
-  const volume =
-    medication?.route === "injectable" &&
-    medication.concentration_mg &&
-    medication.concentration_volume_ml &&
-    amount > 0
-      ? amount / (medication.concentration_mg / medication.concentration_volume_ml)
+  const savedConcentration =
+    entry?.dose_mg && entry.calculated_volume_ml
+      ? entry.dose_mg / entry.calculated_volume_ml
       : null
-  const units = volume !== null && medication?.units_per_ml ? volume * medication.units_per_ml : null
+  const savedUnitsPerMl =
+    entry?.calculated_u100_units && entry.calculated_volume_ml
+      ? entry.calculated_u100_units / entry.calculated_volume_ml
+      : null
+  const concentration =
+    savedConcentration ??
+    (selectedMedication?.concentration_mg && selectedMedication.concentration_volume_ml
+      ? selectedMedication.concentration_mg / selectedMedication.concentration_volume_ml
+      : null)
+  const volume =
+    selectedMedication?.route === "injectable" && concentration && amount > 0
+      ? amount / concentration
+      : null
+  const unitsPerMl = savedUnitsPerMl ?? selectedMedication?.units_per_ml
+  const units = volume !== null && unitsPerMl ? volume * unitsPerMl : null
   async function submit(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError("")
     try {
       if (!unit) throw new Error("Selecciona la unidad de la dosis.")
-      await onSubmit(amount, unit, site, dateTime, entry?.id, medication?.id)
+      await onSubmit(amount, unit, site, dateTime, entry?.id, selectedMedication?.id)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar el registro")
     } finally {
@@ -60,11 +79,30 @@ export function DoseModal({
       subtitle={
         isOral
           ? "Registra la cantidad y unidad indicadas para el medicamento."
-          : "Las equivalencias se calculan desde tu concentración configurada."
+          : entry
+            ? "Las equivalencias conservan la concentración usada al registrar esta dosis."
+            : "Las equivalencias se calculan desde tu concentración configurada."
       }
       onClose={onClose}
     >
       <form className="entry-form" onSubmit={submit}>
+        {!entry && availableMedications.length > 1 && (
+          <label>
+            Medicación
+            <select
+              value={selectedMedication?.id ?? ""}
+              onChange={(event) => {
+                const nextMedication = availableMedications.find((item) => item.id === Number(event.target.value))
+                setSelectedMedicationId(nextMedication?.id ?? null)
+                setUnit(nextMedication?.route === "oral" ? "" : "mg")
+              }}
+            >
+              {availableMedications.map((item) => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           Cantidad registrada{" "}
           <div className="input-with-unit">
@@ -104,16 +142,16 @@ export function DoseModal({
         {volume !== null && (
           <div className="dose-calculation">
             <div>
-              <span>Dose</span>
+              <span>Dosis</span>
               <strong>{amount} mg</strong>
             </div>
             <div>
-              <span>Volume</span>
+              <span>Volumen</span>
               <strong>{volume.toFixed(3)} mL</strong>
             </div>
             {units !== null && (
               <div>
-                <span>U-100 units</span>
+                <span>Unidades U-100</span>
                 <strong>{units.toFixed(1)} U</strong>
               </div>
             )}
@@ -151,7 +189,7 @@ export function DoseModal({
           <button type="button" className="cancel-button" onClick={onClose}>
             Cancelar
           </button>
-          <button disabled={busy || !medication} className="primary-button">
+          <button disabled={busy || !selectedMedication} className="primary-button">
             {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar dosis"}
           </button>
         </div>

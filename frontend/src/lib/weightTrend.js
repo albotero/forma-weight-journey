@@ -26,3 +26,20 @@ export function weightMovingAverageSeries(weights) {
   }
   return points
 }
+
+export function weightAverageChangeBetweenWeeks(weights, now = Date.now()) {
+  const timestamp = typeof now === "number" ? now : new Date(now).getTime()
+  const week = 7 * 86400000
+  const current = []
+  const previous = []
+  for (const item of weights) {
+    const measuredAt = new Date(item.measured_at).getTime()
+    const age = timestamp - measuredAt
+    if (!Number.isFinite(measuredAt) || age < 0 || age > week * 2) continue
+    if (age <= week) current.push(item.weight_kg)
+    else previous.push(item.weight_kg)
+  }
+  if (!current.length || !previous.length) return null
+  const average = (values) => values.reduce((sum, value) => sum + value, 0) / values.length
+  return Number((average(current) - average(previous)).toFixed(2))
+}

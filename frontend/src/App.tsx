@@ -63,11 +63,14 @@ import {
   sectionPaths,
   pathSections,
   navigation,
+  primaryNavigation,
+  navigationGroups,
 } from "./lib/navigation"
 import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick, formatDateTime } from "./lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "./components/charts/BmiRange"
 import { estimatedNextDose, weeklyActivityChecklistDate, loadAllRecords, compositionFields } from "./lib/records"
 import { weightMovingAverageSeries } from "./lib/weightTrend.js"
+import { ageOnDate } from "./lib/clinicalRanges.js"
 import { MetricCard } from "./components/common/MetricCard"
 import { AccountSettings } from "./components/settings/AccountSettings"
 import { AuthScreen } from "./components/auth/AuthScreen"
@@ -195,6 +198,7 @@ export default function App() {
   const lossPercent = currentWeight === undefined ? 0 : (loss / startingWeight) * 100
   const bmiNow = currentWeight && profile ? currentWeight / (profile.height_cm / 100) ** 2 : null
   const userTimezone = profile?.timezone ?? "America/Bogota"
+  const profileAge = ageOnDate(profile?.birth_date)
   const accountInitial = account?.email.trim().charAt(0).toLocaleUpperCase("es-CO") || "?"
   const activeMedications = medications
     .filter((item) => item.active)
@@ -468,9 +472,9 @@ export default function App() {
         </div>
         <div className="workspace-label">TU ESPACIO</div>
         <nav className="side-nav" aria-label="Navegación principal">
-          {navigation
-            .filter(({ label }) => label !== "Perfil y ajustes")
-            .map(({ label, icon: Icon }) => (
+          {primaryNavigation.map((label) => {
+            const Icon = navigation.find((item) => item.label === label)!.icon
+            return (
               <button
                 key={label}
                 onClick={() => {
@@ -483,7 +487,29 @@ export default function App() {
                 <span>{label}</span>
                 {label === "Inicio" && <span className="nav-live" />}
               </button>
-            ))}
+            )
+          })}
+          {navigationGroups.map((group) => (
+            <details className="nav-group" key={group.label} open={group.sections.includes(section)}>
+              <summary>{group.label}</summary>
+              {group.sections.map((label) => {
+                const Icon = navigation.find((item) => item.label === label)!.icon
+                return (
+                  <button
+                    key={label}
+                    onClick={() => {
+                      setSection(label)
+                      setMobileOpen(false)
+                    }}
+                    className={`nav-item ${section === label ? "active" : ""}`}
+                  >
+                    <Icon size={18} strokeWidth={1.8} />
+                    <span>{label}</span>
+                  </button>
+                )
+              })}
+            </details>
+          ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="privacy-card">
@@ -718,7 +744,7 @@ export default function App() {
                     <div className="chart-wrap">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData} margin={{ top: 20, right: 8, left: -20, bottom: 0 }}>
-                          {bmiRangeAreas(profile?.height_cm, weightAxis.domain)}
+                          {bmiRangeAreas(profile?.height_cm, weightAxis.domain, profileAge)}
                           <CartesianGrid strokeDasharray="3 5" vertical={false} stroke="var(--line)" />
                           <XAxis
                             dataKey="date"
@@ -779,7 +805,7 @@ export default function App() {
                     </span>
                     <span className="chart-note">Los cambios reflejan tus registros, no una recomendación médica.</span>
                   </div>
-                  {profile && <BmiRangeLegend />}
+                  {profile && <BmiRangeLegend age={profileAge} />}
                 </div>
                 <div className="panel medication-panel">
                   <div className="panel-heading">
@@ -1189,7 +1215,13 @@ export default function App() {
         <QuickModal
           onClose={() => setModal(null)}
           onChoose={(target) => {
-            if (target.modal) setModal(target.modal)
+            if (target.modal) {
+              if (target.modal === "dose") {
+                setEditingDose(null)
+                setDoseMedicationId(null)
+              }
+              setModal(target.modal)
+            }
             else if (target.section) {
               setModal(null)
               setPendingQuickSection(target.section)
@@ -1214,6 +1246,7 @@ export default function App() {
         <DoseModal
           key={editingDose?.id ?? "new-dose"}
           entry={editingDose ?? undefined}
+          medications={medications}
           timezone={userTimezone}
           onClose={() => {
             setModal(null)

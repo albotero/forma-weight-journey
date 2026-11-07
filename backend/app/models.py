@@ -35,6 +35,7 @@ class UserProfile(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey(
         "users.id", ondelete="CASCADE"), unique=True)
     birth_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    body_fat_reference: Mapped[str | None] = mapped_column(String(10), nullable=True)
     height_cm: Mapped[float] = mapped_column(Float, default=180)
     initial_weight_kg: Mapped[float] = mapped_column(Float, default=106)
     timezone: Mapped[str] = mapped_column(String(64), default="America/Bogota")

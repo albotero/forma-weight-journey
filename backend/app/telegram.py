@@ -1,4 +1,5 @@
 import calendar
+from html import escape as escape_html
 import logging
 import re
 import unicodedata
@@ -85,7 +86,8 @@ async def send_reminder_message(chat_id: str, text: str, scheduled_at: datetime)
     occurrence = int(scheduled_at.timestamp())
     return await telegram_request("sendMessage", {
         "chat_id": chat_id,
-        "text": text,
+        "text": f"<b>Forma · Seguimiento</b>\n\n{escape_html(text)}",
+        "parse_mode": "HTML",
         "reply_markup": {"inline_keyboard": [
             [{"text": "✅ Ya lo cumplí", "callback_data": f"done:{occurrence}"}],
             [
@@ -101,7 +103,8 @@ async def send_reminder_followup(chat_id: str, occurrence: int) -> bool:
     callback_data = f"capture:{occurrence}"
     return await telegram_request("sendMessage", {
         "chat_id": chat_id,
-        "text": "¿Quieres registrar el dato ahora por este chat?",
+        "text": "<b>Registro rápido</b>\n¿Quieres registrar el dato ahora por este chat?",
+        "parse_mode": "HTML",
         "reply_markup": {"inline_keyboard": [[
             {"text": "Sí, registrar aquí", "callback_data": callback_data},
             {"text": "No, gracias", "callback_data": f"dismiss:{occurrence}"},
@@ -112,7 +115,11 @@ async def send_reminder_followup(chat_id: str, occurrence: int) -> bool:
 async def send_telegram_capture_prompt(chat_id: str, command: str, label: str) -> bool:
     return await telegram_request("sendMessage", {
         "chat_id": chat_id,
-        "text": f"Recordatorio marcado como cumplido.\nComando: {command}\nResponde solo con el número ({label}).",
+        "text": (
+            f"<b>Recordatorio completado</b>\nComando: {escape_html(command)}\n"
+            f"Responde solo con el número ({escape_html(label)})."
+        ),
+        "parse_mode": "HTML",
         "reply_markup": {
             "force_reply": True,
             "input_field_placeholder": "Escribe solo el número",

@@ -122,8 +122,10 @@ def test_telegram_reminder_has_snooze_buttons(monkeypatch) -> None:
     monkeypatch.setattr("app.telegram.telegram_request", fake_request)
     scheduled = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
 
-    assert asyncio.run(send_reminder_message("123", "Recordatorio", scheduled))
+    assert asyncio.run(send_reminder_message("123", "Recordatorio <prueba>", scheduled))
 
+    assert sent["parse_mode"] == "HTML"
+    assert sent["text"] == "<b>Forma · Seguimiento</b>\n\nRecordatorio &lt;prueba&gt;"
     keyboard = sent["reply_markup"]["inline_keyboard"]
     assert keyboard[0][0]["callback_data"] == f"done:{int(scheduled.timestamp())}"
     assert [button["callback_data"] for button in keyboard[1]] == [

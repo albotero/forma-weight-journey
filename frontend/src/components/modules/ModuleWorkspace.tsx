@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
 import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, Plus, Settings, X } from "lucide-react"
 import {
   api,
@@ -20,6 +20,7 @@ import {
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../../lib/format"
+import { ageOnDate, bodyFatClinicalBands, waistHeightClinicalBands } from "../../lib/clinicalRanges.js"
 import { estimatedNextDose, compositionFields } from "../../lib/records"
 import { activityCalculations, activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
 import { ActivityOverview } from "./ActivityOverview"
@@ -38,6 +39,9 @@ import { LabEvolutionCharts } from "../charts/LabEvolutionCharts"
 import { BodyMeasurementEditor } from "../editors/BodyMeasurementEditor"
 import { PhotoCard } from "../photos/PhotoCard"
 import { Modal } from "../modals/Modal"
+import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
+
+const ActivityRouteMap = lazy(() => import("../editors/ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
 
 export function ModuleWorkspace(props: {
   section: Section
@@ -64,6 +68,19 @@ export function ModuleWorkspace(props: {
 }) {
   const { section, token, weights, doses, measurements, medications, entries, photos } = props
   const userTimezone = props.profile?.timezone ?? "America/Bogota"
+  const profileAge = ageOnDate(props.profile?.birth_date)
+  const latestWeight = [...weights]
+    .filter((item) => new Date(item.measured_at).getTime() <= Date.now())
+    .sort((first, second) => second.measured_at.localeCompare(first.measured_at) || second.id - first.id)[0]
+  const currentBmi =
+    props.profile && latestWeight
+      ? latestWeight.weight_kg / (props.profile.height_cm / 100) ** 2
+      : null
+  const waistReferenceBands = waistHeightClinicalBands(props.profile?.height_cm, profileAge, currentBmi)
+  const bodyFatReferenceBands = bodyFatClinicalBands(
+    props.profile?.body_fat_reference ?? null,
+    props.profile?.birth_date,
+  )
   const bloodPressureSection = section === "Presión arterial"
   const module = journalModuleBySection[section]
   const compositionWeights = [...weights]
@@ -462,7 +479,7 @@ export function ModuleWorkspace(props: {
           </div>
           {section === "Peso" && (
             <button className="primary-button" onClick={props.onNewWeight}>
-              <Plus size={16} /> Registrar peso
+              <Plus size={16} /> Registrar lectura
             </button>
           )}
           {section === "Composición" && (
@@ -543,12 +560,14 @@ export function ModuleWorkspace(props: {
         <>
           <p className="module-hint">
             Lecturas de báscula; son estimaciones del dispositivo, no mediciones diagnósticas. Todos los campos de
-            composición son opcionales.
+            composición son opcionales. Solo grasa corporal puede mostrar el intervalo publicado si completas edad y
+            referencia en el perfil; los demás índices dependen del fabricante.
           </p>
           <MeasurementOverview
             title="Composición corporal"
             defaultPeriod="90d"
             timezone={userTimezone}
+            clinicalBands={{ body_fat_percent: bodyFatReferenceBands }}
             series={compositionFields.map(([key, label, unit]) => ({
               id: key,
               label,
@@ -640,10 +659,15 @@ export function ModuleWorkspace(props: {
 
       {section === "Medidas" && (
         <>
+          <p className="module-hint">
+            La banda clínica aplica solo a cintura/altura en personas adultas con IMC menor de 35; requiere fecha de
+            nacimiento, altura y un peso reciente. No hay umbrales universales para los demás perímetros.
+          </p>
           <MeasurementOverview
             title="Medidas corporales"
             defaultPeriod="6m"
             timezone={userTimezone}
+            clinicalBands={{ waist_cm: waistReferenceBands }}
             series={bodyFields.map(([key, label, unit]) => ({
               id: key,
               label,
@@ -969,6 +993,11 @@ export function ModuleWorkspace(props: {
                       </div>
                     ))}
                 </div>
+                {module === "activity" && Array.isArray(entry.data.route) && entry.data.route.length > 1 && (
+                  <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
+                    <ActivityRouteMap points={entry.data.route as ActivityRoutePoint[]} />
+                  </Suspense>
+                )}
                 {entry.notes && <p>{entry.notes}</p>}
               </article>
             ))}
@@ -1082,7 +1111,14 @@ export function ModuleWorkspace(props: {
             />
           )}
           {section === "Objetivos" && (
-            <MeasurementOverview title="Progreso de objetivos" series={catalogMetricSeries} timezone={userTimezone} defaultPeriod="6m" />
+            <>
+              <p className="module-hint">
+                Usa esta sección cuando quieras seguir una medida concreta en el tiempo, por ejemplo una meta personal
+                acordada con tu equipo de salud. Define el nombre y la unidad, registra avances y consulta su gráfica;
+                no es necesaria para el seguimiento básico de peso o medicación.
+              </p>
+              <MeasurementOverview title="Progreso de objetivos" series={catalogMetricSeries} timezone={userTimezone} defaultPeriod="6m" />
+            </>
           )}
           {section === "Síntomas" && <h2 className="module-subheading">Síntomas registrados</h2>}
           <div className="record-list">

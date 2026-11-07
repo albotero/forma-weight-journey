@@ -133,6 +133,7 @@ def _build_export_manifest(
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "profile": {
             "birth_date": profile.birth_date,
+            "body_fat_reference": profile.body_fat_reference,
             "height_cm": profile.height_cm,
             "initial_weight_kg": profile.initial_weight_kg,
             "timezone": profile.timezone,

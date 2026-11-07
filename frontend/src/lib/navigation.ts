@@ -43,12 +43,12 @@ export const pathSections: Record<string, Section> = Object.fromEntries(
 export const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Inicio", icon: Home },
   { label: "Análisis", icon: LineChart },
-  { label: "Peso", icon: Scale },
   { label: "Medicación", icon: Syringe },
+  { label: "Actividad", icon: Footprints },
+  { label: "Peso", icon: Scale },
   { label: "Medidas", icon: Ruler },
   { label: "Composición", icon: Dna },
   { label: "Síntomas", icon: HeartPulse },
-  { label: "Actividad", icon: Footprints },
   { label: "Laboratorios", icon: FileText },
   { label: "Presión arterial", icon: HeartPulse },
   { label: "Fotos", icon: UserRound },
@@ -57,4 +57,10 @@ export const navigation: { label: Section; icon: typeof Home }[] = [
   { label: "Recordatorios", icon: Bell },
   { label: "Historial", icon: Clock3 },
   { label: "Perfil y ajustes", icon: UserRoundCog },
+]
+export const primaryNavigation: Section[] = ["Inicio", "Análisis", "Medicación", "Actividad"]
+export const navigationGroups: { label: string; sections: Section[] }[] = [
+  { label: "Mediciones", sections: ["Peso", "Medidas", "Composición"] },
+  { label: "Salud", sections: ["Síntomas", "Presión arterial", "Laboratorios", "Revisiones"] },
+  { label: "Más", sections: ["Fotos", "Objetivos", "Recordatorios", "Historial"] },
 ]

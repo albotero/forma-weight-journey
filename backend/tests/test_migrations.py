@@ -63,6 +63,9 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
         medication_columns = {column["name"]
                               for column in inspector.get_columns("medications")}
         assert "is_primary" in medication_columns
+        profile_columns = {column["name"]
+                   for column in inspector.get_columns("user_profiles")}
+        assert "body_fat_reference" in profile_columns
     finally:
         engine.dispose()
 

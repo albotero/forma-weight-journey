@@ -19,6 +19,23 @@ export function ActivityOverview({
   const [metricKey, setMetricKey] = useState<ActivityMetricKey>("calories_kcal")
   const gradientId = useId().replaceAll(":", "")
   const metric = activityMetrics.find(({ key }) => key === metricKey)!
+  const averagePerWeek = (key: ActivityMetricKey) => {
+    const values = summary.weeks.map((week) => week.metrics[key].total).filter((value) => value !== null)
+    return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+  }
+  const weeksWithData = (key: ActivityMetricKey) =>
+    summary.weeks.filter((week) => week.metrics[key].total !== null).length
+  const weeklyAverages = Object.fromEntries(
+    activityMetrics.map(({ key }) => [key, averagePerWeek(key)]),
+  ) as Record<ActivityMetricKey, number | null>
+  const calorieWeeks = summary.weeks.filter((week) => week.metrics.calories_kcal.total !== null)
+  const recordedCaloriesPerWeek = calorieWeeks.length
+    ? calorieWeeks.reduce((sum, week) => sum + (week.metrics.calories_kcal.total ?? 0) - (week.estimatedCalories ?? 0), 0) /
+      calorieWeeks.length
+    : null
+  const estimatedCaloriesPerWeek = calorieWeeks.length
+    ? calorieWeeks.reduce((sum, week) => sum + (week.estimatedCalories ?? 0), 0) / calorieWeeks.length
+    : null
   const dateLabel = (day: string) =>
     `${formatDate(localDateTimeToIso(`${day}T12:00`, timezone), timezone)} ${day.slice(0, 4)}`
   const display = (value: number | null) => (value === null ? "Sin datos" : formatDecimal(value))
@@ -70,8 +87,9 @@ export function ActivityOverview({
       <p className="activity-disclaimer">
         Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden. Si un resumen ya incluye
         una actividad, se contará dos veces. Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.{" "}
-        Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad. Requiere
-        tipo e intensidad compatibles; en bicicleta GPS se usa la velocidad media en lugar de la intensidad.
+          Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad. En
+          bicicleta GPS se usan velocidad y ascenso (eficiencia mecánica supuesta del 23%); las estimaciones son
+          orientativas.
         Yoga/Pilates y Otro no se estiman. Son estimaciones de gasto total, incluido el reposo, no mediciones ni
         calorías activas de un reloj. Los pasos y la distancia no se estiman.
       </p>
@@ -85,31 +103,29 @@ export function ActivityOverview({
         {activityMetrics.map(({ key, label, unit }) => (
           <article className="panel activity-total-card" key={key}>
             <h3>{label}</h3>
-            <strong>{display(summary.totals[key].total)}</strong>
-            {summary.totals[key].total !== null && <span className="activity-total-unit">{unit}</span>}
+            <strong>{display(weeklyAverages[key])}</strong>
+            {weeklyAverages[key] !== null && <span className="activity-total-unit">{unit} / semana</span>}
             <dl>
               {key === "calories_kcal" && (
                 <>
                   <div>
-                    <dt>Registradas</dt>
-                    <dd>{display(summary.calories.recorded)}</dd>
+                    <dt>Registradas / semana</dt>
+                    <dd>{display(recordedCaloriesPerWeek)}</dd>
                   </div>
                   <div>
-                    <dt>Estimadas ({summary.calories.estimatedCount})</dt>
-                    <dd>{display(summary.calories.estimated)}</dd>
+                    <dt>Estimadas / semana</dt>
+                    <dd>{display(estimatedCaloriesPerWeek)}</dd>
+                  </div>
+                  <div>
+                    <dt>Semanas con datos</dt>
+                    <dd>{weeksWithData(key)}</dd>
                   </div>
                 </>
               )}
               {key !== "calories_kcal" && (
                 <div>
-                  <dt>Individuales</dt>
-                  <dd>{display(summary.totals[key].single)}</dd>
-                </div>
-              )}
-              {key !== "duration_min" && key !== "calories_kcal" && (
-                <div>
-                  <dt>Resúmenes</dt>
-                  <dd>{display(summary.totals[key].weekly)}</dd>
+                  <dt>Semanas con datos</dt>
+                  <dd>{weeksWithData(key)}</dd>
                 </div>
               )}
             </dl>
