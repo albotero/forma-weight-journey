@@ -305,8 +305,9 @@ export function ActivityEntryEditor({
             )}
             {trackingSource === "gps" && (
               <p className="module-hint">
-                Origen: GPS. La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no
-                contempla viento, terreno ni asistencia eléctrica.
+                Origen: GPS. {activityType === "Bicicleta"
+                  ? "La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no contempla viento, terreno ni asistencia eléctrica."
+                  : "La estimación usa duración en movimiento, peso e intensidad; no es una medición directa del gasto energético."}
                 {(recorded?.movingDurationMin ?? entry?.data.moving_duration_min) != null &&
                   ` Tiempo en movimiento: ${formatDecimal(Number(recorded?.movingDurationMin ?? entry?.data.moving_duration_min))} min; las pausas se estiman a 1 MET.`}
                 {(recorded?.ascentM ?? entry?.data.elevation_gain_m) != null &&

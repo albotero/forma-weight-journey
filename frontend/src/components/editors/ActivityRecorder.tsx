@@ -352,7 +352,7 @@ export function ActivityRecorder({
   return (
     <section className="activity-recorder" aria-label="Registro GPS">
       <h3>
-        <MapPin size={18} aria-hidden="true" /> Sesión GPS
+        <MapPin size={18} aria-hidden="true" /> Sesión GPS · {activityType}
       </h3>
       <p className="module-hint">
         Mantén esta pantalla abierta; al salir, la sesión se pausa. El GPS consume batería y puede perder precisión.

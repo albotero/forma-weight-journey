@@ -10,6 +10,7 @@ let LabEvolutionCharts
 let CatalogEntryEditor
 let ModuleWorkspace
 let ActivityEntryEditor
+let ActivityRecorder
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" })
   ;({ MeasurementOverview } = await server.ssrLoadModule("/src/components/charts/MeasurementOverview.tsx"))
@@ -17,6 +18,7 @@ before(async () => {
   ;({ CatalogEntryEditor } = await server.ssrLoadModule("/src/components/editors/CatalogEntryEditor.tsx"))
   ;({ ModuleWorkspace } = await server.ssrLoadModule("/src/components/modules/ModuleWorkspace.tsx"))
   ;({ ActivityEntryEditor } = await server.ssrLoadModule("/src/components/editors/ActivityEntryEditor.tsx"))
+  ;({ ActivityRecorder } = await server.ssrLoadModule("/src/components/editors/ActivityRecorder.tsx"))
 })
 after(async () => { await server?.close() })
 
@@ -40,6 +42,32 @@ const mixed = {
 }
 const markup = (component, props) => renderToStaticMarkup(createElement(component, props))
 const occurrences = (html, text) => html.split(text).length - 1
+
+for (const activityType of ["Caminata", "Correr", "Bicicleta"]) {
+  test(`${activityType} uses the shared GPS recorder with recovery and pocket support`, () => {
+    const html = markup(ActivityRecorder, {
+      activityType, intensity: "Moderada", weights: [], onActiveChange: () => {}, onFinish: () => {},
+    })
+    assert.match(html, /aria-label="Registro GPS"/)
+    assert.ok(html.includes(`Sesión GPS · ${activityType}`))
+    assert.ok(html.includes(`Iniciar ${activityType.toLowerCase()}`))
+    assert.match(html, /Cada ubicación fiable guarda un borrador local/)
+    assert.match(html, /teléfono bloqueado necesitas una app iOS/)
+  })
+
+  test(`${activityType} GPS history describes its own calorie estimation method`, () => {
+    const html = markup(ActivityEntryEditor, {
+      timezone, weights: [], onClose: () => {}, onSave: async () => {},
+      entry: { id: 100, module: "activity", title: activityType, occurred_at: now,
+        data: { entry_type: "single", activity_type: activityType, tracking_source: "gps", duration_min: 30, distance_km: 2 } },
+    })
+    if (activityType === "Bicicleta") assert.match(html, /eficiencia mecánica supuesta del 23%/)
+    else {
+      assert.match(html, /duración en movimiento, peso e intensidad/)
+      assert.doesNotMatch(html, /eficiencia mecánica supuesta del 23%/)
+    }
+  })
+}
 
 test("existing individual activities show estimated kcal, speed and pace in history and statistics", () => {
   const html = markup(ModuleWorkspace, {
