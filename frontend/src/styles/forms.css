@@ -850,6 +850,26 @@
 .activity-route-legend .ascent { background: #d36f38; }
 .activity-route-legend .level { background: #238274; }
 .activity-route-legend .descent { background: #377baa; }
+.activity-route-legend .unknown { background: #798993; }
+.activity-pocket-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 32px;
+  background: var(--panel);
+  color: var(--text);
+  text-align: center;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.activity-pocket-shield p {
+  max-width: 360px;
+}
 .activity-route > small {
   display: block;
   margin-top: 7px;

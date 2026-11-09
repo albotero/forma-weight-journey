@@ -1,3 +1,5 @@
+import { apiErrorMessage } from "./lib/apiError.js"
+
 const API_URL = import.meta.env.VITE_API_URL ?? "/api"
 let currentAccessToken: string | null = null
 let pendingRefresh: Promise<string | null> | null = null
@@ -141,8 +143,8 @@ export async function api<T>(path: string, token: string, options: RequestInit =
     if (newToken) response = await request(newToken)
   }
   if (!response.ok) {
-    const body: { detail?: string } = await response.json().catch(() => ({}))
-    throw new ApiError(body.detail ?? "No se pudo completar la solicitud.", response.status)
+    const body: { detail?: unknown } = await response.json().catch(() => ({}))
+    throw new ApiError(apiErrorMessage(body.detail), response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>

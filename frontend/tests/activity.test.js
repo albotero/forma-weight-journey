@@ -8,10 +8,95 @@ import {
   summarizeActivity,
   weeklyActivityTotals,
 } from "../src/lib/activity.js"
-import { addActivityPosition, emptyActivityTrack } from "../src/lib/activityTracking.js"
+import { addActivityPosition, emptyActivityTrack, normalizeActivityRoute } from "../src/lib/activityTracking.js"
+import { readActivityDraft, recordedActivity, writeActivityDraft } from "../src/lib/activityDraft.js"
+import { apiErrorMessage } from "../src/lib/apiError.js"
 import { keepScreenAwake } from "../src/lib/screenWakeLock.js"
 
 const { Event, EventTarget, setImmediate } = globalThis
+
+test("GPS route coordinates meet server precision limits and segment IDs remain bounded", () => {
+  const track = addActivityPosition(emptyActivityTrack(), {
+    latitude: 4.711123456789, longitude: -74.072321987654, accuracy: 5,
+    timestamp: 1000, altitude: 2600.125, altitudeAccuracy: 5,
+  }, "Bicicleta")
+  assert.deepEqual(track.route[0], {
+    latitude: 4.71112346, longitude: -74.07232199, altitude_m: 2600.13, segment: 0,
+  })
+  assert.deepEqual(normalizeActivityRoute([
+    { ...track.route[0], segment: 10001 }, { ...track.route[0], segment: 10002, altitude_m: 20000 },
+  ]).map(({ segment, altitude_m }) => ({ segment, altitude_m })), [
+    { segment: 0, altitude_m: 2600.13 }, { segment: 1, altitude_m: null },
+  ])
+})
+
+test("long GPS rides retain the beginning and end at bounded route resolution", () => {
+  let track = emptyActivityTrack()
+  for (let index = 0; index < 6000; index++) {
+    track = addActivityPosition(track, {
+      latitude: 0, longitude: index * 0.0001, accuracy: 5, timestamp: index * 2000,
+      speed: 5.5, altitude: null, altitudeAccuracy: null,
+    }, "Bicicleta")
+  }
+  assert.ok(track.route.length <= 5000)
+  assert.equal(track.route[0].longitude, 0)
+  assert.equal(track.route.at(-1).longitude, 0.5999)
+  assert.ok(track.distanceM > 60000)
+})
+
+function draftStorage() {
+  const values = new Map()
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  }
+}
+
+test("GPS checkpoint recovery is account scoped, paused and retained through finalization", () => {
+  const storage = draftStorage()
+  const draft = {
+    version: 1, activityType: "Bicicleta", intensity: "", startedAt: "2026-11-09T12:00:00Z",
+    elapsedMs: 120000, finished: false,
+    track: { ...emptyActivityTrack(), distanceM: 500, movingMs: 90000,
+      last: { latitude: 1, longitude: 2, timestamp: 1 }, sample: { timestamp: 1 } },
+  }
+  writeActivityDraft(storage, "account:1", draft)
+  assert.equal(readActivityDraft(storage, "account:2"), null)
+  const recovered = readActivityDraft(storage, "account:1")
+  assert.equal(recovered.elapsedMs, 120000)
+  assert.equal(recovered.track.last, null)
+  assert.equal(recovered.track.sample, null)
+  assert.equal(recovered.track.altitude, null)
+  writeActivityDraft(storage, "account:1", { ...recovered, finished: true })
+  assert.equal(readActivityDraft(storage, "account:1").finished, true)
+  assert.deepEqual(recordedActivity(recovered), {
+    startedAt: draft.startedAt, durationMin: 2, movingDurationMin: 1.5, distanceKm: 0.5,
+    ascentM: null, descentM: null, route: [],
+  })
+  storage.removeItem("account:1")
+  assert.equal(readActivityDraft(storage, "account:1"), null)
+})
+
+test("GPS checkpoint errors are explicit, not treated as an empty successful recovery", () => {
+  const storage = draftStorage()
+  storage.setItem("bad", "{broken")
+  assert.throws(() => readActivityDraft(storage, "bad"))
+  storage.setItem("bad", JSON.stringify({ version: 99 }))
+  assert.throws(() => readActivityDraft(storage, "bad"), /no son válidos/)
+  assert.throws(() => writeActivityDraft(storage, undefined, {}), /perfil/)
+  assert.throws(() => writeActivityDraft({
+    setItem: () => { throw new Error("Quota exceeded") },
+  }, "account:1", { track: emptyActivityTrack() }), /Quota exceeded/)
+})
+
+test("API validation errors show messages and field paths instead of object coercion", () => {
+  assert.equal(apiErrorMessage([{ loc: ["body", "data", "route"], msg: "Coordinates too precise" }]),
+    "data.route: Coordinates too precise")
+  assert.equal(apiErrorMessage("Permission denied"), "Permission denied")
+  assert.equal(apiErrorMessage({ unexpected: true }), "No se pudo completar la solicitud.")
+  assert.equal(apiErrorMessage([null, {}, "bad"]), "No se pudo completar la solicitud.")
+})
 
 function wakeLockFixture(request) {
   const visibility = Object.assign(new EventTarget(), { visibilityState: "visible" })

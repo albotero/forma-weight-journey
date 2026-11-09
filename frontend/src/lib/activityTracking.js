@@ -1,5 +1,19 @@
 import { getDistance } from "geolib"
 
+export function normalizeActivityRoute(route) {
+  const segments = new Map()
+  return route.map((point) => {
+    if (!segments.has(point.segment)) segments.set(point.segment, segments.size)
+    return {
+      latitude: Number(point.latitude.toFixed(8)),
+      longitude: Number(point.longitude.toFixed(8)),
+      altitude_m: Number.isFinite(point.altitude_m) && point.altitude_m >= -500 && point.altitude_m <= 10000
+        ? Number(point.altitude_m.toFixed(2)) : null,
+      segment: segments.get(point.segment),
+    }
+  })
+}
+
 export function emptyActivityTrack() {
   return {
     distanceM: 0,
@@ -50,15 +64,20 @@ export function addActivityPosition(track, point, activityType) {
     next.route = [
       ...track.route,
       {
-        latitude: point.latitude,
-        longitude: point.longitude,
+        latitude: Number(point.latitude.toFixed(8)),
+        longitude: Number(point.longitude.toFixed(8)),
         altitude_m:
-          Number.isFinite(point.altitude) && Number.isFinite(point.altitudeAccuracy) && point.altitudeAccuracy <= 10
+          Number.isFinite(point.altitude) && point.altitude >= -500 && point.altitude <= 10000 &&
+          Number.isFinite(point.altitudeAccuracy) && point.altitudeAccuracy >= 0 && point.altitudeAccuracy <= 10
             ? Number(point.altitude.toFixed(2))
             : null,
         segment,
       },
-    ].slice(-5000)
+    ]
+    // Retain the whole ride at reduced resolution instead of dropping its beginning.
+    if (next.route.length > 5000) {
+      next.route = normalizeActivityRoute(next.route.filter((_, index) => index % 2 === 0))
+    }
   }
   if (!track.last || seconds > 30) {
     next.last = point

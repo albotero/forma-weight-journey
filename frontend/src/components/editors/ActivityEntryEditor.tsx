@@ -6,7 +6,8 @@ import { activityCalculations, activityEntryDate, weeklyActivityTotals } from ".
 import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
 import { ActivityRecorder, type RecordedActivity } from "./ActivityRecorder"
-import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
+import { normalizeActivityRoute, type ActivityRoutePoint } from "../../lib/activityTracking.js"
+import { readActivityDraft, recordedActivity } from "../../lib/activityDraft.js"
 
 const ActivityRouteMap = lazy(() => import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
 
@@ -14,21 +15,31 @@ export function ActivityEntryEditor({
   entry,
   timezone,
   weights = [],
+  draftKey,
   onClose,
   onSave,
 }: {
   entry?: JournalEntry
   timezone: string
   weights?: WeightEntry[]
+  draftKey?: string
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
 }) {
+  const [recovery, setRecovery] = useState(() => {
+    try {
+      return { draft: !entry && draftKey ? readActivityDraft(window.localStorage, draftKey) : null, error: "" }
+    } catch (reason) {
+      return { draft: null, error: reason instanceof Error ? reason.message : "No se pudo leer el borrador GPS." }
+    }
+  })
+  const recoveredActivity = recovery.draft?.finished ? recordedActivity(recovery.draft) : null
   const isLegacyEntry = Boolean(entry && !("entry_type" in entry.data))
   const [entryType, setEntryType] = useState<"single" | "weekly">(() =>
     entry?.data.entry_type === "weekly" ? "weekly" : "single",
   )
   const [activityType, setActivityType] = useState<ActivityType>(() => {
-    const savedType = entry?.data.activity_type
+    const savedType = recovery.draft?.activityType ?? entry?.data.activity_type
     return activityTypes.includes(savedType as ActivityType)
       ? (savedType as ActivityType)
       : isLegacyEntry
@@ -39,16 +50,16 @@ export function ActivityEntryEditor({
     String(entry?.data.other_activity ?? (isLegacyEntry ? entry?.title : "")),
   )
   const [occurredAt, setOccurredAt] = useState(() =>
-    dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
+    dateTimeInputValue(recoveredActivity?.startedAt ?? entry?.occurred_at ?? new Date().toISOString(), timezone),
   )
   const [weekEnd, setWeekEnd] = useState(() =>
     entry?.data.entry_type === "weekly" ? activityEntryDate(entry, timezone) : occurredAt.split("T")[0],
   )
-  const [duration, setDuration] = useState(() => String(entry?.data.duration_min ?? ""))
-  const [distance, setDistance] = useState(() => String(entry?.data.distance_km ?? ""))
+  const [duration, setDuration] = useState(() => String(recoveredActivity?.durationMin ?? entry?.data.duration_min ?? ""))
+  const [distance, setDistance] = useState(() => String(recoveredActivity?.distanceKm ?? entry?.data.distance_km ?? ""))
   const [calories, setCalories] = useState(() => String(entry?.data.calories_kcal ?? ""))
   const [steps, setSteps] = useState(() => String(entry?.data.steps ?? ""))
-  const [intensity, setIntensity] = useState(() => String(entry?.data.intensity ?? ""))
+  const [intensity, setIntensity] = useState(() => String(recovery.draft?.intensity ?? entry?.data.intensity ?? ""))
   const [weeklyCalories, setWeeklyCalories] = useState(() => String(entry?.data.weekly_calories_kcal ?? ""))
   const [weeklySteps, setWeeklySteps] = useState(() => String(entry?.data.weekly_steps ?? ""))
   const [weeklyDistance, setWeeklyDistance] = useState(() => String(entry?.data.weekly_distance_km ?? ""))
@@ -56,20 +67,21 @@ export function ActivityEntryEditor({
     entry?.data.entry_type === "weekly" ? "weekly_total" : "daily_average",
   )
   const [notes, setNotes] = useState(entry?.notes ?? "")
-  const [error, setError] = useState("")
+  const [error, setError] = useState(recovery.error)
   const [busy, setBusy] = useState(false)
   const [tracking, setTracking] = useState(false)
-  const [recorded, setRecorded] = useState<RecordedActivity | null>(null)
+  const [recorded, setRecorded] = useState<RecordedActivity | null>(recoveredActivity)
   const trackingSource = recorded ? "gps" : entry?.data.tracking_source
   function close() {
-    if (tracking && !window.confirm("¿Salir y descartar la sesión GPS sin guardar?")) return
+    if (tracking && !window.confirm("¿Cerrar la sesión GPS? Se pausará; si el borrador local pudo guardarse, podrás recuperarlo al abrir una actividad nueva.")) return
     onClose()
   }
-  function finishRecording(activity: RecordedActivity) {
+  function finishRecording(activity: RecordedActivity, recoverySaved: boolean) {
     setRecorded(activity)
     setOccurredAt(dateTimeInputValue(activity.startedAt, timezone))
     setDuration(String(activity.durationMin))
     setDistance(String(activity.distanceKm))
+    if (!recoverySaved) setError("No se pudo conservar el recorrido finalizado en este dispositivo. Guarda ahora y no cierres esta pantalla.")
   }
   let calculationError = ""
   let calculationTimestamp = ""
@@ -186,7 +198,8 @@ export function ActivityEntryEditor({
                     : entry?.data.moving_duration_min ?? null,
                   elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m ?? null,
                   elevation_loss_m: recorded ? recorded.descentM : entry?.data.elevation_loss_m ?? null,
-                  route: recorded ? recorded.route : entry?.data.route ?? null,
+                  route: recorded ? normalizeActivityRoute(recorded.route)
+                    : Array.isArray(entry?.data.route) ? normalizeActivityRoute(entry.data.route as ActivityRoutePoint[]) : null,
                 }
               : {}),
           }
@@ -206,6 +219,13 @@ export function ActivityEntryEditor({
         notes: notes || null,
         data,
       })
+      if (!entry && draftKey && recorded) {
+        try {
+          window.localStorage.removeItem(draftKey)
+        } catch (reason) {
+          window.alert(`Actividad guardada en el servidor, pero no se pudo eliminar el borrador local. No vuelvas a guardarlo. ${reason instanceof Error ? reason.message : ""}`)
+        }
+      }
       onClose()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "No se pudo guardar la actividad.")
@@ -221,10 +241,26 @@ export function ActivityEntryEditor({
       onClose={close}
     >
       <form className="entry-form" onSubmit={(event) => void submit(event)}>
+        {!entry && (recorded || recovery.error) && <div>
+          <p className="module-hint">
+            {recorded ? "Recorrido finalizado pendiente de guardar. El borrador GPS se conserva hasta que el servidor confirme el guardado." : recovery.error}
+          </p>
+          <button type="button" className="cancel-button" onClick={() => {
+            if (!window.confirm("¿Eliminar el borrador GPS de este dispositivo?")) return
+            try {
+              if (draftKey) window.localStorage.removeItem(draftKey)
+              setRecorded(null)
+              setRecovery({ draft: null, error: "" })
+              setError("")
+            } catch (reason) {
+              setError(`No se pudo eliminar el borrador GPS. ${reason instanceof Error ? reason.message : ""}`)
+            }
+          }}>Descartar borrador GPS</button>
+        </div>}
         <div className="range-select" role="group" aria-label="Tipo de registro">
           <button
             type="button"
-            disabled={tracking}
+            disabled={tracking || Boolean(recorded)}
             className={entryType === "single" ? "selected" : ""}
             aria-pressed={entryType === "single"}
             onClick={() => setEntryType("single")}
@@ -233,7 +269,7 @@ export function ActivityEntryEditor({
           </button>
           <button
             type="button"
-            disabled={tracking}
+            disabled={tracking || Boolean(recorded)}
             className={entryType === "weekly" ? "selected" : ""}
             aria-pressed={entryType === "weekly"}
             onClick={() => setEntryType("weekly")}
@@ -247,7 +283,7 @@ export function ActivityEntryEditor({
             <label>
               Actividad
               <select
-                disabled={tracking}
+                disabled={tracking || Boolean(recorded)}
                 value={activityType}
                 onChange={(event) => setActivityType(event.target.value as ActivityType)}
               >
@@ -256,11 +292,13 @@ export function ActivityEntryEditor({
                 ))}
               </select>
             </label>
-            {!entry && ["Caminata", "Correr", "Bicicleta"].includes(activityType) && (
+            {!entry && !recorded && ["Caminata", "Correr", "Bicicleta"].includes(activityType) && (
               <ActivityRecorder
                 activityType={activityType}
                 intensity={intensity}
                 weights={weights}
+                storageKey={draftKey}
+                initialDraft={recovery.draft}
                 onActiveChange={setTracking}
                 onFinish={finishRecording}
               />
@@ -357,7 +395,7 @@ export function ActivityEntryEditor({
               {activityType !== "Bicicleta" && (
                 <label>
                   Intensidad
-                  <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
+                  <select disabled={tracking} value={intensity} onChange={(event) => setIntensity(event.target.value)}>
                     <option value="">Sin especificar</option>
                     <option>Suave</option>
                     <option>Moderada</option>

@@ -26,3 +26,4 @@ export type ActivityTrack = {
 }
 export function emptyActivityTrack(): ActivityTrack
 export function addActivityPosition(track: ActivityTrack, point: ActivityPosition, activityType: string): ActivityTrack
+export function normalizeActivityRoute(route: ActivityRoutePoint[]): ActivityRoutePoint[]

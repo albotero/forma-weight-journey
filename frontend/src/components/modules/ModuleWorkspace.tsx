@@ -400,7 +400,11 @@ export function ModuleWorkspace(props: {
       method: editingEntry ? "PUT" : "POST",
       body: JSON.stringify(payload),
     })
-    await props.onRefresh()
+    try {
+      await props.onRefresh()
+    } catch (reason) {
+      props.onError(`Registro guardado, pero no se pudo actualizar la pantalla. No lo guardes de nuevo. ${reason instanceof Error ? reason.message : ""}`)
+    }
     setShowEntryForm(false)
     setEditingEntry(null)
   }
@@ -1318,6 +1322,7 @@ export function ModuleWorkspace(props: {
         module &&
         (module === "activity" ? (
           <ActivityEntryEditor
+            draftKey={props.profile ? `forma:gps-draft:${props.profile.id}` : undefined}
             entry={editingEntry ?? undefined}
             weights={weights}
             timezone={userTimezone}
