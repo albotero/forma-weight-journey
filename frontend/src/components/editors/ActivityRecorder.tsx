@@ -71,7 +71,7 @@ export function ActivityRecorder({
   const [storageError, setStorageError] = useState("")
   const [pocketMode, setPocketMode] = useState(false)
   const [unlockReady, setUnlockReady] = useState(false)
-  const [showMap, setShowMap] = useState(false)
+  const [showMap, setShowMap] = useState(true)
   const [mapPoints, setMapPoints] = useState(track.route)
   const [wakeLockStatus, setWakeLockStatus] = useState<ScreenWakeLockStatus>("requesting")
 
@@ -224,6 +224,7 @@ export function ActivityRecorder({
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       )
       session.current.watch = watch
+      setPocketMode(true)
     } catch {
       stopSession(session.current)
       persist()
@@ -356,11 +357,11 @@ export function ActivityRecorder({
           </div>
         </dl>
       )}
-      {track.route.length > 1 && <button type="button" className="cancel-button" onClick={() => {
+      {track.route.length > 0 && <button type="button" className="cancel-button" onClick={() => {
         setMapPoints(session.current.track.route)
         setShowMap(!showMap)
       }}>{showMap ? "Ocultar mapa en vivo" : "Mostrar mapa en vivo (más batería)"}</button>}
-      {showMap && !pocketMode && mapPoints.length > 1 && (
+      {showMap && !pocketMode && mapPoints.length > 0 && (
         <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
           <ActivityRouteMap points={mapPoints} />
         </Suspense>
