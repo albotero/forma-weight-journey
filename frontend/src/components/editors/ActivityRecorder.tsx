@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { MapPin, Pause, Play, Square, Trash2 } from "lucide-react"
+import { LockKeyhole, MapPin, Pause, Play, Square, Trash2 } from "lucide-react"
 import type { WeightEntry } from "../../api"
 import { activityCalculations } from "../../lib/activity.js"
 import { addActivityPosition, emptyActivityTrack, type ActivityTrack } from "../../lib/activityTracking.js"
@@ -70,7 +70,8 @@ export function ActivityRecorder({
   const [error, setError] = useState("")
   const [storageError, setStorageError] = useState("")
   const [pocketMode, setPocketMode] = useState(false)
-  const [unlockReady, setUnlockReady] = useState(false)
+  const [unlockProgress, setUnlockProgress] = useState(0)
+  const unlockTimer = useRef<number | null>(null)
   const [showMap, setShowMap] = useState(true)
   const [mapPoints, setMapPoints] = useState(track.route)
   const [wakeLockStatus, setWakeLockStatus] = useState<ScreenWakeLockStatus>("requesting")
@@ -104,12 +105,38 @@ export function ActivityRecorder({
     return () => window.clearInterval(timer)
   }, [showMap, running, pocketMode])
 
+  const cancelUnlock = useCallback(() => {
+    if (unlockTimer.current !== null) window.clearInterval(unlockTimer.current)
+    unlockTimer.current = null
+    setUnlockProgress(0)
+  }, [])
+
+  function beginUnlock() {
+    if (unlockTimer.current !== null) return
+    const started = performance.now()
+    unlockTimer.current = window.setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        cancelUnlock()
+        return
+      }
+      const progress = Math.min(1, (performance.now() - started) / 2000)
+      setUnlockProgress(progress)
+      if (progress === 1) {
+        cancelUnlock()
+        setPocketMode(false)
+      }
+    }, 50)
+  }
+
   useEffect(() => {
-    if (!pocketMode) return
-    setUnlockReady(false)
-    const timer = window.setTimeout(() => setUnlockReady(true), 2000)
-    return () => window.clearTimeout(timer)
-  }, [pocketMode])
+    window.addEventListener("blur", cancelUnlock)
+    document.addEventListener("visibilitychange", cancelUnlock)
+    return () => {
+      window.removeEventListener("blur", cancelUnlock)
+      document.removeEventListener("visibilitychange", cancelUnlock)
+      cancelUnlock()
+    }
+  }, [cancelUnlock])
 
   useEffect(() => {
     if (!running) return
@@ -296,6 +323,31 @@ export function ActivityRecorder({
     },
     weights,
   )
+  const durationLabel = (milliseconds: number) =>
+    `${Math.floor(milliseconds / 60000)}:${String(Math.floor(milliseconds / 1000) % 60).padStart(2, "0")}`
+  const metrics = [
+    { label: "Tiempo", value: durationLabel(elapsedMs) },
+    { label: "En movimiento", value: durationLabel(Math.min(track.movingMs, elapsedMs)) },
+    { label: "Distancia", value: `${formatDecimal(track.distanceM / 1000)} km` },
+    { label: "Velocidad media", value: calculated.speedKmh === null ? "—" : `${formatDecimal(calculated.speedKmh)} km/h` },
+    {
+      label: "Calorías estimadas",
+      value: calculated.estimatedCalories === null ? "Sin datos" : `${formatDecimal(calculated.estimatedCalories)} kcal`,
+    },
+    {
+      label: "Ascenso / descenso",
+      value: track.ascentM === null
+        ? "Sin datos fiables"
+        : `${formatDecimal(track.ascentM)} / ${formatDecimal(track.descentM ?? 0)} m`,
+    },
+  ]
+  const metricsPanel = (
+    <dl className="activity-recorder-metrics">
+      {metrics.map(({ label, value }) => (
+        <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+      ))}
+    </dl>
+  )
 
   return (
     <section className="activity-recorder" aria-label="Registro GPS">
@@ -317,46 +369,7 @@ export function ActivityRecorder({
               : "No se puede impedir el bloqueo automático. Desactívalo temporalmente en los ajustes del teléfono y mantén esta pantalla abierta."}
         </p>
       )}
-      {hasSession && (
-        <dl className="activity-recorder-metrics">
-          <div>
-            <dt>Tiempo</dt>
-            <dd>
-              {Math.floor(elapsedMs / 60000)}:{String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}
-            </dd>
-          </div>
-          <div>
-            <dt>En movimiento</dt>
-            <dd>
-              {Math.floor(track.movingMs / 60000)}:{String(Math.floor(track.movingMs / 1000) % 60).padStart(2, "0")}
-            </dd>
-          </div>
-          <div>
-            <dt>Distancia</dt>
-            <dd>{formatDecimal(track.distanceM / 1000)} km</dd>
-          </div>
-          <div>
-            <dt>Velocidad media</dt>
-            <dd>{calculated.speedKmh === null ? "—" : `${formatDecimal(calculated.speedKmh)} km/h`}</dd>
-          </div>
-          <div>
-            <dt>Calorías estimadas</dt>
-            <dd>
-              {calculated.estimatedCalories === null
-                ? "Sin datos"
-                : `${formatDecimal(calculated.estimatedCalories)} kcal`}
-            </dd>
-          </div>
-          <div>
-            <dt>Ascenso / descenso</dt>
-            <dd>
-              {track.ascentM === null
-                ? "Sin datos fiables"
-                : `${formatDecimal(track.ascentM)} / ${formatDecimal(track.descentM ?? 0)} m`}
-            </dd>
-          </div>
-        </dl>
-      )}
+      {hasSession && !pocketMode && metricsPanel}
       {track.route.length > 0 && <button type="button" className="cancel-button" onClick={() => {
         setMapPoints(session.current.track.route)
         setShowMap(!showMap)
@@ -407,12 +420,53 @@ export function ActivityRecorder({
       {storageError && <p className="error-banner" role="alert">{storageError}</p>}
       {pocketMode && <div className="activity-pocket-shield" role="dialog" aria-modal="true" aria-label="Modo bolsillo">
         <h2>Modo bolsillo</h2>
+        <p role="status">{running ? "GPS activo" : "Grabación pausada: desbloquea para revisar el estado"}</p>
+        {metricsPanel}
+        {(error || storageError) && <p className="error-banner" role="alert">{error || storageError}</p>}
         <p>Protege de toques en Forma, no del bloqueo ni de gestos del sistema. Mantén el teléfono desbloqueado.
           No garantiza grabación en segundo plano. Detente antes de usar los controles.</p>
-        <p role="status">{running ? "GPS activo" : "Grabación pausada: desbloquea para revisar el estado"}</p>
-        <button type="button" className="cancel-button" disabled={!unlockReady} onClick={() => {
-          if (window.confirm("¿Desactivar el modo bolsillo?")) setPocketMode(false)
-        }}>Desbloquear controles</button>
+        <button
+          type="button"
+          className="activity-pocket-unlock"
+          aria-label="Mantén pulsado 2 segundos para desbloquear"
+          onPointerDown={(event) => {
+            if (!event.isPrimary || event.button !== 0) return
+            event.preventDefault()
+            event.currentTarget.focus()
+            beginUnlock()
+          }}
+          onPointerUp={cancelUnlock}
+          onPointerCancel={cancelUnlock}
+          onLostPointerCapture={cancelUnlock}
+          onPointerLeave={cancelUnlock}
+          onPointerMove={(event) => {
+            const bounds = event.currentTarget.getBoundingClientRect()
+            if (event.clientX < bounds.left || event.clientX > bounds.right ||
+                event.clientY < bounds.top || event.clientY > bounds.bottom) cancelUnlock()
+          }}
+          onBlur={cancelUnlock}
+          onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            if (event.key !== " " && event.key !== "Enter") return
+            event.preventDefault()
+            if (!event.repeat) beginUnlock()
+          }}
+          onKeyUp={(event) => {
+            if (event.key !== " " && event.key !== "Enter") return
+            event.preventDefault()
+            cancelUnlock()
+          }}
+          onClick={(event) => event.preventDefault()}
+        >
+          <span className="activity-pocket-unlock-progress" aria-hidden="true" style={{ width: `${unlockProgress * 100}%` }} />
+          <span className="activity-pocket-unlock-content">
+            <LockKeyhole size={24} aria-hidden="true" />
+            <span>
+              <strong>Desbloquear controles</strong>
+              <small>{unlockProgress > 0 ? "Sigue presionando…" : "Mantén pulsado durante 2 segundos"}</small>
+            </span>
+          </span>
+        </button>
       </div>}
     </section>
   )
