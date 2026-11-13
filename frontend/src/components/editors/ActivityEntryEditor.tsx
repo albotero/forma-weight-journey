@@ -276,6 +276,10 @@ export function ActivityEntryEditor({
       onClose={close}
     >
       <form className="entry-form" onSubmit={(event) => void submit(event)}>
+        {entry?.data.source === "strava" && <p className="module-hint">
+          Actividad sincronizada: edítala en Strava, no aquí. Forma sincronizará sus cambios.
+          {" "}<a href={`https://www.strava.com/activities/${Number(entry.data.strava_activity_id)}`} target="_blank" rel="noreferrer">Ver en Strava</a>
+        </p>}
         {!entry && (recorded || recovery.error) && <div>
           <p className="module-hint">
             {recorded ? gpxImported
@@ -583,7 +587,7 @@ export function ActivityEntryEditor({
           <button type="button" className="cancel-button" onClick={close}>
             Cancelar
           </button>
-          <button className="primary-button" disabled={busy || tracking}>
+          <button className="primary-button" disabled={busy || tracking || entry?.data.source === "strava"}>
             {importing ? "Importando GPX…" : busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
           </button>
         </div>

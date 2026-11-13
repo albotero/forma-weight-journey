@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -277,3 +277,45 @@ class TelegramConnection(Base):
         DateTime(timezone=True), nullable=True)
     linked_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True)
+
+
+class StravaConnection(Base):
+    __tablename__ = "strava_connections"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(32), unique=True)
+    client_secret: Mapped[str] = mapped_column(Text)
+    webhook_key: Mapped[str] = mapped_column(String(64), unique=True)
+    verify_token: Mapped[str] = mapped_column(String(64))
+    subscription_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    athlete_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True)
+    tokens: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state_hash: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    state_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    state_auth_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    import_history: Mapped[bool] = mapped_column(Boolean, default=False)
+    linked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scan_after: Mapped[int] = mapped_column(BigInteger, default=0)
+    scan_before: Mapped[int] = mapped_column(BigInteger, default=0)
+    scan_page: Mapped[int] = mapped_column(Integer, default=1)
+    next_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    webhook_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class StravaImport(Base):
+    __tablename__ = "strava_imports"
+    __table_args__ = (UniqueConstraint("user_id", "activity_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("strava_connections.user_id", ondelete="CASCADE"), index=True)
+    activity_id: Mapped[int] = mapped_column(BigInteger)
+    entry_id: Mapped[int | None] = mapped_column(ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True)
+    pending: Mapped[bool] = mapped_column(Boolean, default=True)
+    suppressed: Mapped[bool] = mapped_column(Boolean, default=False)
+    event_time: Mapped[int] = mapped_column(BigInteger, default=0)
+    generation: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)

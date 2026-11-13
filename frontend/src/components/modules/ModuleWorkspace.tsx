@@ -975,6 +975,10 @@ export function ModuleWorkspace(props: {
                       {entry.data.gpx_imported === true && <div>
                         <span>Origen</span><strong>GPX importado · altitud sin precisión declarada</strong>
                       </div>}
+                      {entry.data.source === "strava" && typeof entry.data.strava_activity_id === "number" && <div>
+                        <span>Sincronizado con Strava</span>
+                        <a href={`https://www.strava.com/activities/${entry.data.strava_activity_id}`} target="_blank" rel="noreferrer">Ver en Strava</a>
+                      </div>}
                     </>
                   })()}
                   {journalDefinitions[module].fields

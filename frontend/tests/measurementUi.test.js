@@ -12,6 +12,7 @@ let CatalogEntryEditor
 let ModuleWorkspace
 let ActivityEntryEditor
 let ActivityRecorder
+let StravaSettings
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" })
   ;({ MeasurementOverview } = await server.ssrLoadModule("/src/components/charts/MeasurementOverview.tsx"))
@@ -20,6 +21,7 @@ before(async () => {
   ;({ ModuleWorkspace } = await server.ssrLoadModule("/src/components/modules/ModuleWorkspace.tsx"))
   ;({ ActivityEntryEditor } = await server.ssrLoadModule("/src/components/editors/ActivityEntryEditor.tsx"))
   ;({ ActivityRecorder } = await server.ssrLoadModule("/src/components/editors/ActivityRecorder.tsx"))
+  ;({ StravaSettings } = await server.ssrLoadModule("/src/components/settings/StravaSettings.tsx"))
 })
 after(async () => { await server?.close() })
 
@@ -77,6 +79,25 @@ test("outdoor activity editor exposes local native GPX import", () => {
   assert.match(html, /Importar actividad GPX/)
   assert.match(html, /type="file"/)
   assert.match(html, /sin enviarlo a terceros/)
+})
+
+test("settings expose Strava synchronization without embedding credentials", () => {
+  const html = markup(StravaSettings, { token: "synthetic-token", onRefresh: async () => {} })
+  assert.match(html, /Strava · sincronización de actividades/)
+  assert.match(html, /pantalla bloqueada/)
+  assert.doesNotMatch(html, /synthetic-token/)
+})
+
+test("Strava history provides attribution and prevents saving local edits", () => {
+  const data = { entry_type: "single", activity_type: "Bicicleta", tracking_source: "gps",
+    duration_min: 60, distance_km: 20, source: "strava", strava_activity_id: 12345 }
+  const entry = { id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data }
+  const html = markup(ModuleWorkspace, { ...workspaceProps, section: "Actividad", entries: [entry] })
+  assert.match(html, /href="https:\/\/www.strava.com\/activities\/12345"/)
+  assert.match(html, /Ver en Strava/)
+  const editor = markup(ActivityEntryEditor, { timezone, entry, onClose: () => {}, onSave: async () => {} })
+  assert.match(editor, /edítala en Strava/)
+  assert.match(editor, /class="primary-button" disabled="">Guardar cambios/)
 })
 
 test("GPS history displays estimated gap distance and reconstructed altitude explicitly", () => {

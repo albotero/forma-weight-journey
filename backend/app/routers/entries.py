@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.automatic_reminders import sync_automatic_reminders
 from app.database import get_db
 from app.dependencies import current_user
-from app.models import JournalEntry, User
+from app.models import JournalEntry, StravaImport, User
 from app.schemas import JournalEntryCreate, JournalEntryOut, ReminderToggle
 from app.routers.common import utc_datetime, utc_now
 
@@ -83,6 +83,8 @@ def update_entry(entry_id: int, payload: JournalEntryCreate, user: User = Depend
         JournalEntry.id == entry_id, JournalEntry.user_id == user.id))
     if entry is None or entry.module != payload.module:
         raise HTTPException(status_code=404, detail="Record not found")
+    if db.scalar(select(StravaImport).where(StravaImport.user_id == user.id, StravaImport.entry_id == entry_id)):
+        raise HTTPException(status_code=409, detail="Edita esta actividad en Strava; Forma sincroniza sus cambios automáticamente.")
     if entry.module == "reminders" and entry.data and entry.data.get("auto_generated") is True:
         raise HTTPException(
             status_code=409, detail="Automatic reminders can only be enabled or disabled")
@@ -107,6 +109,11 @@ def delete_entry(entry_id: int, user: User = Depends(current_user), db: Session 
     if entry.module == "reminders" and entry.data and entry.data.get("auto_generated") is True:
         raise HTTPException(
             status_code=409, detail="Automatic reminders can be disabled, not deleted")
+    imported = db.scalar(select(StravaImport).where(StravaImport.user_id == user.id, StravaImport.entry_id == entry_id))
+    if imported:
+        imported.entry_id = None
+        imported.suppressed = True
+        imported.pending = False
     db.delete(entry)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

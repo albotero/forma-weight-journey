@@ -14,11 +14,11 @@ from uuid import uuid4
 from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.calculations import weight_moving_average_series
-from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, TelegramConnection, User, UserProfile, WeightMeasurement
+from app.models import BodyMeasurement, CatalogItem, Dose, JournalEntry, Medication, PhotoRecord, RefreshSession, StravaConnection, StravaImport, TelegramConnection, User, UserProfile, WeightMeasurement
 from app.schemas import BodyMeasurementCreate, CatalogItemCreate, DoseCreate, JournalEntryCreate, MedicationCreate, PhotoUpdate, ProfileUpdate, WeightCreate
 
 EXPORT_FORMAT = "forma-account-export"
@@ -578,6 +578,12 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
             Medication.user_id == user.id)
         db.execute(delete(Dose).where(
             Dose.medication_id.in_(old_medication_ids)))
+        db.execute(delete(StravaImport).where(StravaImport.user_id == user.id))
+        db.execute(update(StravaConnection).where(StravaConnection.user_id == user.id).values(
+            tokens=None, athlete_id=None, expires_at=None, linked_at=None, state_hash=None,
+            state_expires_at=None, lease_until=None, next_sync_at=None, last_sync_at=None,
+            last_error="Cuenta restaurada. Conecta de nuevo Strava para reanudar la sincronización.",
+        ))
         for model in (WeightMeasurement, BodyMeasurement, JournalEntry, PhotoRecord, CatalogItem, Medication):
             db.execute(delete(model).where(model.user_id == user.id))
         db.execute(delete(TelegramConnection).where(
@@ -659,6 +665,14 @@ def restore_export(db: Session, user: User, parsed: ParsedExport, storage_path: 
             if row["updated_at"] is not None:
                 entry.updated_at = row["updated_at"]
             db.add(entry)
+            activity_id = entry.data.get("strava_activity_id")
+            if entry.data.get("source") == "strava" and isinstance(activity_id, int) and not isinstance(activity_id, bool) and activity_id > 0 and db.get(StravaConnection, user.id):
+                db.flush()
+                existing = db.scalar(select(StravaImport).where(StravaImport.user_id == user.id,
+                                                                StravaImport.activity_id == activity_id))
+                if existing is None:
+                    db.add(StravaImport(user_id=user.id, activity_id=activity_id, entry_id=entry.id))
+                    db.flush()
 
         for row in manifest["photos"]:
             content = parsed.photo_files[row["key"]]

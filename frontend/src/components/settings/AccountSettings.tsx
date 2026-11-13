@@ -11,6 +11,7 @@ import {
 import { WEB_NOTIFICATIONS_ENABLED_KEY } from "../../lib/navigation"
 import { formatDate } from "../../lib/format"
 import { AccountDataTransfer } from "./AccountDataTransfer"
+import { StravaSettings } from "./StravaSettings"
 
 export function AccountSettings({
   token,
@@ -369,6 +370,7 @@ export function AccountSettings({
             </section>
 
             <AccountDataTransfer token={token} />
+            <StravaSettings token={token} onRefresh={onRefresh} />
 
             <section className="account-card account-telegram-card">
               <div className="account-card-heading">

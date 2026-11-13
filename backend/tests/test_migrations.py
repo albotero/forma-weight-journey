@@ -1,10 +1,33 @@
 from pathlib import Path
 
+import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 from app.config import settings
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_strava_migration_creates_missing_tables(tmp_path, monkeypatch, partial) -> None:
+    database = tmp_path / "strava.sqlite"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{database}")
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "migrations"))
+    command.upgrade(config, "0015_body_fat_reference")
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE strava_imports"))
+            if not partial:
+                connection.execute(text("DROP TABLE strava_connections"))
+        command.upgrade(config, "head")
+        inspector = inspect(engine)
+        assert {"strava_connections", "strava_imports"} <= set(inspector.get_table_names())
+        assert {"generation", "last_error"} <= {column["name"] for column in inspector.get_columns("strava_imports")}
+    finally:
+        engine.dispose()
 
 
 def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) -> None:
@@ -32,6 +55,8 @@ def test_fresh_database_upgrades_through_all_revisions(tmp_path, monkeypatch) ->
     try:
         inspector = inspect(engine)
         assert "telegram_connections" in inspector.get_table_names()
+        assert "strava_connections" in inspector.get_table_names()
+        assert "strava_imports" in inspector.get_table_names()
         assert "password_reset_tokens" in inspector.get_table_names()
         assert "email_verification_tokens" in inspector.get_table_names()
         verification_columns = {column["name"] for column in inspector.get_columns(
