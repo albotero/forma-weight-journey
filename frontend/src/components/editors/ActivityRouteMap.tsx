@@ -52,6 +52,8 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       ])
     }
     for (const group of groups.values()) {
+      let previousColor: string | null = null
+      let continuousLine: L.LatLngTuple[] | null = null
       if (group.length === 1) {
         const point = group[0]
         L.circleMarker([point.latitude, point.longitude], {
@@ -65,7 +67,11 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       for (let index = 1; index < group.length; index += 1) {
         const previous = group[index - 1]
         const current = group[index]
-        if (current.estimated) continue
+        if (current.estimated) {
+          continuousLine = null
+          previousColor = null
+          continue
+        }
         const elevationChange =
           previous.altitude_m === null || current.altitude_m === null
             ? null
@@ -79,16 +85,24 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
                 ? "#377baa"
                 : "#238274"
         if (!lines.has(color)) lines.set(color, [])
-        lines.get(color)!.push([
-          [previous.latitude, previous.longitude], [current.latitude, current.longitude],
-        ])
+        if (continuousLine && previousColor === color) {
+          continuousLine.push([current.latitude, current.longitude])
+        } else {
+          continuousLine = [
+            [previous.latitude, previous.longitude], [current.latitude, current.longitude],
+          ]
+          lines.get(color)!.push(continuousLine)
+        }
+        previousColor = color
       }
     }
     for (const [color, segments] of lines) {
-      L.polyline(segments, { color, weight: 5, opacity: 0.9, lineCap: "round" }).addTo(layer)
+      L.polyline(segments, {
+        color, weight: 3, opacity: 0.9, lineCap: "round", lineJoin: "round", smoothFactor: 1.5,
+      }).addTo(layer)
     }
     if (estimatedLines.length) L.polyline(estimatedLines, {
-      color: "#798993", weight: 4, opacity: 0.9, dashArray: "8 8",
+      color: "#798993", weight: 2.5, opacity: 0.9, dashArray: "8 8", lineCap: "round", lineJoin: "round",
     }).addTo(layer)
     const bounds = L.latLngBounds(points.map((point) => [point.latitude, point.longitude]))
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 })
