@@ -223,7 +223,7 @@ def activity_payload(detail: dict, streams: dict, activity_id: int) -> JournalEn
         module="activity", title=activity_type, occurred_at=occurred_at,
         data={"entry_type": "single", "activity_type": activity_type, "tracking_source": "gps",
               "duration_min": round(duration / 60, 2), "moving_duration_min": round(moving / 60, 2),
-              "distance_km": round(distance / 1000, 2), "calories_kcal": round(calories, 2) if calories is not None else None,
+              "distance_km": round(distance / 1000, 2), "calories_kcal": round(calories, 2) if calories else None,
               "elevation_gain_m": round(elevation, 2) if elevation is not None else None, "route": activity_route(streams),
               "strava_activity_id": activity_id, "source": "strava"},
     )

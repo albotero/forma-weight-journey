@@ -487,6 +487,25 @@ test("GPS cycling estimates include additional energy for recorded ascent", () =
   assert.ok(calculation.met > 8)
 })
 
+test("Strava loop climbing calories sum uphill sections, not net endpoint elevation", () => {
+  const route = [100, 125, 100, 150, 100].map((altitude_m, index) => ({
+    latitude: 0, longitude: index * 0.001, altitude_m, segment: 0,
+  }))
+  assert.deepEqual(routeElevation(route), { ascentM: 75, descentM: 75 })
+  const data = {
+    entry_type: "single", source: "strava", tracking_source: "gps", activity_type: "Bicicleta",
+    duration_min: 60, distance_km: 20, calories_kcal: null, route,
+  }
+  const reconstructed = activityCalculations(entry(33, data), weights)
+  const stravaTotal = activityCalculations(entry(33, { ...data, elevation_gain_m: 75 }), weights)
+  const climbingCalories = (80 * 9.80665 * 75) / (4184 * 0.23)
+  assert.equal(reconstructed.estimatedCalories, Math.round((672 + climbingCalories) * 100) / 100)
+  assert.deepEqual(reconstructed, stravaTotal)
+  assert.ok(stravaTotal.met > 8)
+  assert.equal(summarizeActivity([entry(33, { ...data, elevation_gain_m: 75 })], timezone, "90d", now, weights)
+    .calories.estimated, stravaTotal.estimatedCalories)
+})
+
 test("derives gross kcal and speed/pace from historical activity without modifying it", () => {
   const original = { ...walking, data: { ...walking.data } }
   assert.deepEqual(activityCalculations(walking, weights), {

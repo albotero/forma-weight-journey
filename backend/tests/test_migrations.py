@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 from alembic import command
@@ -6,6 +7,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 from app.config import settings
+from app.models import JournalEntry
 
 
 @pytest.mark.parametrize("partial", [False, True])
@@ -26,6 +28,38 @@ def test_strava_migration_creates_missing_tables(tmp_path, monkeypatch, partial)
         inspector = inspect(engine)
         assert {"strava_connections", "strava_imports"} <= set(inspector.get_table_names())
         assert {"generation", "last_error"} <= {column["name"] for column in inspector.get_columns("strava_imports")}
+    finally:
+        engine.dispose()
+
+
+def test_strava_calorie_repair_preserves_manual_zero_and_positive_calories(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "strava-calories.sqlite"
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{database}")
+    backend_dir = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_dir / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_dir / "migrations"))
+    command.upgrade(config, "0016_strava")
+    engine = create_engine(f"sqlite:///{database}")
+    entries = JournalEntry.__table__
+    samples = [
+        {"source": "strava", "calories_kcal": 0, "elevation_gain_m": 250, "route": [{"altitude_m": 100}]},
+        {"source": "strava", "calories_kcal": 123},
+        {"source": "strava", "calories_kcal": None},
+        {"calories_kcal": 0},
+        {"gpx_imported": True, "calories_kcal": 0},
+    ]
+    try:
+        with engine.begin() as connection:
+            for index, data in enumerate(samples, 1):
+                connection.execute(entries.insert().values(
+                    id=index, user_id=1, module="activity", title="Bicicleta",
+                    occurred_at=datetime(2026, 11, 13, tzinfo=timezone.utc), data=data,
+                ))
+        command.upgrade(config, "head")
+        with engine.connect() as connection:
+            restored = list(connection.execute(entries.select().order_by(entries.c.id)).mappings())
+        assert restored[0]["data"] == {**samples[0], "calories_kcal": None}
+        assert [row["data"] for row in restored[1:]] == samples[1:]
     finally:
         engine.dispose()
 
@@ -113,6 +147,7 @@ def test_oral_medication_migration_backfills_existing_doses(tmp_path, monkeypatc
                 "CREATE TABLE doses (id INTEGER PRIMARY KEY, dose_mg FLOAT NOT NULL, calculated_volume_ml FLOAT NOT NULL)"))
             connection.execute(text(
                 "INSERT INTO doses (id, dose_mg, calculated_volume_ml) VALUES (1, 5, 0.25)"))
+            JournalEntry.__table__.create(connection)
     finally:
         engine.dispose()
 

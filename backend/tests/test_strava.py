@@ -250,6 +250,19 @@ def test_local_delete_during_provider_fetch_is_not_resurrected(integration, monk
         assert db.scalar(select(StravaImport)).suppressed
 
 
+@pytest.mark.parametrize("provider_calories", [0, None])
+def test_worker_treats_unavailable_strava_calories_as_missing(integration, provider_calories):
+    integration.provider.detail["calories"] = provider_calories
+    connect(integration)
+    asyncio.run(strava.dispatch_strava_sync())
+    with integration.sessions() as db:
+        entry = db.scalar(select(JournalEntry))
+        assert entry.data["calories_kcal"] is None
+        assert entry.data["elevation_gain_m"] == 123.46
+        assert entry.data["moving_duration_min"] == 50
+        assert entry.data["distance_km"] == 20
+
+
 def test_worker_imports_once_preserves_ascent_and_remote_calories_and_updates(integration):
     connect(integration, True)
     asyncio.run(strava.dispatch_strava_sync())
