@@ -935,15 +935,15 @@
 .activity-route-legend .descent { background: #377baa; }
 .activity-route-legend .unknown { background: #798993; }
 .activity-route-legend .route-start {
-  width: 12px;
-  height: 12px;
-  border: 3px solid #176f65;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid #176f65;
   border-radius: 50%;
   background: #fff;
 }
 .activity-route-legend .route-end {
-  width: 10px;
-  height: 10px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: #b94747;
 }
