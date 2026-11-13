@@ -934,17 +934,17 @@
 .activity-route-legend .level { background: #238274; }
 .activity-route-legend .descent { background: #377baa; }
 .activity-route-legend .unknown { background: #798993; }
-.activity-route-legend .route-start {
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid #176f65;
+.activity-route-legend .route-start,
+.activity-route-legend .route-end {
+  width: 8.5px;
+  height: 8.5px;
+  border: 1.5px solid #fff;
   border-radius: 50%;
-  background: #fff;
+}
+.activity-route-legend .route-start {
+  background: #176f65;
 }
 .activity-route-legend .route-end {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
   background: #b94747;
 }
 .activity-route-legend .estimated {

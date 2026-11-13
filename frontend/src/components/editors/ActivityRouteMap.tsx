@@ -105,11 +105,12 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
     const start = points[0]
     const end = points[points.length - 1]
     L.circleMarker([start.latitude, start.longitude], {
-      radius: 5.5, color: "#176f65", weight: 1.5, fillColor: "#fff", fillOpacity: 1,
+      radius: 4.25, color: "#fff", weight: 1.5, fillColor: "#176f65", fillOpacity: 1,
     }).bindTooltip("Inicio del recorrido").addTo(layer)
     L.circleMarker([end.latitude, end.longitude], {
-      radius: 3, color: "#fff", weight: 1, fillColor: "#b94747", fillOpacity: 1,
-    }).bindTooltip(points.length === 1 ? "Inicio y fin del recorrido" : "Fin del recorrido").addTo(layer)
+      radius: 4.25, color: "#fff", weight: 1.5, fillColor: "#b94747", fillOpacity: 1,
+    }).bindTooltip(start.latitude === end.latitude && start.longitude === end.longitude
+      ? "Inicio y fin del recorrido" : "Fin del recorrido").addTo(layer)
     const bounds = L.latLngBounds(points.map((point) => [point.latitude, point.longitude]))
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 })
   }, [points, hasPoints])
