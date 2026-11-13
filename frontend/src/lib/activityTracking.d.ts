@@ -32,3 +32,4 @@ export function addActivityPosition(track: ActivityTrack, point: ActivityPositio
 export function normalizeActivityRoute(route: ActivityRoutePoint[]): ActivityRoutePoint[]
 export function reduceActivityRoute(route: ActivityRoutePoint[]): ActivityRoutePoint[]
 export function routeElevation(route: ActivityRoutePoint[]): { ascentM: number | null; descentM: number | null }
+export function routeElevationTrends(route: ActivityRoutePoint[]): ("ascent" | "descent" | "level" | null)[]

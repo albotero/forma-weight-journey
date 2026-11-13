@@ -8,7 +8,7 @@ import {
   summarizeActivity,
   weeklyActivityTotals,
 } from "../src/lib/activity.js"
-import { addActivityPosition, emptyActivityTrack, normalizeActivityRoute, reduceActivityRoute, routeElevation } from "../src/lib/activityTracking.js"
+import { addActivityPosition, emptyActivityTrack, normalizeActivityRoute, reduceActivityRoute, routeElevation, routeElevationTrends } from "../src/lib/activityTracking.js"
 import { importActivityGpxSegments } from "../src/lib/activityGpx.js"
 import { readActivityDraft, recordedActivity, writeActivityDraft } from "../src/lib/activityDraft.js"
 import { apiErrorMessage } from "../src/lib/apiError.js"
@@ -355,6 +355,46 @@ test("stored elevation reconstruction is conservative and never bridges estimate
   route[4].segment = route[5].segment = 1
   assert.deepEqual(routeElevation(route), { ascentM: 0, descentM: 0 })
   assert.deepEqual(routeElevation([{ ...route[0], altitude_m: null }]), { ascentM: null, descentM: null })
+})
+
+test("map elevation trends detect gradual climbs and descents with sub-meter GPS changes", () => {
+  const route = Array.from({ length: 41 }, (_, index) => ({
+    latitude: 0, longitude: index * 0.00005, altitude_m: 100 + Math.min(index, 40 - index) * 0.3, segment: 0,
+  }))
+  const original = JSON.stringify(route)
+  const trends = routeElevationTrends(route)
+  assert.ok(trends.slice(1, 17).every((trend) => trend === "ascent"))
+  assert.ok(trends.slice(25).every((trend) => trend === "descent"))
+  assert.equal(JSON.stringify(route), original)
+  assert.deepEqual(routeElevationTrends([]), [])
+  assert.deepEqual(routeElevationTrends([route[0]]), [null])
+})
+
+test("map elevation trends reject small noise and do not bridge missing altitude or gaps", () => {
+  const route = Array.from({ length: 21 }, (_, index) => ({
+    latitude: 0, longitude: index * 0.00005, altitude_m: 100 + (index % 2) * 0.1, segment: 0,
+  }))
+  route[10].altitude_m = 110
+  assert.ok(routeElevationTrends(route).slice(1).every((trend) => trend === "level"))
+  const separated = [100, 101, null, 200, 201, 300, 301, 400, 401].map((altitude_m, index) => ({
+    latitude: 0, longitude: index * 0.00005, altitude_m, segment: index >= 5 ? 1 : 0,
+    ...(index === 7 ? { estimated: true } : {}),
+  }))
+  const trends = routeElevationTrends(separated)
+  for (const index of [0, 2, 3, 5, 7]) assert.equal(trends[index], null)
+  for (const index of [1, 4, 6, 8]) assert.equal(trends[index], "ascent")
+})
+
+test("map elevation trends remain stable across sample densities and ignore isolated coordinates", () => {
+  for (const spacing of [0.00001, 0.00005, 0.0001]) {
+    const route = Array.from({ length: 101 }, (_, index) => ({
+      latitude: 0, longitude: index * spacing, altitude_m: 100 + index * spacing * 111000 * 0.04, segment: 0,
+    }))
+    assert.ok(routeElevationTrends(route).slice(1).every((trend) => trend === "ascent"))
+  }
+  const point = { latitude: 0, longitude: 0, altitude_m: 100, segment: 0 }
+  assert.deepEqual(routeElevationTrends([point, { ...point, longitude: 0.01, altitude_m: 200 }]), [null, null])
+  assert.deepEqual(routeElevationTrends([point, { ...point, altitude_m: 200 }]), [null, "level"])
 })
 
 test("estimated GPS distance does not raise cycling MET or climbing calories", () => {

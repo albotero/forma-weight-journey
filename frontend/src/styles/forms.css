@@ -358,6 +358,86 @@
 .account-data-card > .outline-button {
   justify-self: start;
 }
+.strava-setup-actions {
+  display: flex;
+  margin-bottom: 12px;
+}
+.strava-setup-actions .outline-button {
+  min-height: 44px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 12px;
+}
+.strava-setup-help {
+  min-width: 0;
+  margin-bottom: 22px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--canvas);
+  overflow-wrap: anywhere;
+}
+.strava-setup-help > summary {
+  padding: 14px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.6;
+  cursor: pointer;
+}
+.strava-setup-help > summary::marker {
+  color: var(--green);
+}
+.strava-setup-help > summary:focus-visible,
+.strava-setup-actions a:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.strava-setup-content {
+  padding: 0 14px 14px;
+  color: var(--sub);
+  font-size: 12px;
+  line-height: 1.75;
+}
+.strava-setup-content > p {
+  margin: 0 0 14px;
+}
+.strava-setup-content ol {
+  display: grid;
+  gap: 12px;
+  padding-left: 22px;
+  margin: 0 0 16px;
+}
+.strava-setup-content li {
+  padding-left: 4px;
+}
+.strava-setup-content li::marker {
+  color: var(--green);
+  font-weight: 700;
+}
+.strava-setup-content strong {
+  color: var(--text);
+}
+.strava-setup-content code {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+}
+.strava-setup-content a {
+  color: var(--green);
+  text-underline-offset: 3px;
+}
+.strava-setup-content > .strava-setup-note {
+  margin: 0;
+  padding: 12px;
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11px;
+}
 .account-import-file {
   display: grid;
   gap: 7px;
@@ -854,6 +934,19 @@
 .activity-route-legend .level { background: #238274; }
 .activity-route-legend .descent { background: #377baa; }
 .activity-route-legend .unknown { background: #798993; }
+.activity-route-legend .route-start {
+  width: 12px;
+  height: 12px;
+  border: 3px solid #176f65;
+  border-radius: 50%;
+  background: #fff;
+}
+.activity-route-legend .route-end {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #b94747;
+}
 .activity-route-legend .estimated {
   width: 16px;
   height: 0;

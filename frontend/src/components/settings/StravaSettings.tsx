@@ -146,13 +146,14 @@ export function StravaSettings({ token, onRefresh }: { token: string; onRefresh:
           <p>Graba en la app iOS de Strava, incluso con pantalla bloqueada, y guarda allí la actividad para recibirla en Forma.</p>
         </div>
       </div>
-      <div className="form-actions">
+      <div className="strava-setup-actions">
         <a className="outline-button" href="https://www.strava.com/settings/api" target="_blank" rel="noreferrer">
           Obtener credenciales en Strava ↗
         </a>
       </div>
-      <details>
+      <details className="strava-setup-help">
         <summary>¿Cómo obtengo el Client ID y el Client Secret?</summary>
+        <div className="strava-setup-content">
         <p>No necesitas buscar una «clave API»: Forma usa las credenciales de una aplicación de Strava. Se crean desde su página web, no desde la app del celular.</p>
         <ol>
           <li>Abre el botón de arriba e inicia sesión con la cuenta de Strava donde guardas tus actividades.</li>
@@ -166,12 +167,13 @@ export function StravaSettings({ token, onRefresh }: { token: string; onRefresh:
           <li>Guarda la aplicación y copia <strong>Client ID</strong> y <strong>Client Secret</strong> en los campos de Forma. No copies «Access Token» ni «Refresh Token».</li>
           <li>Introduce tu contraseña actual de Forma, pulsa <strong>Guardar credenciales Strava</strong> y después <strong>Conectar con Strava</strong>. Podrás elegir si importar los últimos 30 días.</li>
         </ol>
-        <p className="module-hint">
+        <p className="strava-setup-note">
           Según la documentación actual de Strava, crear una aplicación requiere una suscripción a Strava.
           Si no puedes crearla, puedes seguir usando la importación GPX de Forma.
           {" "}<a href="https://developers.strava.com/docs/getting-started/" target="_blank" rel="noreferrer">Ver guía oficial de Strava</a>.
           {" "}No compartas tu Client Secret ni lo envíes por chat.
         </p>
+        </div>
       </details>
       {!connection && !error && <p role="status">Consultando Strava…</p>}
       {connection && <>

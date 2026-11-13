@@ -167,3 +167,52 @@ export function routeElevation(route) {
   }
   return { ascentM, descentM }
 }
+
+export function routeElevationTrends(route) {
+  const trends = Array(route.length).fill(null)
+  let start = 0
+  while (start < route.length) {
+    if (!Number.isFinite(route[start].altitude_m)) {
+      start++
+      continue
+    }
+    let end = start + 1
+    const distances = [0]
+    while (end < route.length && Number.isFinite(route[end].altitude_m) &&
+      route[end].segment === route[end - 1].segment && !route[end].estimated) {
+      const distance = getDistance(route[end - 1], route[end], 0.1)
+      if (distance > 500) break
+      distances.push(distances.at(-1) + distance)
+      end++
+    }
+    const sums = [[0, 0, 0, 0]]
+    for (let index = 0; index < distances.length; index++) {
+      const x = distances[index]
+      const altitude = route[start + index].altitude_m
+      const y = index > 0 && index < distances.length - 1
+        ? [route[start + index - 1].altitude_m, altitude, route[start + index + 1].altitude_m]
+          .sort((a, b) => a - b)[1]
+        : altitude
+      const previous = sums[index]
+      sums.push([previous[0] + x, previous[1] + y, previous[2] + x * x, previous[3] + x * y])
+    }
+    let left = 0
+    let right = 0
+    for (let index = 1; index < distances.length; index++) {
+      // Distance-based neighborhoods keep dense Strava samples from looking flat.
+      while (left < index - 1 && distances[left] < distances[index - 1] - 25) left++
+      right = Math.max(right, index)
+      while (right + 1 < distances.length && distances[right + 1] <= distances[index] + 25) right++
+      const count = right - left + 1
+      const [x, y, xx, xy] = sums[right + 1].map((value, key) => value - sums[left][key])
+      const variance = count * xx - x * x
+      const slope = variance > 0 ? (count * xy - x * y) / variance : 0
+      const change = slope * (distances[right] - distances[left])
+      trends[start + index] = Math.abs(slope) >= 0.01 && Math.abs(change) >= 0.5
+        ? slope > 0 ? "ascent" : "descent"
+        : "level"
+    }
+    start = end
+  }
+  return trends
+}

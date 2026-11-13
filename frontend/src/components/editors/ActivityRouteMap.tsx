@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
 import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
+import { routeElevationTrends } from "../../lib/activityTracking.js"
 
 export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
   const container = useRef<HTMLDivElement>(null)
@@ -52,6 +53,7 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       ])
     }
     for (const group of groups.values()) {
+      const trends = routeElevationTrends(group)
       let previousColor: string | null = null
       let continuousLine: L.LatLngTuple[] | null = null
       if (group.length === 1) {
@@ -72,16 +74,12 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
           previousColor = null
           continue
         }
-        const elevationChange =
-          previous.altitude_m === null || current.altitude_m === null
-            ? null
-            : current.altitude_m - previous.altitude_m
         const color =
-          elevationChange === null
+          trends[index] === null
             ? "#798993"
-            : elevationChange > 1
+            : trends[index] === "ascent"
               ? "#d36f38"
-              : elevationChange < -1
+              : trends[index] === "descent"
                 ? "#377baa"
                 : "#238274"
         if (!lines.has(color)) lines.set(color, [])
@@ -104,6 +102,14 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
     if (estimatedLines.length) L.polyline(estimatedLines, {
       color: "#798993", weight: 2.5, opacity: 0.9, dashArray: "8 8", lineCap: "round", lineJoin: "round",
     }).addTo(layer)
+    const start = points[0]
+    const end = points[points.length - 1]
+    L.circleMarker([start.latitude, start.longitude], {
+      radius: 9, color: "#176f65", weight: 3, fillColor: "#fff", fillOpacity: 1,
+    }).bindTooltip("Inicio del recorrido").addTo(layer)
+    L.circleMarker([end.latitude, end.longitude], {
+      radius: 5, color: "#fff", weight: 2, fillColor: "#b94747", fillOpacity: 1,
+    }).bindTooltip(points.length === 1 ? "Inicio y fin del recorrido" : "Fin del recorrido").addTo(layer)
     const bounds = L.latLngBounds(points.map((point) => [point.latitude, point.longitude]))
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 })
   }, [points, hasPoints])
@@ -120,6 +126,8 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       </div>
       <div className="activity-route-map" ref={container} />
       <div className="activity-route-legend" aria-label="Cambios de altitud">
+        <span><i className="route-start" /> Inicio</span>
+        <span><i className="route-end" /> Fin</span>
         <span><i className="ascent" /> Ascenso</span>
         <span><i className="level" /> Sin cambio relevante</span>
         <span><i className="descent" /> Descenso</span>
@@ -127,6 +135,7 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
         <span><i className="estimated" /> Unión estimada sin señal GPS</span>
       </div>
       <small>Gris continuo: posición GPS con altitud desconocida. Gris punteado: unión recta estimada, no recorrido medido; puede infravalorar curvas y no aporta ascenso. Las pausas manuales quedan separadas.</small>
+      <small>Los colores comparan la tendencia de altitud con puntos vecinos hasta 25 m a cada lado: pendiente de al menos 1 % y cambio suavizado de 0,5 m. No modifican el ascenso ni las calorías.</small>
       <small>Altitud disponible en {points.filter((point) => point.altitude_m !== null).length} de {points.length} puntos. Los totales de ascenso son parciales si faltan lecturas; el fondo de calles no proporciona elevación.</small>
       {showBaseMap && <small>OpenStreetMap recibe solicitudes de teselas para mostrar esta zona aproximada.</small>}
     </section>
