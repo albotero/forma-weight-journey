@@ -810,6 +810,9 @@
   font-weight: 500;
 }
 .activity-route-map {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
   height: 240px;
   overflow: hidden;
   border: 1px solid var(--line);
@@ -851,6 +854,12 @@
 .activity-route-legend .level { background: #238274; }
 .activity-route-legend .descent { background: #377baa; }
 .activity-route-legend .unknown { background: #798993; }
+.activity-route-legend .estimated {
+  width: 16px;
+  height: 0;
+  border-top: 2px dashed #798993;
+  border-radius: 0;
+}
 .activity-pocket-shield {
   position: fixed;
   inset: 0;

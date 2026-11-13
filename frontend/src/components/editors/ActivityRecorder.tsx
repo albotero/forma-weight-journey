@@ -13,6 +13,7 @@ export type RecordedActivity = {
   startedAt: string
   durationMin: number
   distanceKm: number
+  estimatedDistanceKm: number
   ascentM: number | null
   descentM: number | null
   movingDurationMin: number
@@ -32,13 +33,13 @@ function newSession(): Session {
   return { startedAt: "", elapsedMs: 0, segmentStarted: null, lastFix: null, watch: null, track: emptyActivityTrack() }
 }
 
-function stopSession(session: Session, end = performance.now()) {
+function stopSession(session: Session, end = performance.now(), preserveGap = false) {
   if (session.watch !== null) navigator.geolocation.clearWatch(session.watch)
   if (session.segmentStarted !== null) session.elapsedMs += Math.max(0, end - session.segmentStarted)
   session.watch = null
   session.segmentStarted = null
   session.lastFix = null
-  session.track = { ...session.track, last: null, sample: null, altitude: null }
+  session.track = { ...session.track, gap: preserveGap ? session.track.gap ?? session.track.last : null, last: null, sample: null, altitude: null }
 }
 
 export function ActivityRecorder({
@@ -70,6 +71,8 @@ export function ActivityRecorder({
   const [error, setError] = useState("")
   const [storageError, setStorageError] = useState("")
   const [pocketMode, setPocketMode] = useState(false)
+  const pocketModeRef = useRef(false)
+  const autoResume = useRef(false)
   const [unlockProgress, setUnlockProgress] = useState(0)
   const unlockTimer = useRef<number | null>(null)
   const [showMap, setShowMap] = useState(true)
@@ -123,6 +126,7 @@ export function ActivityRecorder({
       setUnlockProgress(progress)
       if (progress === 1) {
         cancelUnlock()
+        pause()
         setPocketMode(false)
       }
     }, 50)
@@ -144,28 +148,6 @@ export function ActivityRecorder({
   }, [running])
 
   useEffect(() => {
-    function suspend() {
-      if (session.current.watch === null) return
-      stopSession(session.current)
-      persist()
-      setElapsedMs(session.current.elapsedMs)
-      setRunning(false)
-      setMessage("Sesión pausada al salir de la app o bloquear la pantalla. Reanuda cuando puedas mantenerla abierta.")
-    }
-    function hide() {
-      if (document.visibilityState === "hidden") suspend()
-    }
-    document.addEventListener("visibilitychange", hide)
-    window.addEventListener("pagehide", suspend)
-    return () => {
-      document.removeEventListener("visibilitychange", hide)
-      window.removeEventListener("pagehide", suspend)
-      stopSession(session.current)
-      persist()
-    }
-  }, [persist])
-
-  useEffect(() => {
     if (!hasSession) return
     function beforeUnload(event: BeforeUnloadEvent) {
       event.preventDefault()
@@ -181,18 +163,18 @@ export function ActivityRecorder({
       const current = session.current
       const now = performance.now()
       if (current.lastFix !== null && now - current.lastFix > 30000) {
-        stopSession(current, current.lastFix)
+        current.track = { ...current.track, gap: current.track.gap ?? current.track.last, last: null, sample: null, altitude: null }
+        current.lastFix = null
         persist()
-        setRunning(false)
-        setMessage("")
-        setError("Sesión pausada: más de 30 segundos sin ubicación precisa. Reanuda cuando recuperes la señal.")
+        setMessage("Sin señal GPS precisa. Seguimos buscando; la próxima unión se marcará como estimada, sin inventar ascenso.")
       }
       setElapsedMs(current.elapsedMs + (current.segmentStarted === null ? 0 : now - current.segmentStarted))
     }, 1000)
     return () => window.clearInterval(timer)
   }, [running, persist])
 
-  function start() {
+  const start = useCallback(() => {
+    if (session.current.watch !== null) return
     if (!window.isSecureContext || !navigator.geolocation) {
       setError("El GPS requiere HTTPS y un navegador con acceso a ubicación.")
       return
@@ -200,6 +182,7 @@ export function ActivityRecorder({
     setError("")
     setMessage("Esperando ubicación precisa; permite el acceso cuando el iPhone lo solicite.")
     setRunning(true)
+    autoResume.current = true
     setHasSession(true)
     onActiveChange(true)
     try {
@@ -209,7 +192,7 @@ export function ActivityRecorder({
           if (current.watch !== watch) return
           const { latitude, longitude, accuracy, altitude, altitudeAccuracy, speed } = position.coords
           if (Date.now() - position.timestamp > 15000 || accuracy > 35) {
-            current.track = { ...current.track, last: null, altitude: null }
+            current.track = { ...current.track, gap: current.track.gap ?? current.track.last, last: null, sample: null, altitude: null }
             setMessage("Señal GPS imprecisa; no se suma distancia hasta recuperar una ubicación fiable.")
             return
           }
@@ -237,31 +220,68 @@ export function ActivityRecorder({
         },
         (reason) => {
           if (session.current.watch !== watch) return
+          if (reason.code !== 1) {
+            session.current.track = { ...session.current.track, gap: session.current.track.gap ?? session.current.track.last, last: null, sample: null, altitude: null }
+            persist()
+            setMessage("")
+            setError("Señal GPS no disponible. Seguimos buscando; el tramo sin señal se identificará como estimado.")
+            return
+          }
+          autoResume.current = false
           stopSession(session.current, session.current.lastFix ?? performance.now())
           persist()
           setElapsedMs(session.current.elapsedMs)
           setRunning(false)
           setMessage("")
-          setError(
-            reason.code === 1
-              ? "Ubicación denegada. Habilita el permiso de ubicación para este sitio en los ajustes de Safari."
-              : "No se pudo obtener ubicación. La sesión está pausada; prueba al aire libre y reanuda.",
-          )
+          setError("Ubicación denegada. Habilita el permiso de ubicación para este sitio en los ajustes de Safari.")
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       )
       session.current.watch = watch
+      pocketModeRef.current = true
       setPocketMode(true)
-    } catch {
+    } catch (reason) {
+      autoResume.current = false
       stopSession(session.current)
       persist()
       setRunning(false)
       setMessage("")
-      setError("No se pudo iniciar el GPS. Comprueba los permisos de ubicación del navegador.")
+      setError(`No se pudo iniciar el GPS. ${reason instanceof Error ? reason.message : "Comprueba los permisos de ubicación del navegador."}`)
     }
-  }
+  }, [activityType, onActiveChange, persist])
+
+  useEffect(() => {
+    function suspend() {
+      if (session.current.watch === null) return
+      stopSession(session.current, performance.now(), true)
+      persist()
+      setElapsedMs(session.current.elapsedMs)
+      setRunning(false)
+      setMessage("Sesión suspendida fuera de Forma. Si el modo bolsillo está activo, se reanudará al volver; no se graba en segundo plano.")
+    }
+    function resume() {
+      if (document.visibilityState === "visible" && pocketModeRef.current && autoResume.current) start()
+    }
+    function visibility() {
+      if (document.visibilityState === "hidden") suspend()
+      else resume()
+    }
+    document.addEventListener("visibilitychange", visibility)
+    window.addEventListener("pagehide", suspend)
+    window.addEventListener("pageshow", resume)
+    return () => {
+      document.removeEventListener("visibilitychange", visibility)
+      window.removeEventListener("pagehide", suspend)
+      window.removeEventListener("pageshow", resume)
+      stopSession(session.current)
+      persist()
+    }
+  }, [persist, start])
 
   function pause() {
+    pocketModeRef.current = false
+    autoResume.current = false
+    setPocketMode(false)
     stopSession(session.current)
     persist()
     setElapsedMs(session.current.elapsedMs)
@@ -279,6 +299,9 @@ export function ActivityRecorder({
     }
     stopSession(session.current)
     session.current = newSession()
+    pocketModeRef.current = false
+    autoResume.current = false
+    setPocketMode(false)
     setTrack(session.current.track)
     setElapsedMs(0)
     setRunning(false)
@@ -298,6 +321,9 @@ export function ActivityRecorder({
       elapsedMs: current.elapsedMs, track: current.track, finished: true,
     }), recoverySaved)
     session.current = newSession()
+    pocketModeRef.current = false
+    autoResume.current = false
+    setPocketMode(false)
     setRunning(false)
     setHasSession(false)
     setElapsedMs(0)
@@ -328,7 +354,8 @@ export function ActivityRecorder({
   const metrics = [
     { label: "Tiempo", value: durationLabel(elapsedMs) },
     { label: "En movimiento", value: durationLabel(Math.min(track.movingMs, elapsedMs)) },
-    { label: "Distancia", value: `${formatDecimal(track.distanceM / 1000)} km` },
+    { label: "Distancia total", value: `${formatDecimal((track.distanceM + track.estimatedDistanceM) / 1000)} km` },
+    { label: "Uniones estimadas", value: `${formatDecimal(track.estimatedDistanceM / 1000)} km` },
     { label: "Velocidad media", value: calculated.speedKmh === null ? "—" : `${formatDecimal(calculated.speedKmh)} km/h` },
     {
       label: "Calorías estimadas",
@@ -355,7 +382,8 @@ export function ActivityRecorder({
         <MapPin size={18} aria-hidden="true" /> Sesión GPS · {activityType}
       </h3>
       <p className="module-hint">
-        Mantén esta pantalla abierta; al salir, la sesión se pausa. El GPS consume batería y puede perder precisión.
+        Mantén esta pantalla abierta; al salir, la sesión se suspende y vuelve a grabar al regresar si el modo bolsillo sigue activo.
+        El GPS consume batería y puede perder precisión. Al desbloquear los controles se pausa; al reanudar se activa el modo bolsillo.
         La ruta se guarda junto con esta actividad. Cada ubicación fiable guarda un borrador local para recuperar
         tras recargar en esta cuenta y navegador; se elimina al guardar o descartar. No es una copia en el servidor.
         Para grabar con el teléfono bloqueado necesitas una app iOS de GPS en segundo plano.
@@ -384,7 +412,11 @@ export function ActivityRecorder({
           <><button type="button" className="cancel-button" onClick={pause}>
             <Pause size={16} /> Pausar
           </button>
-          <button type="button" className="cancel-button" onClick={() => setPocketMode(true)}>Modo bolsillo</button></>
+          <button type="button" className="cancel-button" onClick={() => {
+            pocketModeRef.current = true
+            setPocketMode(true)
+            start()
+          }}>Modo bolsillo</button></>
         ) : (
           <button type="button" className="cancel-button" onClick={start}>
             <Play size={16} /> {hasSession ? "Reanudar" : `Iniciar ${activityType.toLowerCase()}`}
@@ -420,7 +452,7 @@ export function ActivityRecorder({
       {storageError && <p className="error-banner" role="alert">{storageError}</p>}
       {pocketMode && <div className="activity-pocket-shield" role="dialog" aria-modal="true" aria-label="Modo bolsillo">
         <h2>Modo bolsillo</h2>
-        <p role="status">{running ? "GPS activo" : "Grabación pausada: desbloquea para revisar el estado"}</p>
+        <p role="status">{running ? message || "GPS activo" : "Grabación pausada: desbloquea para revisar el estado"}</p>
         {metricsPanel}
         {(error || storageError) && <p className="error-banner" role="alert">{error || storageError}</p>}
         <p>Protege de toques en Forma, no del bloqueo ni de gestos del sistema. Mantén el teléfono desbloqueado.

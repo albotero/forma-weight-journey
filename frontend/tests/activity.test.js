@@ -8,7 +8,8 @@ import {
   summarizeActivity,
   weeklyActivityTotals,
 } from "../src/lib/activity.js"
-import { addActivityPosition, emptyActivityTrack, normalizeActivityRoute } from "../src/lib/activityTracking.js"
+import { addActivityPosition, emptyActivityTrack, normalizeActivityRoute, reduceActivityRoute, routeElevation } from "../src/lib/activityTracking.js"
+import { importActivityGpxSegments } from "../src/lib/activityGpx.js"
 import { readActivityDraft, recordedActivity, writeActivityDraft } from "../src/lib/activityDraft.js"
 import { apiErrorMessage } from "../src/lib/apiError.js"
 import { keepScreenAwake } from "../src/lib/screenWakeLock.js"
@@ -72,7 +73,7 @@ test("GPS checkpoint recovery is account scoped, paused and retained through fin
   assert.equal(readActivityDraft(storage, "account:1").finished, true)
   assert.deepEqual(recordedActivity(recovered), {
     startedAt: draft.startedAt, durationMin: 2, movingDurationMin: 1.5, distanceKm: 0.5,
-    ascentM: null, descentM: null, route: [],
+    ascentM: null, descentM: null, route: [], estimatedDistanceKm: 0,
   })
   storage.removeItem("account:1")
   assert.equal(readActivityDraft(storage, "account:1"), null)
@@ -250,7 +251,7 @@ test("GPS elevation ignores unavailable and noisy altitude and accumulates relia
   assert.equal(track.ascentM, 10)
   assert.equal(track.descentM, 10)
   const missing = addActivityPosition(track, position(0.005, 100000), "Bicicleta")
-  assert.equal(missing.altitude, null)
+  assert.equal(missing.altitude.altitude, 100)
   assert.equal(missing.ascentM, 10)
 })
 
@@ -261,6 +262,166 @@ test("GPS route stores accepted points and starts a new segment after a signal g
   assert.equal(track.route.length, 3)
   assert.deepEqual(track.route.map(({ segment }) => segment), [0, 0, 1])
   assert.equal(track.route[2].longitude, 0.002)
+  assert.equal(track.route[2].estimated, true)
+  assert.ok(track.estimatedDistanceM > 110 && track.estimatedDistanceM < 112)
+})
+
+test("GPS retains the first altitude reference through intermittent missing readings", () => {
+  let track = emptyActivityTrack()
+  for (const [index, altitude] of [100, null, 104, null, 111].entries()) {
+    track = addActivityPosition(track, position(index * 0.0001, index * 10000, {
+      altitude, altitudeAccuracy: altitude === null ? null : 5,
+    }), "Caminata")
+  }
+  assert.equal(track.ascentM, 11)
+  assert.equal(track.descentM, 0)
+  assert.equal(track.route[1].altitude_m, null)
+  assert.equal(track.route[3].altitude_m, null)
+})
+
+test("GPS does not invent climbing from stale references, inaccurate altitude or signal gaps", () => {
+  const initial = addActivityPosition(emptyActivityTrack(), position(0, 0, {
+    altitude: 100, altitudeAccuracy: 5,
+  }), "Caminata")
+  const stale = addActivityPosition(initial, position(0.0001, 130000, {
+    altitude: 200, altitudeAccuracy: 5,
+  }), "Caminata")
+  assert.equal(stale.ascentM, null)
+  assert.equal(stale.route.at(-1).estimated, true)
+  const noisy = addActivityPosition(initial, position(0.0001, 10000, {
+    altitude: 200, altitudeAccuracy: 40,
+  }), "Caminata")
+  assert.equal(noisy.ascentM, null)
+  assert.equal(noisy.route.at(-1).altitude_m, null)
+  const bad = addActivityPosition(initial, position(0.0001, 10000, {
+    altitude: 20000, altitudeAccuracy: 1,
+  }), "Caminata")
+  assert.equal(bad.route.at(-1).altitude_m, null)
+})
+
+test("GPS gap distance is separate, added once and survives draft recovery and route reduction", () => {
+  let track = addActivityPosition(emptyActivityTrack(), position(0, 1000), "Bicicleta")
+  track = addActivityPosition(track, position(0.001, 21000), "Bicicleta")
+  for (const timestamp of [25000, 30000]) {
+    track = addActivityPosition(track, position(0.002, timestamp, { accuracy: 100 }), "Bicicleta")
+  }
+  track = addActivityPosition(track, position(0.002, 40000), "Bicicleta")
+  const measured = track.distanceM
+  const estimated = track.estimatedDistanceM
+  assert.ok(estimated > 110 && estimated < 112)
+  track = addActivityPosition(track, position(0.003, 60000), "Bicicleta")
+  assert.equal(track.estimatedDistanceM, estimated)
+  assert.ok(track.distanceM > measured)
+  const reduced = reduceActivityRoute(track.route)
+  assert.equal(reduced[1].estimated, true)
+  assert.equal(reduceActivityRoute(track.route.map((point, index) =>
+    index === 1 ? { ...point, estimated: true } : point))[1].estimated, true)
+  assert.equal(track.route.at(-1).estimated, undefined)
+  const storage = draftStorage()
+  writeActivityDraft(storage, "account", {
+    version: 1, activityType: "Bicicleta", intensity: "", startedAt: now, elapsedMs: 60000,
+    finished: false, track,
+  })
+  const recovered = readActivityDraft(storage, "account")
+  assert.equal(recovered.track.estimatedDistanceM, estimated)
+  assert.equal(recovered.track.gap, null)
+  assert.equal(recovered.track.route[2].estimated, true)
+  const activity = recordedActivity(recovered)
+  assert.equal(activity.estimatedDistanceKm, 0.11)
+  assert.equal(activity.distanceKm, 0.33)
+})
+
+test("manual pauses do not join positions or add estimated distance on resume", () => {
+  let track = addActivityPosition(emptyActivityTrack(), position(0, 1000), "Bicicleta")
+  track = { ...track, last: null, gap: null, sample: null, altitude: null }
+  track = addActivityPosition(track, position(0.001, 90000), "Bicicleta")
+  assert.equal(track.estimatedDistanceM, 0)
+  assert.equal(track.route.at(-1).estimated, undefined)
+  assert.notEqual(track.route[0].segment, track.route[1].segment)
+  const reduced = reduceActivityRoute([
+    { ...track.route[0], segment: 0 },
+    { ...track.route[0], segment: 1, estimated: true },
+    { ...track.route[1], segment: 2 },
+  ])
+  assert.equal(reduced[1].estimated, undefined)
+})
+
+test("stored elevation reconstruction is conservative and never bridges estimated or paused edges", () => {
+  const route = [100, null, 110, 125, 110, 100].map((altitude_m, index) => ({
+    latitude: 0, longitude: index * 0.0001, altitude_m, segment: 0,
+  }))
+  assert.deepEqual(routeElevation(route), { ascentM: 25, descentM: 25 })
+  route[3].estimated = true
+  route[4].segment = route[5].segment = 1
+  assert.deepEqual(routeElevation(route), { ascentM: 0, descentM: 0 })
+  assert.deepEqual(routeElevation([{ ...route[0], altitude_m: null }]), { ascentM: null, descentM: null })
+})
+
+test("estimated GPS distance does not raise cycling MET or climbing calories", () => {
+  const data = {
+    entry_type: "single", tracking_source: "gps", activity_type: "Bicicleta", duration_min: 60,
+    moving_duration_min: 30, distance_km: 10, elevation_gain_m: 100,
+  }
+  const original = activityCalculations(entry(1, data), weights)
+  const gaps = activityCalculations(entry(1, { ...data, distance_km: 20, estimated_distance_km: 10 }), weights)
+  assert.equal(gaps.met, original.met)
+  assert.equal(gaps.speedKmh, original.speedKmh)
+  assert.equal(gaps.estimatedCalories, original.estimatedCalories)
+})
+
+test("historical cycling uses stored altitude when ascent totals are missing without mutating the record", () => {
+  const data = {
+    entry_type: "single", tracking_source: "gps", activity_type: "Bicicleta", duration_min: 60, distance_km: 20,
+    route: [100, 125].map((altitude_m, index) => ({ latitude: 0, longitude: index * 0.001, altitude_m, segment: 0 })),
+  }
+  const before = JSON.stringify(data)
+  const calculated = activityCalculations(entry(1, data), weights)
+  assert.ok(calculated.met > 8)
+  assert.ok(calculated.estimatedCalories > 672)
+  assert.equal(JSON.stringify(data), before)
+  const entered = activityCalculations(entry(1, { ...data, calories_kcal: 100 }), weights)
+  assert.equal(entered.estimatedCalories, null)
+})
+
+const gpxPoint = (longitude, timestamp, altitude = null) => ({ latitude: 0, longitude, timestamp, altitude })
+
+test("native GPX imports times, distance and conservative ascent for all outdoor activity types", () => {
+  for (const activityType of ["Caminata", "Correr", "Bicicleta"]) {
+    const result = importActivityGpxSegments([[
+      gpxPoint(0, 0, 100), gpxPoint(0.0001, 10000, 125), gpxPoint(0.0002, 20000, 100),
+    ]], activityType)
+    assert.equal(result.activity.durationMin, 0.33)
+    assert.equal(result.activity.movingDurationMin, 0.33)
+    assert.equal(result.activity.distanceKm, 0.02)
+    assert.equal(result.activity.estimatedDistanceKm, 0)
+    assert.equal(result.activity.ascentM, 25)
+    assert.equal(result.activity.descentM, 25)
+    assert.equal(result.filteredPoints, 0)
+  }
+})
+
+test("native GPX separates explicit segments and labels signal gaps as estimated", () => {
+  const result = importActivityGpxSegments([
+    [gpxPoint(0, 0), gpxPoint(0.001, 20000)],
+    [gpxPoint(0.002, 120000), gpxPoint(0.003, 180000)],
+  ], "Bicicleta")
+  assert.equal(result.activity.durationMin, 1.33)
+  assert.equal(result.activity.estimatedDistanceKm, 0.11)
+  assert.equal(result.activity.distanceKm, 0.22)
+  assert.equal(result.activity.route[2].estimated, undefined)
+  assert.equal(result.activity.route[3].estimated, true)
+})
+
+test("native GPX rejects missing times, invalid coordinates, excessive duration and unsupported activities", () => {
+  const valid = [gpxPoint(0, 0), gpxPoint(0.001, 20000)]
+  for (const bad of [
+    { ...valid[1], timestamp: NaN }, { ...valid[1], timestamp: 0 },
+    { ...valid[1], latitude: 91 }, { ...valid[1], altitude: 10001 },
+    { ...valid[1], timestamp: 86400001 },
+  ]) assert.throws(() => importActivityGpxSegments([[valid[0], bad]], "Bicicleta"), /GPX|24 horas/)
+  assert.throws(() => importActivityGpxSegments([valid], "Natación"), /Selecciona/)
+  assert.throws(() => importActivityGpxSegments([[valid[0]]], "Correr"), /al menos dos/)
+  assert.throws(() => importActivityGpxSegments([Array(20001).fill(valid[0])], "Bicicleta"), /20000 puntos/)
 })
 
 test("GPS movement time excludes stationary fixes while keeping route and distance", () => {

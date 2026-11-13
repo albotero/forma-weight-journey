@@ -3,6 +3,7 @@ import { after, before, test } from "node:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createServer } from "vite"
+import { dateTimeInputValue } from "../src/dateTime.js"
 
 let server
 let MeasurementOverview
@@ -24,6 +25,7 @@ after(async () => { await server?.close() })
 
 const timezone = "America/Bogota"
 const now = new Date().toISOString()
+const today = dateTimeInputValue(now, timezone).slice(0, 10)
 const catalogItem = (id, name, is_blood_pressure = false) => ({
   id, name, category: "lab", unit: is_blood_pressure ? "mmHg" : "mg/dL", is_blood_pressure,
   sort_order: id, normal_min: 70, normal_max: 100, diastolic_normal_min: 60,
@@ -66,8 +68,39 @@ for (const activityType of ["Caminata", "Correr", "Bicicleta"]) {
       assert.match(html, /duración en movimiento, peso e intensidad/)
       assert.doesNotMatch(html, /eficiencia mecánica supuesta del 23%/)
     }
+
   })
 }
+
+test("outdoor activity editor exposes local native GPX import", () => {
+  const html = markup(ActivityEntryEditor, { timezone, onClose: () => {}, onSave: async () => {} })
+  assert.match(html, /Importar actividad GPX/)
+  assert.match(html, /type="file"/)
+  assert.match(html, /sin enviarlo a terceros/)
+})
+
+test("GPS history displays estimated gap distance and reconstructed altitude explicitly", () => {
+  const data = {
+    entry_type: "single", tracking_source: "gps", activity_type: "Bicicleta",
+    duration_min: 60, distance_km: 21, estimated_distance_km: 1, gpx_imported: true,
+    route: [100, 125].map((altitude_m, index) => ({
+      latitude: 0, longitude: index * 0.001, altitude_m, segment: 0,
+    })),
+  }
+  const html = markup(ModuleWorkspace, {
+    ...workspaceProps, section: "Actividad", entries: [{ id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data }],
+  })
+  assert.match(html, /Distancia de uniones estimadas \(incluida en el total\)/)
+  assert.match(html, /Ascenso reconstruido de altitudes guardadas \(estimado\)/)
+  assert.match(html, /GPX importado/)
+  assert.match(html, /25 m/)
+  const editor = markup(ActivityEntryEditor, {
+    timezone, entry: { id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data },
+    onClose: () => {}, onSave: async () => {},
+  })
+  assert.match(editor, /Ascenso reconstruido conservadoramente/)
+  assert.match(editor, /Distancia de uniones rectas estimadas: 1 km/)
+})
 
 test("existing individual activities show estimated kcal, speed and pace in history and statistics", () => {
   const html = markup(ModuleWorkspace, {
@@ -255,7 +288,7 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
     const html = markup(ActivityEntryEditor, {
       timezone, onClose: () => {}, onSave: async () => {},
       entry: { id: 1, module: "activity", title: "Resumen semanal", occurred_at: now, notes: null,
-        data: { entry_type: "weekly", week_end: now.slice(0, 10),
+        data: { entry_type: "weekly", week_end: today,
           weekly_steps: 7000, weekly_calories_kcal: 1400, weekly_distance_km: 7 } },
     })
     assert.match(html, /aria-pressed="true">Total semanal<\/button>/)
@@ -268,7 +301,7 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
     const html = markup(ModuleWorkspace, {
       ...workspaceProps, section: "Actividad",
       entries: [{ id: 1, module: "activity", title: "Resumen semanal", occurred_at: now,
-        data: { entry_type: "weekly", week_end: now.slice(0, 10), weekly_calories_kcal: 1400 } }],
+        data: { entry_type: "weekly", week_end: today, weekly_calories_kcal: 1400 } }],
     })
     assert.match(html, /aria-pressed="true">90 días<\/button>/)
     assert.match(html, /class="activity-disclaimer"/)

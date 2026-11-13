@@ -88,3 +88,32 @@ def test_gps_moving_duration_must_be_within_total_duration() -> None:
                 "distance_km": 10,
             },
         )
+
+
+def test_gps_accepts_separate_estimated_distance_and_dashed_route_metadata() -> None:
+    data = {
+        "entry_type": "single", "activity_type": "Bicicleta", "tracking_source": "gps",
+        "distance_km": 2, "estimated_distance_km": 0.5,
+        "route": [{"latitude": 0, "longitude": 0, "altitude_m": None, "segment": 1, "estimated": True}],
+    }
+    entry = JournalEntryCreate(module="activity", title="Bicicleta", data=data)
+    assert entry.data == data
+
+
+@pytest.mark.parametrize("estimate", [-1, 3, True, "1", float("nan")])
+def test_gps_estimated_distance_is_bounded_and_numeric(estimate: object) -> None:
+    with pytest.raises(ValidationError, match="estimated_distance_km"):
+        JournalEntryCreate(
+            module="activity", title="Bicicleta",
+            data={"entry_type": "single", "activity_type": "Bicicleta", "tracking_source": "gps",
+                  "distance_km": 2, "estimated_distance_km": estimate},
+        )
+
+
+def test_route_estimated_flag_requires_boolean() -> None:
+    with pytest.raises(ValidationError, match="estimated flag"):
+        JournalEntryCreate(
+            module="activity", title="Caminata",
+            data={"entry_type": "single", "activity_type": "Caminata", "distance_km": 1,
+                  "route": [{"latitude": 0, "longitude": 0, "segment": 0, "estimated": "true"}]},
+        )

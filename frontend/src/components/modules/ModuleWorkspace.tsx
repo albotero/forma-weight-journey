@@ -39,7 +39,7 @@ import { LabEvolutionCharts } from "../charts/LabEvolutionCharts"
 import { BodyMeasurementEditor } from "../editors/BodyMeasurementEditor"
 import { PhotoCard } from "../photos/PhotoCard"
 import { Modal } from "../modals/Modal"
-import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
+import { routeElevation, type ActivityRoutePoint } from "../../lib/activityTracking.js"
 
 const ActivityRouteMap = lazy(() => import("../editors/ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
 
@@ -953,6 +953,7 @@ export function ModuleWorkspace(props: {
                 <div className="composition-results">
                   {module === "activity" && (() => {
                     const calculated = activityCalculations(entry, weights)
+                    const elevation = Array.isArray(entry.data.route) ? routeElevation(entry.data.route as ActivityRoutePoint[]) : null
                     return <>
                       {calculated.estimatedCalories !== null && <div>
                         <span>Calorías estimadas</span><strong>{formatDecimal(calculated.estimatedCalories)} kcal</strong>
@@ -962,6 +963,17 @@ export function ModuleWorkspace(props: {
                       </div>}
                       {calculated.paceMinKm !== null && <div>
                         <span>Ritmo medio calculado (minutos decimales)</span><strong>{formatDecimal(calculated.paceMinKm)} min/km</strong>
+                      </div>}
+                      {Number(entry.data.estimated_distance_km) > 0 && <div>
+                        <span>Distancia de uniones estimadas (incluida en el total)</span>
+                        <strong>{formatDecimal(Number(entry.data.estimated_distance_km))} km</strong>
+                      </div>}
+                      {entry.data.elevation_gain_m == null && elevation?.ascentM != null && <div>
+                        <span>Ascenso reconstruido de altitudes guardadas (estimado)</span>
+                        <strong>{formatDecimal(elevation.ascentM)} m</strong>
+                      </div>}
+                      {entry.data.gpx_imported === true && <div>
+                        <span>Origen</span><strong>GPX importado · altitud sin precisión declarada</strong>
                       </div>}
                     </>
                   })()}

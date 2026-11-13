@@ -44,6 +44,13 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       groups.get(point.segment)!.push(point)
     }
     const lines = new Map<string, L.LatLngTuple[][]>()
+    const estimatedLines: L.LatLngTuple[][] = []
+    for (let index = 1; index < points.length; index++) {
+      if (points[index].estimated) estimatedLines.push([
+        [points[index - 1].latitude, points[index - 1].longitude],
+        [points[index].latitude, points[index].longitude],
+      ])
+    }
     for (const group of groups.values()) {
       if (group.length === 1) {
         const point = group[0]
@@ -58,6 +65,7 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
       for (let index = 1; index < group.length; index += 1) {
         const previous = group[index - 1]
         const current = group[index]
+        if (current.estimated) continue
         const elevationChange =
           previous.altitude_m === null || current.altitude_m === null
             ? null
@@ -79,6 +87,9 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
     for (const [color, segments] of lines) {
       L.polyline(segments, { color, weight: 5, opacity: 0.9, lineCap: "round" }).addTo(layer)
     }
+    if (estimatedLines.length) L.polyline(estimatedLines, {
+      color: "#798993", weight: 4, opacity: 0.9, dashArray: "8 8",
+    }).addTo(layer)
     const bounds = L.latLngBounds(points.map((point) => [point.latitude, point.longitude]))
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 })
   }, [points, hasPoints])
@@ -99,8 +110,10 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
         <span><i className="level" /> Sin cambio relevante</span>
         <span><i className="descent" /> Descenso</span>
         <span><i className="unknown" /> Altitud sin datos fiables</span>
+        <span><i className="estimated" /> Unión estimada sin señal GPS</span>
       </div>
-      <small>El gris indica altitud desconocida, no una pausa. Los huecos separan pausas o pérdida de señal GPS.</small>
+      <small>Gris continuo: posición GPS con altitud desconocida. Gris punteado: unión recta estimada, no recorrido medido; puede infravalorar curvas y no aporta ascenso. Las pausas manuales quedan separadas.</small>
+      <small>Altitud disponible en {points.filter((point) => point.altitude_m !== null).length} de {points.length} puntos. Los totales de ascenso son parciales si faltan lecturas; el fondo de calles no proporciona elevación.</small>
       {showBaseMap && <small>OpenStreetMap recibe solicitudes de teselas para mostrar esta zona aproximada.</small>}
     </section>
   )

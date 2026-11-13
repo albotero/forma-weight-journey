@@ -1,5 +1,6 @@
 import { dateTimeInputValue } from "../dateTime.js"
 import { chartPeriodStart, shiftCalendarDate as shiftActivityDate } from "./chartPeriod.js"
+import { routeElevation } from "./activityTracking.js"
 export { shiftCalendarDate as shiftActivityDate } from "./chartPeriod.js"
 
 export const activityMetrics = [
@@ -33,9 +34,13 @@ export function activityCalculations(entry, weights = []) {
     ? Math.min(duration, entry.data.moving_duration_min)
     : duration
   const stoppedDuration = duration - movingDuration
-  if (isValidActivityMeasurement(distance) && distance > 0) {
-    result.speedKmh = (distance / duration) * 60
-    if (["Caminata", "Correr"].includes(entry.data.activity_type)) result.paceMinKm = duration / distance
+  const measuredDistance = isValidActivityMeasurement(distance)
+    ? Math.max(0, distance - (entry.data.tracking_source === "gps" && isValidActivityMeasurement(entry.data.estimated_distance_km)
+      ? entry.data.estimated_distance_km : 0))
+    : null
+  if (measuredDistance > 0) {
+    result.speedKmh = (measuredDistance / duration) * 60
+    if (["Caminata", "Correr"].includes(entry.data.activity_type)) result.paceMinKm = duration / measuredDistance
   }
   if (calories != null) return result
   let met = Object.hasOwn(activityMets, entry.data.activity_type)
@@ -43,10 +48,10 @@ export function activityCalculations(entry, weights = []) {
     : undefined
   if (entry.data.activity_type === "Bicicleta") {
     const movementSpeedKmh = hasGpsMovingDuration
-      ? movingDuration > 0 && isValidActivityMeasurement(distance) && distance > 0
-        ? (distance / movingDuration) * 60
+      ? movingDuration > 0 && measuredDistance > 0
+        ? (measuredDistance / movingDuration) * 60
         : null
-      : result.speedKmh
+      : measuredDistance > 0 ? (measuredDistance / duration) * 60 : null
     if (hasGpsMovingDuration && movingDuration === 0) {
       met = 1
     } else {
@@ -79,7 +84,8 @@ export function activityCalculations(entry, weights = []) {
   const movementCalories = met * caloriesPerMetMinute * movingDuration
   const stoppedCalories = hasGpsMovingDuration ? caloriesPerMetMinute * stoppedDuration : 0
   let climbingCalories = 0
-  const elevationGain = entry.data.elevation_gain_m
+  const elevationGain = entry.data.elevation_gain_m ??
+    (Array.isArray(entry.data.route) ? routeElevation(entry.data.route).ascentM : null)
   if (
     entry.data.tracking_source === "gps" &&
     entry.data.activity_type === "Bicicleta" &&

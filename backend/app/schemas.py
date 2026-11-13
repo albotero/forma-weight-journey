@@ -346,14 +346,27 @@ class JournalEntryCreate(NumericPrecisionModel):
             if duration is None or moving_duration > duration:
                 raise ValueError("moving_duration_min cannot exceed duration_min")
         route = self.data.get("route")
+        estimated_distance = self.data.get("estimated_distance_km")
+        if estimated_distance is not None:
+            distance = self.data.get("distance_km")
+            if (
+                isinstance(estimated_distance, bool)
+                or not isinstance(estimated_distance, (int, float))
+                or not math.isfinite(estimated_distance)
+                or distance is None or not 0 <= estimated_distance <= distance
+                or self.data.get("tracking_source") != "gps"
+            ):
+                raise ValueError("estimated_distance_km must be within GPS distance_km")
         if route is not None:
             if not isinstance(route, list) or len(route) > 5000:
                 raise ValueError("route must contain at most 5000 points")
             for point in route:
                 if not isinstance(point, dict):
                     raise ValueError("Each route point must be an object")
-                if set(point) - {"latitude", "longitude", "altitude_m", "segment"}:
+                if set(point) - {"latitude", "longitude", "altitude_m", "segment", "estimated"}:
                     raise ValueError("Route point contains unsupported fields")
+                if "estimated" in point and not isinstance(point["estimated"], bool):
+                    raise ValueError("Route estimated flag must be a boolean")
                 latitude = point.get("latitude")
                 longitude = point.get("longitude")
                 if (
