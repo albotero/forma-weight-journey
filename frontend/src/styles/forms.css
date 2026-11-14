@@ -647,9 +647,60 @@
   background: #f2edf7;
   color: #775c93;
 }
-.medication-record .record-actions {
-  justify-content: flex-end;
+.medication-record-actions {
+  display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  padding-top: 2px;
+}
+.medication-action {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+  color: var(--sub);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.16s, color 0.16s, border-color 0.16s, transform 0.16s;
+}
+.medication-action:hover {
+  transform: translateY(-1px);
+  border-color: #b8d5c5;
+  background: var(--green-soft);
+  color: var(--green);
+}
+.medication-action:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+.medication-action-primary {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 3px 8px rgba(23, 123, 114, 0.18);
+}
+.medication-action-primary:hover {
+  border-color: #11685f;
+  background: #11685f;
+  color: #fff;
+}
+.medication-action-danger {
+  color: #9c5353;
+}
+.medication-action-danger:hover {
+  border-color: #e6c6c3;
+  background: #fbefee;
+  color: #a23f3a;
+}
+.medication-action-delete {
+  margin-left: auto;
 }
 .medication-record-stats {
   display: grid;
@@ -1690,6 +1741,27 @@
   background: #352f41;
   color: #c3a9dc;
 }
+.dark .medication-action {
+  background: var(--canvas);
+}
+.dark .medication-action:hover {
+  background: #263d32;
+  color: #a1d5b6;
+}
+.dark .medication-action-primary,
+.dark .medication-action-primary:hover {
+  border-color: #318b7e;
+  background: #318b7e;
+  color: #fff;
+}
+.dark .medication-action-danger {
+  color: #d29a96;
+}
+.dark .medication-action-danger:hover {
+  border-color: #68403e;
+  background: #3a2827;
+  color: #f0aaa3;
+}
 .dark .record-status.active {
   background: #263d32;
   color: #8ac8a5;
@@ -1728,15 +1800,19 @@
     align-items: flex-start;
     flex-direction: column;
   }
-  .medication-record .record-actions {
-    justify-content: flex-start;
+  .medication-record-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .medication-record .small-action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    white-space: nowrap;
+  .medication-action {
+    width: 100%;
+    padding-inline: 8px;
+  }
+  .medication-action-primary {
+    grid-column: 1 / -1;
+  }
+  .medication-action-delete {
+    margin-left: 0;
   }
   .medication-record-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));

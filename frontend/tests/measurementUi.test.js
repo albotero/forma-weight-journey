@@ -136,7 +136,7 @@ test("GPS history shows compact estimates and keeps route details available", ()
 
 test("medication cards summarize doses and display route, concentration, and next dose", () => {
   const medication = {
-    id: 8, name: "Medicamento de prueba", active: true, is_primary: true, route: "injectable",
+    id: 8, name: "Medicamento de prueba", active: true, is_primary: false, route: "injectable",
     concentration_mg: 20, concentration_volume_ml: 2, units_per_ml: 100, dosing_interval: "weekly",
   }
   const doses = [1, 2, 2].map((dose_amount, index) => ({
@@ -154,13 +154,16 @@ test("medication cards summarize doses and display route, concentration, and nex
   })
 
   assert.match(html, /class="medication-record-symbol injectable"/)
-  assert.match(html, /Principal/)
   assert.match(html, /3<\/strong>/)
   assert.match(html, /2 con 2 mg/)
   assert.match(html, /20 mg \/ 2 mL/)
   assert.match(html, /100 U\/mL/)
   assert.match(html, /Próxima dosis/)
   assert.match(html, /Registrar dosis/)
+  assert.match(html, /class="medication-record-actions"/)
+  assert.match(html, /class="medication-action medication-action-primary"/)
+  assert.match(html, /medication-action-danger/)
+  assert.match(html, /Hacer principal/)
 })
 
 test("existing individual activities show estimated kcal, speed and pace in history and statistics", () => {

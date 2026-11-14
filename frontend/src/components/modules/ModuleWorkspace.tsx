@@ -1,5 +1,19 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
-import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, Pill, Plus, Settings, Syringe, X } from "lucide-react"
+import {
+  AlertTriangle,
+  Archive,
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  Pill,
+  Plus,
+  RotateCcw,
+  Settings,
+  ShieldCheck,
+  Syringe,
+  Trash2,
+  X,
+} from "lucide-react"
 import {
   api,
   uploadPhoto,
@@ -748,68 +762,6 @@ export function ModuleWorkspace(props: {
                         </div>
                       </div>
                     </div>
-                    <div className="record-actions">
-                      {item.active && (
-                        <button className="small-action" onClick={() => props.onNewDose(item)}>
-                          <Plus size={13} /> Registrar dosis
-                        </button>
-                      )}
-                      <button
-                        className="small-action"
-                        onClick={() => {
-                          props.onEditMedication(item)
-                        }}
-                      >
-                        Editar
-                      </button>
-                      {item.active ? (
-                        <button
-                          className="small-action danger"
-                          onClick={() =>
-                            api(`/medications/${item.id}`, token, { method: "DELETE" })
-                              .then(props.onRefresh)
-                              .catch((e: Error) => props.onError(e.message))
-                          }
-                        >
-                          Archivar
-                        </button>
-                      ) : (
-                        <button
-                          className="small-action"
-                          onClick={() =>
-                            api(`/medications/${item.id}`, token, {
-                              method: "PUT",
-                              body: JSON.stringify({ ...item, active: true }),
-                            })
-                              .then(props.onRefresh)
-                              .catch((e: Error) => props.onError(e.message))
-                          }
-                        >
-                          Reactivar
-                        </button>
-                      )}
-                      <button
-                        className="small-action danger"
-                        onClick={() => {
-                          if (
-                            !window.confirm(
-                              `¿Eliminar "${item.name}" de forma permanente? Esto también elimina todas sus dosis registradas. Esta acción no se puede deshacer.`,
-                            )
-                          )
-                            return
-                          api(`/medications/${item.id}/permanent`, token, { method: "DELETE" })
-                            .then(props.onRefresh)
-                            .catch((e: Error) => props.onError(e.message))
-                        }}
-                      >
-                        Eliminar
-                      </button>
-                      {item.active && !item.is_primary && (
-                        <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
-                          Hacer principal
-                        </button>
-                      )}
-                    </div>
                   </div>
                   <div className={`medication-record-stats ${item.active ? "has-next-dose" : ""}`}>
                     <div className="medication-record-stat dose-count">
@@ -843,6 +795,78 @@ export function ModuleWorkspace(props: {
                         </strong>
                         {!nextDoseAt && <small>Configura la frecuencia para estimarla</small>}
                       </div>
+                    )}
+                  </div>
+                  <div className="medication-record-actions" aria-label={`Acciones de ${item.name}`}>
+                    {item.active && (
+                      <button
+                        type="button"
+                        className="medication-action medication-action-primary"
+                        onClick={() => props.onNewDose(item)}
+                      >
+                        <Plus size={15} /> Registrar dosis
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="medication-action"
+                      onClick={() => props.onEditMedication(item)}
+                    >
+                      <Settings size={14} /> Editar
+                    </button>
+                    {item.active ? (
+                      <button
+                        type="button"
+                        className="medication-action medication-action-danger"
+                        onClick={() =>
+                          api(`/medications/${item.id}`, token, { method: "DELETE" })
+                            .then(props.onRefresh)
+                            .catch((e: Error) => props.onError(e.message))
+                        }
+                      >
+                        <Archive size={14} /> Archivar
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="medication-action"
+                        onClick={() =>
+                          api(`/medications/${item.id}`, token, {
+                            method: "PUT",
+                            body: JSON.stringify({ ...item, active: true }),
+                          })
+                            .then(props.onRefresh)
+                            .catch((e: Error) => props.onError(e.message))
+                        }
+                      >
+                        <RotateCcw size={14} /> Reactivar
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="medication-action medication-action-danger medication-action-delete"
+                      onClick={() => {
+                        if (
+                          !window.confirm(
+                            `¿Eliminar "${item.name}" de forma permanente? Esto también elimina todas sus dosis registradas. Esta acción no se puede deshacer.`,
+                          )
+                        )
+                          return
+                        api(`/medications/${item.id}/permanent`, token, { method: "DELETE" })
+                          .then(props.onRefresh)
+                          .catch((e: Error) => props.onError(e.message))
+                      }}
+                    >
+                      <Trash2 size={14} /> Eliminar
+                    </button>
+                    {item.active && !item.is_primary && (
+                      <button
+                        type="button"
+                        className="medication-action medication-action-secondary"
+                        onClick={() => void setPrimaryMedication(item)}
+                      >
+                        <ShieldCheck size={14} /> Hacer principal
+                      </button>
                     )}
                   </div>
                 </article>
