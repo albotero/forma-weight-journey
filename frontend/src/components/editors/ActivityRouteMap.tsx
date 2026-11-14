@@ -4,7 +4,13 @@ import "leaflet/dist/leaflet.css"
 import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
 import { routeElevationTrends } from "../../lib/activityTracking.js"
 
-export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
+export function ActivityRouteMap({
+  points,
+  gpxImported = false,
+}: {
+  points: ActivityRoutePoint[]
+  gpxImported?: boolean
+}) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const routeLayer = useRef<L.LayerGroup | null>(null)
@@ -122,7 +128,7 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
         <strong>Recorrido GPS</strong>
         <label>
           <input type="checkbox" checked={showBaseMap} onChange={(event) => setShowBaseMap(event.target.checked)} />
-          Mapa de calles
+          Calles
         </label>
       </div>
       <div className="activity-route-map" ref={container} />
@@ -130,15 +136,25 @@ export function ActivityRouteMap({ points }: { points: ActivityRoutePoint[] }) {
         <span><i className="route-start" /> Inicio</span>
         <span><i className="route-end" /> Fin</span>
         <span><i className="ascent" /> Ascenso</span>
-        <span><i className="level" /> Sin cambio relevante</span>
+        <span><i className="level" /> Estable</span>
         <span><i className="descent" /> Descenso</span>
-        <span><i className="unknown" /> Altitud sin datos fiables</span>
-        <span><i className="estimated" /> Unión estimada sin señal GPS</span>
+        <span><i className="unknown" /> Sin altitud</span>
+        <span><i className="estimated" /> Tramo estimado</span>
       </div>
-      <small>Gris continuo: posición GPS con altitud desconocida. Gris punteado: unión recta estimada, no recorrido medido; puede infravalorar curvas y no aporta ascenso. Las pausas manuales quedan separadas.</small>
-      <small>Los colores comparan la tendencia de altitud con puntos vecinos hasta 25 m a cada lado: pendiente de al menos 1 % y cambio suavizado de 0,5 m. No modifican el ascenso ni las calorías.</small>
-      <small>Altitud disponible en {points.filter((point) => point.altitude_m !== null).length} de {points.length} puntos. Los totales de ascenso son parciales si faltan lecturas; el fondo de calles no proporciona elevación.</small>
-      {showBaseMap && <small>OpenStreetMap recibe solicitudes de teselas para mostrar esta zona aproximada.</small>}
+      <details className="activity-route-details">
+        <summary>Detalles del recorrido</summary>
+        <p>
+          Los colores muestran la tendencia de altitud (puntos vecinos hasta 25 m; pendiente de 1 % y cambio de 0,5 m).
+          La línea discontinua une puntos sin señal GPS; no es una ruta medida y no aporta ascenso. Las pausas manuales
+          quedan separadas.
+        </p>
+        <p>
+          Altitud disponible en {points.filter((point) => point.altitude_m !== null).length} de {points.length} puntos.
+          El ascenso es parcial si faltan lecturas. La distancia de las uniones estimadas se incluye en el total.
+        </p>
+        {gpxImported && <p>El GPX no declara la precisión de sus altitudes.</p>}
+        {showBaseMap && <p>El mapa de calles usa OpenStreetMap y carga teselas de la zona.</p>}
+      </details>
     </section>
   )
 }

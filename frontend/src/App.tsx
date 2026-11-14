@@ -69,6 +69,7 @@ import {
 import { formatDate, formatDecimal, formatDoseUnit, niceAxis, formatAxisTick, formatDateTime } from "./lib/format"
 import { bmiRangeAreas, BmiRangeLegend } from "./components/charts/BmiRange"
 import { estimatedNextDose, weeklyActivityChecklistDate, loadAllRecords, compositionFields } from "./lib/records"
+import { doseCountsByMedication } from "./lib/doseCounts.js"
 import { weightMovingAverageSeries } from "./lib/weightTrend.js"
 import { ageOnDate } from "./lib/clinicalRanges.js"
 import { MetricCard } from "./components/common/MetricCard"
@@ -204,6 +205,7 @@ export default function App() {
     .filter((item) => item.active)
     .sort((first, second) => Number(second.is_primary) - Number(first.is_primary))
   const activeMedication = activeMedications[0]
+  const medicationDoseCounts = doseCountsByMedication(doses)
   const visibleMedicationIndex = Math.min(homeMedicationIndex, Math.max(0, activeMedications.length - 1))
   function navigateHomeMedication(index: number) {
     const nextIndex = Math.max(0, Math.min(activeMedications.length - 1, index))
@@ -872,6 +874,7 @@ export default function App() {
                             item.medication_id === medication.id &&
                             new Date(item.administered_at).getTime() <= Date.now(),
                         )
+                        const doseCount = medicationDoseCounts.get(medication.id)
                         const nextDoseAt = estimatedNextDose(medication, doses)
                         return (
                           <article className="medication-slide" key={medication.id}>
@@ -906,6 +909,18 @@ export default function App() {
                               </p>
                             </div>
                             <div className="dose-details">
+                              <span>Dosis registradas</span>
+                              <strong>{doseCount?.totalCount ?? 0}</strong>
+                              {doseCount?.hasDoseChanges && (
+                                <>
+                                  <span>Dosis con la cantidad más reciente</span>
+                                  <strong>
+                                    {doseCount.latestDoseCount} ·{" "}
+                                    {formatDecimal(doseCount.latestDose.dose_amount)}{" "}
+                                    {formatDoseUnit(doseCount.latestDose.dose_amount, doseCount.latestDose.dose_unit)}
+                                  </strong>
+                                </>
+                              )}
                               {medication.route === "injectable" && (
                                 <>
                                   <span>Concentración</span>

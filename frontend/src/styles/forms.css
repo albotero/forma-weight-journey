@@ -570,6 +570,29 @@
   padding: 14px;
   box-shadow: var(--shadow);
 }
+.record-card.activity-record {
+  border-radius: 14px;
+  padding: 16px;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+.record-card.activity-record:has(.activity-route):hover {
+  border-color: #b7d8ca;
+  box-shadow: 0 8px 24px rgba(31, 91, 72, 0.09);
+}
+.activity-record .record-card-heading {
+  align-items: center;
+  gap: 12px;
+}
+.activity-record .record-card-heading > div:first-child {
+  min-width: 0;
+}
+.activity-record .record-card-heading strong {
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+.activity-record .record-status {
+  padding: 3px 8px;
+}
 .record-card p {
   color: var(--sub);
   font-size: 12px;
@@ -637,6 +660,24 @@
 .composition-results strong {
   display: block;
   font-size: 13px;
+}
+.activity-record .composition-results {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
+  gap: 7px;
+  margin-top: 12px;
+}
+.activity-record .composition-results > div {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+.activity-record .composition-results span {
+  font-size: 10px;
+  line-height: 1.35;
+}
+.activity-record .composition-results strong {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 .lab-out-of-range {
   display: flex !important;
@@ -871,32 +912,48 @@
   overflow-wrap: anywhere;
 }
 .activity-route {
-  margin: 14px 0;
+  margin: 14px 0 2px;
   min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
 }
 .activity-route-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 8px;
-  font-size: 12px;
+  margin-bottom: 10px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
 }
 .activity-route-heading label {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
   color: var(--sub);
   font-weight: 500;
+  font-size: 11px;
+  cursor: pointer;
+}
+.activity-route-heading input {
+  accent-color: var(--green);
+  margin: 0;
 }
 .activity-route-map {
   position: relative;
   z-index: 0;
   isolation: isolate;
-  height: 240px;
+  height: 260px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: #e9efed;
 }
 .activity-route-map .leaflet-container {
@@ -915,20 +972,27 @@
 .activity-route-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  padding-top: 8px;
+  gap: 6px;
+  padding-top: 10px;
   color: var(--sub);
   font-size: 10px;
 }
 .activity-route-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  min-height: 25px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel);
+  white-space: nowrap;
 }
 .activity-route-legend i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+  display: inline-block;
+  width: 12px;
+  height: 3px;
+  border-radius: 3px;
 }
 .activity-route-legend .ascent { background: #d36f38; }
 .activity-route-legend .level { background: #238274; }
@@ -936,10 +1000,11 @@
 .activity-route-legend .unknown { background: #798993; }
 .activity-route-legend .route-start,
 .activity-route-legend .route-end {
-  width: 8.5px;
-  height: 8.5px;
+  width: 9px;
+  height: 9px;
   border: 1.5px solid #fff;
   border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--line);
 }
 .activity-route-legend .route-start {
   background: #176f65;
@@ -948,7 +1013,6 @@
   background: #b94747;
 }
 .activity-route-legend .estimated {
-  width: 16px;
   height: 0;
   border-top: 2px dashed #798993;
   border-radius: 0;
@@ -1055,11 +1119,24 @@
     gap: 8px;
   }
 }
-.activity-route > small {
-  display: block;
-  margin-top: 7px;
+.activity-route-details {
+  margin-top: 8px;
   color: var(--muted);
   font-size: 10px;
+}
+.activity-route-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--sub);
+  font-weight: 600;
+}
+.activity-route-details summary:hover {
+  color: var(--green);
+}
+.activity-route-details p {
+  margin: 7px 0 0;
+  max-width: 72ch;
+  line-height: 1.5;
 }
 .activity-route-loading {
   display: grid;

@@ -111,7 +111,7 @@ test("Strava history provides attribution and prevents saving local edits", () =
   assert.match(editor, /class="primary-button" disabled="">Guardar cambios/)
 })
 
-test("GPS history displays estimated gap distance and reconstructed altitude explicitly", () => {
+test("GPS history shows compact estimates and keeps route details available", () => {
   const data = {
     entry_type: "single", tracking_source: "gps", activity_type: "Bicicleta",
     duration_min: 60, distance_km: 21, estimated_distance_km: 1, gpx_imported: true,
@@ -122,8 +122,8 @@ test("GPS history displays estimated gap distance and reconstructed altitude exp
   const html = markup(ModuleWorkspace, {
     ...workspaceProps, section: "Actividad", entries: [{ id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data }],
   })
-  assert.match(html, /Distancia de uniones estimadas \(incluida en el total\)/)
-  assert.match(html, /Ascenso reconstruido de altitudes guardadas \(estimado\)/)
+  assert.match(html, /Uniones estimadas · incluidas/)
+  assert.match(html, /Ascenso estimado/)
   assert.match(html, /GPX importado/)
   assert.match(html, /25 m/)
   const editor = markup(ActivityEntryEditor, {
@@ -141,7 +141,7 @@ test("existing individual activities show estimated kcal, speed and pace in hist
     entries: [{ id: 20, module: "activity", title: "Caminata", occurred_at: now,
       data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 } }],
   })
-  assert.match(html, /Calorías estimadas/)
+  assert.match(html, /Calorías est\./)
   assert.match(html, /159,6 kcal/)
   assert.match(html, /Registradas \/ semana/)
   assert.match(html, /Estimadas \/ semana/)
@@ -150,7 +150,7 @@ test("existing individual activities show estimated kcal, speed and pace in hist
   assert.ok(caloriesCard)
   assert.equal(occurrences(caloriesCard, "<dt>"), 3)
   assert.doesNotMatch(caloriesCard, /Individuales|Resúmenes/)
-  assert.match(html, /Velocidad media calculada/)
+  assert.match(html, /Velocidad media/)
   assert.match(html, /4 km\/h/)
   assert.match(html, /15 min\/km/)
 })

@@ -22,6 +22,7 @@ import type { Section } from "../../lib/types"
 import { formatDate, formatDecimal, formatDateTime, formatDoseUnit } from "../../lib/format"
 import { ageOnDate, bodyFatClinicalBands, waistHeightClinicalBands } from "../../lib/clinicalRanges.js"
 import { estimatedNextDose, compositionFields } from "../../lib/records"
+import { doseCountsByMedication } from "../../lib/doseCounts.js"
 import { activityCalculations, activityEntryDate, isValidActivityMeasurement, shiftActivityDate, summarizeActivity } from "../../lib/activity.js"
 import { ActivityOverview } from "./ActivityOverview"
 import type { ChartPeriod } from "../../lib/chartPeriod.js"
@@ -104,6 +105,7 @@ export function ModuleWorkspace(props: {
   const orderedMedications = [...medications].sort(
     (first, second) => Number(second.is_primary) - Number(first.is_primary),
   )
+  const medicationDoseCounts = doseCountsByMedication(doses)
   const photoGroups = Object.entries(
     photos.reduce<Record<string, PhotoEntry[]>>((groups, photo) => {
       const day = dateTimeInputValue(photo.taken_at, userTimezone).slice(0, 10)
@@ -723,94 +725,110 @@ export function ModuleWorkspace(props: {
       {section === "Medicación" && (
         <>
           <div className="record-list">
-            {orderedMedications.map((item) => (
-              <article className="record-card medication-record" key={item.id}>
-                <div className="record-card-heading">
-                  <div>
-                    <strong>{item.name}</strong>
-                    <span className={`record-status ${item.active ? "active" : ""}`}>
-                      {item.active ? "Activa" : "Archivada"}
-                    </span>
-                    {item.is_primary && <span className="record-status active">Principal</span>}
-                    <p>
-                      {item.route === "oral"
-                        ? "Vía oral"
-                        : `${item.concentration_mg} mg / ${item.concentration_volume_ml} mL${item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}`}
-                    </p>
-                    {item.active && (
+            {orderedMedications.map((item) => {
+              const doseCount = medicationDoseCounts.get(item.id)
+              return (
+                <article className="record-card medication-record" key={item.id}>
+                  <div className="record-card-heading">
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span className={`record-status ${item.active ? "active" : ""}`}>
+                        {item.active ? "Activa" : "Archivada"}
+                      </span>
+                      {item.is_primary && <span className="record-status active">Principal</span>}
                       <p>
-                        Próxima dosis estimada:{" "}
-                        {estimatedNextDose(item, doses)
-                          ? `${new Date(estimatedNextDose(item, doses)!).getTime() < Date.now() ? "pendiente desde " : ""}${formatDateTime(estimatedNextDose(item, doses)!, userTimezone)}`
-                          : "Configura la frecuencia y registra una dosis"}
+                        {doseCount
+                          ? `${doseCount.totalCount} dosis registradas`
+                          : "Sin dosis registradas"}
+                        {doseCount?.hasDoseChanges && (
+                          <>
+                            {" · "}
+                            {doseCount.latestDoseCount} con la dosis más reciente (
+                            {formatDecimal(doseCount.latestDose.dose_amount)}{" "}
+                            {formatDoseUnit(doseCount.latestDose.dose_amount, doseCount.latestDose.dose_unit)})
+                          </>
+                        )}
                       </p>
-                    )}
-                  </div>
-                  <div className="record-actions">
-                    {item.active && (
-                      <button className="small-action" onClick={() => props.onNewDose(item)}>
-                        <Plus size={13} /> Registrar dosis
-                      </button>
-                    )}
-                    <button
-                      className="small-action"
-                      onClick={() => {
-                        props.onEditMedication(item)
-                      }}
-                    >
-                      Editar
-                    </button>
-                    {item.active ? (
-                      <button
-                        className="small-action danger"
-                        onClick={() =>
-                          api(`/medications/${item.id}`, token, { method: "DELETE" })
-                            .then(props.onRefresh)
-                            .catch((e: Error) => props.onError(e.message))
-                        }
-                      >
-                        Archivar
-                      </button>
-                    ) : (
+                      <p>
+                        {item.route === "oral"
+                          ? "Vía oral"
+                          : `${item.concentration_mg} mg / ${item.concentration_volume_ml} mL${item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}`}
+                      </p>
+                      {item.active && (
+                        <p>
+                          Próxima dosis estimada:{" "}
+                          {estimatedNextDose(item, doses)
+                            ? `${new Date(estimatedNextDose(item, doses)!).getTime() < Date.now() ? "pendiente desde " : ""}${formatDateTime(estimatedNextDose(item, doses)!, userTimezone)}`
+                            : "Configura la frecuencia y registra una dosis"}
+                        </p>
+                      )}
+                    </div>
+                    <div className="record-actions">
+                      {item.active && (
+                        <button className="small-action" onClick={() => props.onNewDose(item)}>
+                          <Plus size={13} /> Registrar dosis
+                        </button>
+                      )}
                       <button
                         className="small-action"
-                        onClick={() =>
-                          api(`/medications/${item.id}`, token, {
-                            method: "PUT",
-                            body: JSON.stringify({ ...item, active: true }),
-                          })
+                        onClick={() => {
+                          props.onEditMedication(item)
+                        }}
+                      >
+                        Editar
+                      </button>
+                      {item.active ? (
+                        <button
+                          className="small-action danger"
+                          onClick={() =>
+                            api(`/medications/${item.id}`, token, { method: "DELETE" })
+                              .then(props.onRefresh)
+                              .catch((e: Error) => props.onError(e.message))
+                          }
+                        >
+                          Archivar
+                        </button>
+                      ) : (
+                        <button
+                          className="small-action"
+                          onClick={() =>
+                            api(`/medications/${item.id}`, token, {
+                              method: "PUT",
+                              body: JSON.stringify({ ...item, active: true }),
+                            })
+                              .then(props.onRefresh)
+                              .catch((e: Error) => props.onError(e.message))
+                          }
+                        >
+                          Reactivar
+                        </button>
+                      )}
+                      <button
+                        className="small-action danger"
+                        onClick={() => {
+                          if (
+                            !window.confirm(
+                              `¿Eliminar "${item.name}" de forma permanente? Esto también elimina todas sus dosis registradas. Esta acción no se puede deshacer.`,
+                            )
+                          )
+                            return
+                          api(`/medications/${item.id}/permanent`, token, { method: "DELETE" })
                             .then(props.onRefresh)
                             .catch((e: Error) => props.onError(e.message))
-                        }
+                        }}
                       >
-                        Reactivar
+                        Eliminar
                       </button>
-                    )}
-                    <button
-                      className="small-action danger"
-                      onClick={() => {
-                        if (
-                          !window.confirm(
-                            `¿Eliminar "${item.name}" de forma permanente? Esto también elimina todas sus dosis registradas. Esta acción no se puede deshacer.`,
-                          )
-                        )
-                          return
-                        api(`/medications/${item.id}/permanent`, token, { method: "DELETE" })
-                          .then(props.onRefresh)
-                          .catch((e: Error) => props.onError(e.message))
-                      }}
-                    >
-                      Eliminar
-                    </button>
-                    {item.active && !item.is_primary && (
-                      <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
-                        Hacer principal
-                      </button>
-                    )}
+                      {item.active && !item.is_primary && (
+                        <button className="small-action" onClick={() => void setPrimaryMedication(item)}>
+                          Hacer principal
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
+                </article>
+              )
+            })}
             {!medications.length && <EmptyModule text="Añade una medicación para llevar su seguimiento." />}
           </div>
           <h2 className="module-subheading">Historial de dosis</h2>
@@ -887,7 +905,7 @@ export function ModuleWorkspace(props: {
           {module === "activity" && <h2 className="module-subheading">Registros del período</h2>}
           <div className="record-list">
             {visibleEntries.map((entry) => (
-              <article className="record-card" key={entry.id}>
+              <article className={`record-card ${module === "activity" ? "activity-record" : ""}`} key={entry.id}>
                 <div className="record-card-heading">
                   <div>
                     <strong>{entry.title}</strong>
@@ -956,24 +974,24 @@ export function ModuleWorkspace(props: {
                     const elevation = Array.isArray(entry.data.route) ? routeElevation(entry.data.route as ActivityRoutePoint[]) : null
                     return <>
                       {calculated.estimatedCalories !== null && <div>
-                        <span>Calorías estimadas</span><strong>{formatDecimal(calculated.estimatedCalories)} kcal</strong>
+                        <span>Calorías est.</span><strong>{formatDecimal(calculated.estimatedCalories)} kcal</strong>
                       </div>}
                       {calculated.speedKmh !== null && <div>
-                        <span>Velocidad media calculada</span><strong>{formatDecimal(calculated.speedKmh)} km/h</strong>
+                        <span>Velocidad media</span><strong>{formatDecimal(calculated.speedKmh)} km/h</strong>
                       </div>}
                       {calculated.paceMinKm !== null && <div>
-                        <span>Ritmo medio calculado (minutos decimales)</span><strong>{formatDecimal(calculated.paceMinKm)} min/km</strong>
+                        <span>Ritmo medio</span><strong>{formatDecimal(calculated.paceMinKm)} min/km</strong>
                       </div>}
                       {Number(entry.data.estimated_distance_km) > 0 && <div>
-                        <span>Distancia de uniones estimadas (incluida en el total)</span>
+                        <span>Uniones estimadas · incluidas</span>
                         <strong>{formatDecimal(Number(entry.data.estimated_distance_km))} km</strong>
                       </div>}
                       {entry.data.elevation_gain_m == null && elevation?.ascentM != null && <div>
-                        <span>Ascenso reconstruido de altitudes guardadas (estimado)</span>
+                        <span>Ascenso estimado</span>
                         <strong>{formatDecimal(elevation.ascentM)} m</strong>
                       </div>}
                       {entry.data.gpx_imported === true && <div>
-                        <span>Origen</span><strong>GPX importado · altitud sin precisión declarada</strong>
+                        <span>Origen</span><strong>GPX importado</strong>
                       </div>}
                       {entry.data.source === "strava" && typeof entry.data.strava_activity_id === "number" && <div>
                         <span>Sincronizado con Strava</span>
@@ -1015,7 +1033,10 @@ export function ModuleWorkspace(props: {
                 </div>
                 {module === "activity" && Array.isArray(entry.data.route) && entry.data.route.length > 1 && (
                   <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
-                    <ActivityRouteMap points={entry.data.route as ActivityRoutePoint[]} />
+                    <ActivityRouteMap
+                      points={entry.data.route as ActivityRoutePoint[]}
+                      gpxImported={entry.data.gpx_imported === true}
+                    />
                   </Suspense>
                 )}
                 {entry.notes && <p>{entry.notes}</p>}
