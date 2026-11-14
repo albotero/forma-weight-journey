@@ -570,6 +570,133 @@
   padding: 14px;
   box-shadow: var(--shadow);
 }
+.record-card.medication-record {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--panel), var(--canvas));
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
+}
+.record-card.medication-record:hover {
+  transform: translateY(-1px);
+  border-color: #b7d8ca;
+  box-shadow: 0 8px 24px rgba(31, 91, 72, 0.08);
+}
+.medication-record-top,
+.medication-record-identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.medication-record-top {
+  justify-content: space-between;
+  gap: 16px;
+}
+.medication-record-identity {
+  gap: 12px;
+}
+.medication-record-symbol {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid #d5e8df;
+  border-radius: 13px;
+  background: #eaf5ef;
+  color: #347a5b;
+}
+.medication-record-symbol.oral {
+  border-color: #e4dcef;
+  background: #f3eef8;
+  color: #80659c;
+}
+.medication-record-title {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.medication-record-title > strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.medication-record-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.medication-record-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--canvas);
+  color: var(--sub);
+  font-size: 10px;
+  font-weight: 600;
+}
+.medication-record-badge.active {
+  background: #eaf4ee;
+  color: #347a5b;
+}
+.medication-record-badge.primary {
+  background: #f2edf7;
+  color: #775c93;
+}
+.medication-record .record-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.medication-record-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.medication-record-stats.has-next-dose {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.medication-record-stat {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+}
+.medication-record-stat > span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+.medication-record-stat > strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.medication-record-stat > small {
+  color: var(--sub);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.medication-record-stat.dose-count > strong {
+  color: var(--green);
+  font-size: 20px;
+  line-height: 1;
+}
+.medication-record-stat.next-dose {
+  background: var(--green-soft);
+}
+.medication-record-stat.next-dose > strong {
+  color: var(--text);
+  font-size: 12px;
+}
 .record-card.activity-record {
   border-radius: 14px;
   padding: 16px;
@@ -1545,6 +1672,24 @@
 .photo-card .small-action {
   margin-top: 10px;
 }
+.dark .medication-record-symbol {
+  border-color: #3a5545;
+  background: #273c30;
+  color: #8ac8a5;
+}
+.dark .medication-record-symbol.oral {
+  border-color: #51425f;
+  background: #352f41;
+  color: #c3a9dc;
+}
+.dark .medication-record-badge.active {
+  background: #263d32;
+  color: #8ac8a5;
+}
+.dark .medication-record-badge.primary {
+  background: #352f41;
+  color: #c3a9dc;
+}
 .dark .record-status.active {
   background: #263d32;
   color: #8ac8a5;
@@ -1579,15 +1724,12 @@
   .record-actions {
     flex-wrap: wrap;
   }
-  .medication-record .record-card-heading > div:first-child {
-    flex: 1;
-    min-width: 0;
+  .medication-record-top {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .medication-record .record-actions {
-    flex: 0 0 110px;
-    flex-direction: column;
-    align-items: stretch;
-    flex-wrap: nowrap;
+    justify-content: flex-start;
   }
   .medication-record .small-action {
     display: inline-flex;
@@ -1595,6 +1737,12 @@
     justify-content: center;
     gap: 4px;
     white-space: nowrap;
+  }
+  .medication-record-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .medication-record-stat.next-dose {
+    grid-column: 1 / -1;
   }
 }
 @media (max-width: 420px) {

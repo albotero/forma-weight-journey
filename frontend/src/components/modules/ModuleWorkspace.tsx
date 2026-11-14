@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
-import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, Plus, Settings, X } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronUp, GripVertical, Pill, Plus, Settings, Syringe, X } from "lucide-react"
 import {
   api,
   uploadPhoto,
@@ -727,41 +727,26 @@ export function ModuleWorkspace(props: {
           <div className="record-list">
             {orderedMedications.map((item) => {
               const doseCount = medicationDoseCounts.get(item.id)
+              const nextDoseAt = estimatedNextDose(item, doses)
               return (
                 <article className="record-card medication-record" key={item.id}>
-                  <div className="record-card-heading">
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span className={`record-status ${item.active ? "active" : ""}`}>
-                        {item.active ? "Activa" : "Archivada"}
+                  <div className="medication-record-top">
+                    <div className="medication-record-identity">
+                      <span className={`medication-record-symbol ${item.route}`} aria-hidden="true">
+                        {item.route === "oral" ? <Pill size={19} /> : <Syringe size={19} />}
                       </span>
-                      {item.is_primary && <span className="record-status active">Principal</span>}
-                      <p>
-                        {doseCount
-                          ? `${doseCount.totalCount} dosis registradas`
-                          : "Sin dosis registradas"}
-                        {doseCount?.hasDoseChanges && (
-                          <>
-                            {" · "}
-                            {doseCount.latestDoseCount} con la dosis más reciente (
-                            {formatDecimal(doseCount.latestDose.dose_amount)}{" "}
-                            {formatDoseUnit(doseCount.latestDose.dose_amount, doseCount.latestDose.dose_unit)})
-                          </>
-                        )}
-                      </p>
-                      <p>
-                        {item.route === "oral"
-                          ? "Vía oral"
-                          : `${item.concentration_mg} mg / ${item.concentration_volume_ml} mL${item.units_per_ml ? ` · U-${item.units_per_ml}` : ""}`}
-                      </p>
-                      {item.active && (
-                        <p>
-                          Próxima dosis estimada:{" "}
-                          {estimatedNextDose(item, doses)
-                            ? `${new Date(estimatedNextDose(item, doses)!).getTime() < Date.now() ? "pendiente desde " : ""}${formatDateTime(estimatedNextDose(item, doses)!, userTimezone)}`
-                            : "Configura la frecuencia y registra una dosis"}
-                        </p>
-                      )}
+                      <div className="medication-record-title">
+                        <strong>{item.name}</strong>
+                        <div className="medication-record-badges">
+                          <span className={`medication-record-badge ${item.active ? "active" : ""}`}>
+                            {item.active ? "Activa" : "Archivada"}
+                          </span>
+                          {item.is_primary && <span className="medication-record-badge primary">Principal</span>}
+                          <span className="medication-record-badge route">
+                            {item.route === "oral" ? "Oral" : "Inyectable"}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                     <div className="record-actions">
                       {item.active && (
@@ -825,6 +810,40 @@ export function ModuleWorkspace(props: {
                         </button>
                       )}
                     </div>
+                  </div>
+                  <div className={`medication-record-stats ${item.active ? "has-next-dose" : ""}`}>
+                    <div className="medication-record-stat dose-count">
+                      <span>Dosis registradas</span>
+                      <strong>{doseCount?.totalCount ?? 0}</strong>
+                      {doseCount?.hasDoseChanges && (
+                        <small>
+                          {doseCount.latestDoseCount} con {formatDecimal(doseCount.latestDose.dose_amount)}{" "}
+                          {formatDoseUnit(doseCount.latestDose.dose_amount, doseCount.latestDose.dose_unit)}
+                        </small>
+                      )}
+                    </div>
+                    <div className="medication-record-stat">
+                      <span>{item.route === "oral" ? "Vía" : "Concentración"}</span>
+                      <strong>
+                        {item.route === "oral"
+                          ? "Oral"
+                          : `${item.concentration_mg ?? "—"} mg / ${item.concentration_volume_ml ?? "—"} mL`}
+                      </strong>
+                      {item.route === "injectable" && item.units_per_ml && (
+                        <small>{item.units_per_ml} U/mL</small>
+                      )}
+                    </div>
+                    {item.active && (
+                      <div className="medication-record-stat next-dose">
+                        <span>Próxima dosis</span>
+                        <strong>
+                          {nextDoseAt
+                            ? `${new Date(nextDoseAt).getTime() < Date.now() ? "Pendiente · " : ""}${formatDateTime(nextDoseAt, userTimezone)}`
+                            : "Registra una dosis"}
+                        </strong>
+                        {!nextDoseAt && <small>Configura la frecuencia para estimarla</small>}
+                      </div>
+                    )}
                   </div>
                 </article>
               )
