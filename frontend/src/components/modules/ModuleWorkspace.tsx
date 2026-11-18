@@ -55,6 +55,7 @@ import { BodyMeasurementEditor } from "../editors/BodyMeasurementEditor"
 import { PhotoCard } from "../photos/PhotoCard"
 import { Modal } from "../modals/Modal"
 import { routeElevation, type ActivityRoutePoint } from "../../lib/activityTracking.js"
+import { StravaActivityMetrics } from "./StravaActivityMetrics"
 
 const ActivityRouteMap = lazy(() => import("../editors/ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
 
@@ -1011,7 +1012,9 @@ export function ModuleWorkspace(props: {
                     />
                   )}
                 </div>
-                <div className="composition-results">
+                {module === "activity" && entry.data.source === "strava" ? (
+                  <StravaActivityMetrics entry={entry} weights={weights} />
+                ) : <div className="composition-results">
                   {module === "activity" && (() => {
                     const calculated = activityCalculations(entry, weights)
                     const elevation = Array.isArray(entry.data.route) ? routeElevation(entry.data.route as ActivityRoutePoint[]) : null
@@ -1035,10 +1038,6 @@ export function ModuleWorkspace(props: {
                       </div>}
                       {entry.data.gpx_imported === true && <div>
                         <span>Origen</span><strong>GPX importado</strong>
-                      </div>}
-                      {entry.data.source === "strava" && typeof entry.data.strava_activity_id === "number" && <div>
-                        <span>Sincronizado con Strava</span>
-                        <a href={`https://www.strava.com/activities/${entry.data.strava_activity_id}`} target="_blank" rel="noreferrer">Ver en Strava</a>
                       </div>}
                     </>
                   })()}
@@ -1073,12 +1072,13 @@ export function ModuleWorkspace(props: {
                         </strong>
                       </div>
                     ))}
-                </div>
+                </div>}
                 {module === "activity" && Array.isArray(entry.data.route) && entry.data.route.length > 1 && (
                   <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
                     <ActivityRouteMap
                       points={entry.data.route as ActivityRoutePoint[]}
                       gpxImported={entry.data.gpx_imported === true}
+                      showTechnicalDetails={entry.data.source !== "strava"}
                     />
                   </Suspense>
                 )}

@@ -264,6 +264,9 @@ def test_worker_treats_unavailable_strava_calories_as_missing(integration, provi
 
 
 def test_worker_imports_once_preserves_ascent_and_remote_calories_and_updates(integration):
+    integration.provider.detail.update(average_heartrate=145.678, max_heartrate=178,
+                                       max_speed=12.5, average_watts=180, average_cadence=82,
+                                       weighted_average_watts="unavailable")
     connect(integration, True)
     asyncio.run(strava.dispatch_strava_sync())
     with integration.sessions() as db:
@@ -273,6 +276,12 @@ def test_worker_imports_once_preserves_ascent_and_remote_calories_and_updates(in
         assert entry.data["moving_duration_min"] == 50
         assert entry.data["elevation_gain_m"] == 123.46
         assert entry.data["calories_kcal"] == 456.79
+        assert entry.data["average_heart_rate_bpm"] == 145.68
+        assert entry.data["max_heart_rate_bpm"] == 178
+        assert entry.data["max_speed_kmh"] == 45
+        assert entry.data["average_power_w"] == 180
+        assert entry.data["average_cadence"] == 82
+        assert "weighted_power_w" not in entry.data
         assert len(entry.data["route"]) == 3
         entry_id = entry.id
     assert webhook_event(integration, aspect_type="update").status_code == 200

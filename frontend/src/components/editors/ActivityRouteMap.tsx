@@ -7,9 +7,11 @@ import { routeElevationTrends } from "../../lib/activityTracking.js"
 export function ActivityRouteMap({
   points,
   gpxImported = false,
+  showTechnicalDetails = true,
 }: {
   points: ActivityRoutePoint[]
   gpxImported?: boolean
+  showTechnicalDetails?: boolean
 }) {
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -141,7 +143,7 @@ export function ActivityRouteMap({
         <span><i className="unknown" /> Sin altitud</span>
         <span><i className="estimated" /> Tramo estimado</span>
       </div>
-      <details className="activity-route-details">
+      {showTechnicalDetails ? <details className="activity-route-details">
         <summary>Detalles del recorrido</summary>
         <p>
           Los colores muestran la tendencia de altitud (puntos vecinos hasta 25 m; pendiente de 1 % y cambio de 0,5 m).
@@ -154,7 +156,7 @@ export function ActivityRouteMap({
         </p>
         {gpxImported && <p>El GPX no declara la precisión de sus altitudes.</p>}
         {showBaseMap && <p>El mapa de calles usa OpenStreetMap y carga teselas de la zona.</p>}
-      </details>
+      </details> : showBaseMap && <small>Mapa de calles: OpenStreetMap.</small>}
     </section>
   )
 }

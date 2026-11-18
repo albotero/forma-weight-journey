@@ -219,13 +219,29 @@ def activity_payload(detail: dict, streams: dict, activity_id: int) -> JournalEn
     calories = number(detail.get("calories"), "calorías", required=False)
     if not 0 < duration <= 86400 or moving > duration or distance > 1000000 or (calories is not None and calories > 100000):
         raise StravaError("La actividad Strava supera los límites admitidos por Forma (24 horas o 1000 km).", permanent=True)
+    route = activity_route(streams)
+    metrics = {}
+    for source, target, factor in (
+        ("total_elevation_loss", "elevation_loss_m", 1),
+        ("average_heartrate", "average_heart_rate_bpm", 1),
+        ("max_heartrate", "max_heart_rate_bpm", 1),
+        ("average_speed", "average_speed_kmh", 3.6),
+        ("max_speed", "max_speed_kmh", 3.6),
+        ("average_watts", "average_power_w", 1),
+        ("weighted_average_watts", "weighted_power_w", 1),
+        ("max_watts", "max_power_w", 1),
+        ("average_cadence", "average_cadence", 1),
+    ):
+        value = detail.get(source)
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 < value <= 100000:
+            metrics[target] = round(value * factor, 2)
     return JournalEntryCreate(
         module="activity", title=activity_type, occurred_at=occurred_at,
         data={"entry_type": "single", "activity_type": activity_type, "tracking_source": "gps",
               "duration_min": round(duration / 60, 2), "moving_duration_min": round(moving / 60, 2),
               "distance_km": round(distance / 1000, 2), "calories_kcal": round(calories, 2) if calories else None,
-              "elevation_gain_m": round(elevation, 2) if elevation is not None else None, "route": activity_route(streams),
-              "strava_activity_id": activity_id, "source": "strava"},
+              "elevation_gain_m": round(elevation, 2) if elevation is not None else None, "route": route,
+              "strava_activity_id": activity_id, "source": "strava", **metrics},
     )
 
 
