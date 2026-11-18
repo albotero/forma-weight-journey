@@ -358,86 +358,6 @@
 .account-data-card > .outline-button {
   justify-self: start;
 }
-.strava-setup-actions {
-  display: flex;
-  margin-bottom: 12px;
-}
-.strava-setup-actions .outline-button {
-  min-height: 44px;
-  text-align: center;
-  text-decoration: none;
-  font-size: 12px;
-}
-.strava-setup-help {
-  min-width: 0;
-  margin-bottom: 22px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--canvas);
-  overflow-wrap: anywhere;
-}
-.strava-setup-help > summary {
-  padding: 14px;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.6;
-  cursor: pointer;
-}
-.strava-setup-help > summary::marker {
-  color: var(--green);
-}
-.strava-setup-help > summary:focus-visible,
-.strava-setup-actions a:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 3px;
-  border-radius: 8px;
-}
-.strava-setup-content {
-  padding: 0 14px 14px;
-  color: var(--sub);
-  font-size: 12px;
-  line-height: 1.75;
-}
-.strava-setup-content > p {
-  margin: 0 0 14px;
-}
-.strava-setup-content ol {
-  display: grid;
-  gap: 12px;
-  padding-left: 22px;
-  margin: 0 0 16px;
-}
-.strava-setup-content li {
-  padding-left: 4px;
-}
-.strava-setup-content li::marker {
-  color: var(--green);
-  font-weight: 700;
-}
-.strava-setup-content strong {
-  color: var(--text);
-}
-.strava-setup-content code {
-  padding: 2px 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--text);
-  font-size: 11px;
-}
-.strava-setup-content a {
-  color: var(--green);
-  text-underline-offset: 3px;
-}
-.strava-setup-content > .strava-setup-note {
-  margin: 0;
-  padding: 12px;
-  border-left: 3px solid var(--green);
-  border-radius: 6px;
-  background: var(--panel);
-  font-size: 11px;
-}
 .account-import-file {
   display: grid;
   gap: 7px;
@@ -570,207 +490,6 @@
   padding: 14px;
   box-shadow: var(--shadow);
 }
-.record-card.medication-record {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, var(--panel), var(--canvas));
-  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s;
-}
-.record-card.medication-record:hover {
-  transform: translateY(-1px);
-  border-color: #b7d8ca;
-  box-shadow: 0 8px 24px rgba(31, 91, 72, 0.08);
-}
-.medication-record-top,
-.medication-record-identity {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-.medication-record-top {
-  justify-content: space-between;
-  gap: 16px;
-}
-.medication-record-identity {
-  gap: 12px;
-}
-.medication-record-symbol {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  border: 1px solid #d5e8df;
-  border-radius: 13px;
-  background: #eaf5ef;
-  color: #347a5b;
-}
-.medication-record-symbol.oral {
-  border-color: #e4dcef;
-  background: #f3eef8;
-  color: #80659c;
-}
-.medication-record-title {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-.medication-record-title > strong {
-  overflow: hidden;
-  font-size: 15px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.medication-record-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.medication-record-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 21px;
-  padding: 3px 8px;
-  border-radius: 20px;
-  background: var(--canvas);
-  color: var(--sub);
-  font-size: 10px;
-  font-weight: 600;
-}
-.medication-record-badge.active {
-  background: #eaf4ee;
-  color: #347a5b;
-}
-.medication-record-badge.primary {
-  background: #f2edf7;
-  color: #775c93;
-}
-.medication-record-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  padding-top: 2px;
-}
-.medication-action {
-  display: inline-flex;
-  min-height: 36px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 7px 11px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--panel);
-  color: var(--sub);
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: background 0.16s, color 0.16s, border-color 0.16s, transform 0.16s;
-}
-.medication-action:hover {
-  transform: translateY(-1px);
-  border-color: #b8d5c5;
-  background: var(--green-soft);
-  color: var(--green);
-}
-.medication-action:focus-visible {
-  outline: 2px solid var(--green);
-  outline-offset: 2px;
-}
-.medication-action-primary {
-  border-color: var(--green);
-  background: var(--green);
-  color: #fff;
-  box-shadow: 0 3px 8px rgba(23, 123, 114, 0.18);
-}
-.medication-action-primary:hover {
-  border-color: #11685f;
-  background: #11685f;
-  color: #fff;
-}
-.medication-action-danger {
-  color: #9c5353;
-}
-.medication-action-danger:hover {
-  border-color: #e6c6c3;
-  background: #fbefee;
-  color: #a23f3a;
-}
-.medication-action-delete {
-  margin-left: auto;
-}
-.medication-record-stats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.medication-record-stats.has-next-dose {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-.medication-record-stat {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--panel);
-}
-.medication-record-stat > span {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.medication-record-stat > strong {
-  overflow-wrap: anywhere;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-.medication-record-stat > small {
-  color: var(--sub);
-  font-size: 10px;
-  line-height: 1.35;
-}
-.medication-record-stat.dose-count > strong {
-  color: var(--green);
-  font-size: 20px;
-  line-height: 1;
-}
-.medication-record-stat.next-dose {
-  background: var(--green-soft);
-}
-.medication-record-stat.next-dose > strong {
-  color: var(--text);
-  font-size: 12px;
-}
-.record-card.activity-record {
-  border-radius: 14px;
-  padding: 16px;
-  transition: border-color 0.18s, box-shadow 0.18s;
-}
-.record-card.activity-record:has(.activity-route):hover {
-  border-color: #b7d8ca;
-  box-shadow: 0 8px 24px rgba(31, 91, 72, 0.09);
-}
-.activity-record .record-card-heading {
-  align-items: center;
-  gap: 12px;
-}
-.activity-record .record-card-heading > div:first-child {
-  min-width: 0;
-}
-.activity-record .record-card-heading strong {
-  font-size: 15px;
-  letter-spacing: -0.01em;
-}
-.activity-record .record-status {
-  padding: 3px 8px;
-}
 .record-card p {
   color: var(--sub);
   font-size: 12px;
@@ -838,24 +557,6 @@
 .composition-results strong {
   display: block;
   font-size: 13px;
-}
-.activity-record .composition-results {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr));
-  gap: 7px;
-  margin-top: 12px;
-}
-.activity-record .composition-results > div {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 9px 11px;
-}
-.activity-record .composition-results span {
-  font-size: 10px;
-  line-height: 1.35;
-}
-.activity-record .composition-results strong {
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
 }
 .lab-out-of-range {
   display: flex !important;
@@ -1090,99 +791,68 @@
   overflow-wrap: anywhere;
 }
 .activity-route {
-  margin: 14px 0 2px;
+  margin: 14px 0;
   min-width: 0;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--canvas);
 }
 .activity-route-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
+  margin-bottom: 8px;
+  font-size: 12px;
 }
 .activity-route-heading label {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 9px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--panel);
+  gap: 7px;
   color: var(--sub);
   font-weight: 500;
-  font-size: 11px;
-  cursor: pointer;
-}
-.activity-route-heading input {
-  accent-color: var(--green);
-  margin: 0;
 }
 .activity-route-map {
-  position: relative;
-  z-index: 0;
-  isolation: isolate;
-  height: 260px;
+  height: 240px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #e9efed;
 }
 .activity-route-map .leaflet-container {
   width: 100%;
   height: 100%;
   background-color: #e9efed;
-  background-image: linear-gradient(30deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
+  background-image:
+    linear-gradient(30deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
     linear-gradient(150deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
     linear-gradient(30deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
     linear-gradient(150deg, #dce7e4 12%, transparent 12.5%, transparent 87%, #dce7e4 87.5%, #dce7e4),
     linear-gradient(60deg, #edf2ef 25%, transparent 25.5%, transparent 75%, #edf2ef 75%, #edf2ef),
     linear-gradient(60deg, #edf2ef 25%, transparent 25.5%, transparent 75%, #edf2ef 75%, #edf2ef);
-  background-position: 0 0, 0 0, 24px 42px, 24px 42px, 0 0, 24px 42px;
+  background-position:
+    0 0,
+    0 0,
+    24px 42px,
+    24px 42px,
+    0 0,
+    24px 42px;
   background-size: 48px 84px;
 }
 .activity-route-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 10px;
+  gap: 12px;
+  padding-top: 8px;
   color: var(--sub);
   font-size: 10px;
 }
 .activity-route-legend span {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 25px;
-  padding: 4px 8px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--panel);
-  white-space: nowrap;
+  gap: 5px;
 }
 .activity-route-legend i {
-  display: inline-block;
-  width: 12px;
-  height: 3px;
-  border-radius: 3px;
-}
-.activity-route-legend .ascent { background: #d36f38; }
-.activity-route-legend .level { background: #238274; }
-.activity-route-legend .descent { background: #377baa; }
-.activity-route-legend .unknown { background: #798993; }
-.activity-route-legend .route-start,
-.activity-route-legend .route-end {
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid #fff;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px var(--line);
 }
 .activity-route-legend .route-start {
   background: #176f65;
@@ -1190,131 +860,30 @@
 .activity-route-legend .route-end {
   background: #b94747;
 }
+.activity-route-legend .unknown {
+  background: #798993;
+}
 .activity-route-legend .estimated {
-  height: 0;
-  border-top: 2px dashed #798993;
-  border-radius: 0;
+  background: repeating-linear-gradient(90deg, #798993 0 3px, transparent 3px 6px);
 }
-.activity-pocket-shield {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 20px;
-  overflow-y: auto;
-  background: var(--panel);
-  color: var(--text);
-  text-align: center;
-  touch-action: none;
-  overscroll-behavior: contain;
+.activity-route-legend .activity-route-altitude-scale {
+  gap: 6px;
 }
-.activity-pocket-shield p {
-  max-width: 360px;
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.4;
+.activity-route-legend .activity-route-altitude-scale i {
+  width: 76px;
+  height: 8px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #2d6ccf, #1c9ea3, #e2c647, #e7823b, #ae3b3e);
 }
-.activity-pocket-shield h2 {
-  margin: 0;
+.activity-route-altitude-scale small {
+  color: var(--muted);
+  font-size: 9px;
 }
-.activity-pocket-unlock {
-  position: relative;
-  flex-shrink: 0;
-  width: min(100%, 360px);
-  min-height: 76px;
-  padding: 16px 20px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--canvas);
-  color: var(--text);
-  box-shadow: var(--shadow);
-  font: inherit;
-  cursor: pointer;
-  overflow: hidden;
-  touch-action: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-.activity-pocket-unlock:focus-visible {
-  outline: 3px solid #347a5b;
-  outline-offset: 4px;
-}
-.activity-pocket-unlock:active {
-  border-color: #347a5b;
-}
-.activity-pocket-unlock-content {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  pointer-events: none;
-}
-.activity-pocket-unlock-content > svg {
-  flex-shrink: 0;
-  color: #347a5b;
-}
-.activity-pocket-unlock-content > span {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  text-align: left;
-}
-.activity-pocket-unlock-content strong {
-  font-size: 15px;
-  font-weight: 700;
-}
-.activity-pocket-unlock-content small {
-  color: var(--sub);
-  font-size: 11px;
-  line-height: 1.4;
-}
-.activity-pocket-unlock-progress {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: #347a5b26;
-  pointer-events: none;
-}
-.activity-pocket-shield .activity-recorder-metrics {
-  width: min(100%, 400px);
-  gap: 16px 12px;
-  margin: 8px 0;
-}
-.activity-pocket-shield .activity-recorder-metrics dd {
-  font-size: clamp(18px, 5vw, 26px);
-  font-weight: 700;
-}
-@media (max-height: 600px) {
-  .activity-pocket-shield {
-    justify-content: flex-start;
-    gap: 8px;
-  }
-  .activity-pocket-shield .activity-recorder-metrics {
-    gap: 8px;
-  }
-}
-.activity-route-details {
-  margin-top: 8px;
+.activity-route > small {
+  display: block;
+  margin-top: 7px;
   color: var(--muted);
   font-size: 10px;
-}
-.activity-route-details summary {
-  width: fit-content;
-  cursor: pointer;
-  color: var(--sub);
-  font-weight: 600;
-}
-.activity-route-details summary:hover {
-  color: var(--green);
-}
-.activity-route-details p {
-  margin: 7px 0 0;
-  max-width: 72ch;
-  line-height: 1.5;
 }
 .activity-route-loading {
   display: grid;
@@ -1723,45 +1292,6 @@
 .photo-card .small-action {
   margin-top: 10px;
 }
-.dark .medication-record-symbol {
-  border-color: #3a5545;
-  background: #273c30;
-  color: #8ac8a5;
-}
-.dark .medication-record-symbol.oral {
-  border-color: #51425f;
-  background: #352f41;
-  color: #c3a9dc;
-}
-.dark .medication-record-badge.active {
-  background: #263d32;
-  color: #8ac8a5;
-}
-.dark .medication-record-badge.primary {
-  background: #352f41;
-  color: #c3a9dc;
-}
-.dark .medication-action {
-  background: var(--canvas);
-}
-.dark .medication-action:hover {
-  background: #263d32;
-  color: #a1d5b6;
-}
-.dark .medication-action-primary,
-.dark .medication-action-primary:hover {
-  border-color: #318b7e;
-  background: #318b7e;
-  color: #fff;
-}
-.dark .medication-action-danger {
-  color: #d29a96;
-}
-.dark .medication-action-danger:hover {
-  border-color: #68403e;
-  background: #3a2827;
-  color: #f0aaa3;
-}
 .dark .record-status.active {
   background: #263d32;
   color: #8ac8a5;
@@ -1796,29 +1326,22 @@
   .record-actions {
     flex-wrap: wrap;
   }
-  .medication-record-top {
-    align-items: flex-start;
+  .medication-record .record-card-heading > div:first-child {
+    flex: 1;
+    min-width: 0;
+  }
+  .medication-record .record-actions {
+    flex: 0 0 110px;
     flex-direction: column;
+    align-items: stretch;
+    flex-wrap: nowrap;
   }
-  .medication-record-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .medication-action {
-    width: 100%;
-    padding-inline: 8px;
-  }
-  .medication-action-primary {
-    grid-column: 1 / -1;
-  }
-  .medication-action-delete {
-    margin-left: 0;
-  }
-  .medication-record-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .medication-record-stat.next-dose {
-    grid-column: 1 / -1;
+  .medication-record .small-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
   }
 }
 @media (max-width: 420px) {

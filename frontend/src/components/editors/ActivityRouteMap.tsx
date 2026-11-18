@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import L from "leaflet"
 import "leaflet/dist/leaflet.css"
+import { formatDecimal } from "../../lib/format"
 import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
-import { routeElevationTrends } from "../../lib/activityTracking.js"
+import { routeAltitudeColor, routeAltitudeRange } from "../../lib/routeAltitude.js"
 
 export function ActivityRouteMap({
   points,
@@ -18,6 +19,9 @@ export function ActivityRouteMap({
   const routeLayer = useRef<L.LayerGroup | null>(null)
   const [showBaseMap, setShowBaseMap] = useState(true)
   const hasPoints = points.length > 0
+  const altitudeRange = routeAltitudeRange(points)
+  const hasUnknownAltitude = points.some((point) => point.estimated !== true && point.altitude_m === null)
+  const hasEstimatedSegments = points.some((point) => point.estimated === true)
 
   useEffect(() => {
     if (!container.current || !hasPoints) return
@@ -54,14 +58,7 @@ export function ActivityRouteMap({
     }
     const lines = new Map<string, L.LatLngTuple[][]>()
     const estimatedLines: L.LatLngTuple[][] = []
-    for (let index = 1; index < points.length; index++) {
-      if (points[index].estimated) estimatedLines.push([
-        [points[index - 1].latitude, points[index - 1].longitude],
-        [points[index].latitude, points[index].longitude],
-      ])
-    }
     for (const group of groups.values()) {
-      const trends = routeElevationTrends(group)
       let previousColor: string | null = null
       let continuousLine: L.LatLngTuple[] | null = null
       if (group.length === 1) {
@@ -77,19 +74,21 @@ export function ActivityRouteMap({
       for (let index = 1; index < group.length; index += 1) {
         const previous = group[index - 1]
         const current = group[index]
-        if (current.estimated) {
+        const segmentCoordinates: L.LatLngTuple[] = [
+          [previous.latitude, previous.longitude],
+          [current.latitude, current.longitude],
+        ]
+        if (previous.estimated || current.estimated) {
+          estimatedLines.push(segmentCoordinates)
           continuousLine = null
           previousColor = null
           continue
         }
-        const color =
-          trends[index] === null
-            ? "#798993"
-            : trends[index] === "ascent"
-              ? "#d36f38"
-              : trends[index] === "descent"
-                ? "#377baa"
-                : "#238274"
+        const altitude =
+          Number.isFinite(previous.altitude_m) && Number.isFinite(current.altitude_m)
+            ? ((previous.altitude_m ?? 0) + (current.altitude_m ?? 0)) / 2
+            : null
+        const color = routeAltitudeColor(altitude, altitudeRange)
         if (!lines.has(color)) lines.set(color, [])
         if (continuousLine && previousColor === color) {
           continuousLine.push([current.latitude, current.longitude])
@@ -121,7 +120,7 @@ export function ActivityRouteMap({
       ? "Inicio y fin del recorrido" : "Fin del recorrido").addTo(layer)
     const bounds = L.latLngBounds(points.map((point) => [point.latitude, point.longitude]))
     map.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 })
-  }, [points, hasPoints])
+  }, [points, hasPoints, altitudeRange])
 
   if (!points.length) return null
   return (
@@ -137,17 +136,21 @@ export function ActivityRouteMap({
       <div className="activity-route-legend" aria-label="Cambios de altitud">
         <span><i className="route-start" /> Inicio</span>
         <span><i className="route-end" /> Fin</span>
-        <span><i className="ascent" /> Ascenso</span>
-        <span><i className="level" /> Estable</span>
-        <span><i className="descent" /> Descenso</span>
-        <span><i className="unknown" /> Sin altitud</span>
-        <span><i className="estimated" /> Tramo estimado</span>
+        {altitudeRange && (
+          <span className="activity-route-altitude-scale">
+            <small>{formatDecimal(altitudeRange.min)} m</small>
+            <i aria-hidden="true" />
+            <small>{formatDecimal(altitudeRange.max)} m</small>
+          </span>
+        )}
+        {hasUnknownAltitude && <span><i className="unknown" /> Sin altitud</span>}
+        {hasEstimatedSegments && <span><i className="estimated" /> Tramo estimado</span>}
       </div>
       {showTechnicalDetails ? <details className="activity-route-details">
         <summary>Detalles del recorrido</summary>
         <p>
-          Los colores muestran la tendencia de altitud (puntos vecinos hasta 25 m; pendiente de 1 % y cambio de 0,5 m).
-          La línea discontinua une puntos sin señal GPS; no es una ruta medida y no aporta ascenso. Las pausas manuales
+          El degradado muestra la altitud absoluta de cada tramo entre el mínimo y el máximo fiables del recorrido. La
+          línea discontinua une puntos sin señal GPS; no es una ruta medida y no aporta ascenso. Las pausas manuales
           quedan separadas.
         </p>
         <p>

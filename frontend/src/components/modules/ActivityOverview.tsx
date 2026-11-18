@@ -1,6 +1,16 @@
 import { useId, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
-import { Bar, BarChart, CartesianGrid, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { activityMetrics, type ActivityMetricKey, type summarizeActivity } from "../../lib/activity.js"
 import { localDateTimeToIso } from "../../dateTime.js"
 import { formatDate, formatDecimal } from "../../lib/format"
@@ -27,13 +37,16 @@ export function ActivityOverview({
   }
   const weeksWithData = (key: ActivityMetricKey) =>
     summary.weeks.filter((week) => week.metrics[key].total !== null).length
-  const weeklyAverages = Object.fromEntries(
-    activityMetrics.map(({ key }) => [key, averagePerWeek(key)]),
-  ) as Record<ActivityMetricKey, number | null>
+  const weeklyAverages = Object.fromEntries(activityMetrics.map(({ key }) => [key, averagePerWeek(key)])) as Record<
+    ActivityMetricKey,
+    number | null
+  >
   const calorieWeeks = summary.weeks.filter((week) => week.metrics.calories_kcal.total !== null)
   const recordedCaloriesPerWeek = calorieWeeks.length
-    ? calorieWeeks.reduce((sum, week) => sum + (week.metrics.calories_kcal.total ?? 0) - (week.estimatedCalories ?? 0), 0) /
-      calorieWeeks.length
+    ? calorieWeeks.reduce(
+        (sum, week) => sum + (week.metrics.calories_kcal.total ?? 0) - (week.estimatedCalories ?? 0),
+        0,
+      ) / calorieWeeks.length
     : null
   const estimatedCaloriesPerWeek = calorieWeeks.length
     ? calorieWeeks.reduce((sum, week) => sum + (week.estimatedCalories ?? 0), 0) / calorieWeeks.length
@@ -95,11 +108,10 @@ export function ActivityOverview({
       <p className="activity-disclaimer">
         Los totales suman actividades individuales y resúmenes semanales, incluso si coinciden. Si un resumen ya incluye
         una actividad, se contará dos veces. Los períodos siguen las fechas de tus resúmenes, no semanas de calendario.{" "}
-          Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad. En
-          bicicleta GPS se usan velocidad y ascenso (eficiencia mecánica supuesta del 23%); las estimaciones son
-          orientativas.
-        Yoga/Pilates y Otro no se estiman. Son estimaciones de gasto total, incluido el reposo, no mediciones ni
-        calorías activas de un reloj. Los pasos y la distancia no se estiman.
+        Si faltan calorías, se estiman con MET, duración y el último peso registrado anterior a la actividad. En
+        bicicleta GPS se usan velocidad y ascenso (eficiencia mecánica supuesta del 23%); las estimaciones son
+        orientativas. Yoga/Pilates y Otro no se estiman. Son estimaciones de gasto total, incluido el reposo, no
+        mediciones ni calorías activas de un reloj. Los pasos y la distancia no se estiman.
       </p>
       {summary.invalidMeasurementCount > 0 && (
         <p className="error-banner" role="alert">
@@ -196,108 +208,110 @@ export function ActivityOverview({
               {windowHasMetricData ? (
                 <div className="chart-wrap">
                   <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={windowPoints} barCategoryGap="28%" margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                    <defs>
-                      <linearGradient id={`${gradientId}-single`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#52a985" />
-                        <stop offset="100%" stopColor="#307a58" />
-                      </linearGradient>
-                      <linearGradient id={`${gradientId}-weekly`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#6d9de0" />
-                        <stop offset="100%" stopColor="#3d6fb4" />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="2 6" vertical={false} stroke="var(--line)" />
-                    <XAxis
-                      dataKey="date"
-                      axisLine={false}
-                      tickLine={false}
-                      minTickGap={30}
-                      tickMargin={12}
-                      tick={{ fill: "var(--muted)", fontSize: 11 }}
-                    />
-                    <YAxis
-                      domain={[0, "auto"]}
-                      allowDecimals={metricKey !== "steps"}
-                      axisLine={false}
-                      tickLine={false}
-                      width={70}
-                      tickFormatter={(value) => formatDecimal(Number(value))}
-                      tick={{ fill: "var(--muted)", fontSize: 11 }}
-                    />
-                    {chartAverage !== null && (
-                      <ReferenceLine y={chartAverage} stroke="#a65e43" strokeDasharray="5 5" />
-                    )}
-                    <Tooltip
-                      cursor={{ fill: "var(--green-soft)", opacity: 0.35 }}
-                      content={({ active, payload }) => {
-                        const point = payload?.[0]?.payload as (typeof points)[number] | undefined
-                        if (!active || !point) return null
-                        return (
-                          <div className="activity-chart-tooltip">
-                            <strong>{point.range}</strong>
-                            {point.single != null && (
-                              <div>
-                                <span>Individuales</span>
+                    <BarChart
+                      data={windowPoints}
+                      barCategoryGap="28%"
+                      margin={{ top: 16, right: 16, left: 0, bottom: 8 }}
+                    >
+                      <defs>
+                        <linearGradient id={`${gradientId}-single`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#52a985" />
+                          <stop offset="100%" stopColor="#307a58" />
+                        </linearGradient>
+                        <linearGradient id={`${gradientId}-weekly`} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6d9de0" />
+                          <stop offset="100%" stopColor="#3d6fb4" />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="2 6" vertical={false} stroke="var(--line)" />
+                      <XAxis
+                        dataKey="date"
+                        axisLine={false}
+                        tickLine={false}
+                        minTickGap={30}
+                        tickMargin={12}
+                        tick={{ fill: "var(--muted)", fontSize: 11 }}
+                      />
+                      <YAxis
+                        domain={[0, "auto"]}
+                        allowDecimals={metricKey !== "steps"}
+                        axisLine={false}
+                        tickLine={false}
+                        width={70}
+                        tickFormatter={(value) => formatDecimal(Number(value))}
+                        tick={{ fill: "var(--muted)", fontSize: 11 }}
+                      />
+                      {chartAverage !== null && (
+                        <ReferenceLine y={chartAverage} stroke="#a65e43" strokeDasharray="5 5" />
+                      )}
+                      <Tooltip
+                        cursor={{ fill: "var(--green-soft)", opacity: 0.35 }}
+                        content={({ active, payload }) => {
+                          const point = payload?.[0]?.payload as (typeof points)[number] | undefined
+                          if (!active || !point) return null
+                          return (
+                            <div className="activity-chart-tooltip">
+                              <strong>{point.range}</strong>
+                              {point.single != null && (
+                                <div>
+                                  <span>Individuales</span>
+                                  <b>
+                                    {formatDecimal(point.single)} {metric.unit}
+                                  </b>
+                                </div>
+                              )}
+                              {point.estimated != null && (
+                                <div>
+                                  <span>De ellas, estimadas</span>
+                                  <b>{formatDecimal(point.estimated)} kcal</b>
+                                </div>
+                              )}
+                              {point.weekly != null && (
+                                <div>
+                                  <span>Resúmenes</span>
+                                  <b>
+                                    {formatDecimal(point.weekly)} {metric.unit}
+                                  </b>
+                                </div>
+                              )}
+                              <div className="activity-tooltip-total">
+                                <span>Total</span>
                                 <b>
-                                  {formatDecimal(point.single)} {metric.unit}
+                                  {point.total === null ? "Sin datos" : `${formatDecimal(point.total)} ${metric.unit}`}
                                 </b>
                               </div>
-                            )}
-                            {point.estimated != null && (
-                              <div>
-                                <span>De ellas, estimadas</span>
-                                <b>{formatDecimal(point.estimated)} kcal</b>
-                              </div>
-                            )}
-                            {point.weekly != null && (
-                              <div>
-                                <span>Resúmenes</span>
-                                <b>
-                                  {formatDecimal(point.weekly)} {metric.unit}
-                                </b>
-                              </div>
-                            )}
-                            <div className="activity-tooltip-total">
-                              <span>Total</span>
-                              <b>
-                                {point.total === null
-                                  ? "Sin datos"
-                                  : `${formatDecimal(point.total)} ${metric.unit}`}
-                              </b>
                             </div>
-                          </div>
-                        )
-                      }}
-                    />
-                    <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 11 }} />
-                    {hasWeekly && (
-                      <Bar
-                        dataKey="weekly"
-                        name="Resúmenes semanales"
-                        stackId="total"
-                        fill={`url(#${gradientId}-weekly)`}
-                        legendType="circle"
-                        maxBarSize={44}
-                        radius={hasSingle ? [0, 0, 0, 0] : [5, 5, 0, 0]}
+                          )
+                        }}
                       />
-                    )}
-                    {hasSingle && (
-                      <Bar
-                        dataKey="single"
-                        name={
-                          metricKey === "calories_kcal" && summary.calories.estimatedCount > 0
-                            ? "Individuales (incluye estimadas)"
-                            : "Individuales"
-                        }
-                        stackId="total"
-                        fill={`url(#${gradientId}-single)`}
-                        legendType="circle"
-                        maxBarSize={44}
-                        radius={[5, 5, 0, 0]}
-                      />
-                    )}
-                  </BarChart>
+                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ paddingTop: 16, fontSize: 11 }} />
+                      {hasWeekly && (
+                        <Bar
+                          dataKey="weekly"
+                          name="Resúmenes semanales"
+                          stackId="total"
+                          fill={`url(#${gradientId}-weekly)`}
+                          legendType="circle"
+                          maxBarSize={44}
+                          radius={hasSingle ? [0, 0, 0, 0] : [5, 5, 0, 0]}
+                        />
+                      )}
+                      {hasSingle && (
+                        <Bar
+                          dataKey="single"
+                          name={
+                            metricKey === "calories_kcal" && summary.calories.estimatedCount > 0
+                              ? "Individuales (incluye estimadas)"
+                              : "Individuales"
+                          }
+                          stackId="total"
+                          fill={`url(#${gradientId}-single)`}
+                          legendType="circle"
+                          maxBarSize={44}
+                          radius={[5, 5, 0, 0]}
+                        />
+                      )}
+                    </BarChart>
                   </ResponsiveContainer>
                 </div>
               ) : (

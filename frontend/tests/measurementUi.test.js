@@ -3,7 +3,6 @@ import { after, before, test } from "node:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createServer } from "vite"
-import { dateTimeInputValue } from "../src/dateTime.js"
 
 let server
 let MeasurementOverview
@@ -11,8 +10,6 @@ let LabEvolutionCharts
 let CatalogEntryEditor
 let ModuleWorkspace
 let ActivityEntryEditor
-let ActivityRecorder
-let StravaSettings
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" })
   ;({ MeasurementOverview } = await server.ssrLoadModule("/src/components/charts/MeasurementOverview.tsx"))
@@ -20,158 +17,67 @@ before(async () => {
   ;({ CatalogEntryEditor } = await server.ssrLoadModule("/src/components/editors/CatalogEntryEditor.tsx"))
   ;({ ModuleWorkspace } = await server.ssrLoadModule("/src/components/modules/ModuleWorkspace.tsx"))
   ;({ ActivityEntryEditor } = await server.ssrLoadModule("/src/components/editors/ActivityEntryEditor.tsx"))
-  ;({ ActivityRecorder } = await server.ssrLoadModule("/src/components/editors/ActivityRecorder.tsx"))
-  ;({ StravaSettings } = await server.ssrLoadModule("/src/components/settings/StravaSettings.tsx"))
 })
-after(async () => { await server?.close() })
+after(async () => {
+  await server?.close()
+})
 
 const timezone = "America/Bogota"
 const now = new Date().toISOString()
-const today = dateTimeInputValue(now, timezone).slice(0, 10)
 const catalogItem = (id, name, is_blood_pressure = false) => ({
-  id, name, category: "lab", unit: is_blood_pressure ? "mmHg" : "mg/dL", is_blood_pressure,
-  sort_order: id, normal_min: 70, normal_max: 100, diastolic_normal_min: 60,
-  diastolic_normal_max: 80, symptom_category: null,
+  id,
+  name,
+  category: "lab",
+  unit: is_blood_pressure ? "mmHg" : "mg/dL",
+  is_blood_pressure,
+  sort_order: id,
+  normal_min: 70,
+  normal_max: 100,
+  diastolic_normal_min: 60,
+  diastolic_normal_max: 80,
+  symptom_category: null,
 })
 const labs = [catalogItem(1, "Glucosa"), catalogItem(2, "Colesterol")]
 const bp = catalogItem(3, "Presión arterial", true)
 const result = (id, value, extra = {}) => ({
-  catalog_item_id: id, name: [...labs, bp].find((item) => item.id === id).name,
-  unit: id === bp.id ? "mmHg" : "mg/dL", value, systolic: null, diastolic: null,
-  mean: null, text_value: null, severity: null, intensity: null, category: null, ...extra,
+  catalog_item_id: id,
+  name: [...labs, bp].find((item) => item.id === id).name,
+  unit: id === bp.id ? "mmHg" : "mg/dL",
+  value,
+  systolic: null,
+  diastolic: null,
+  mean: null,
+  text_value: null,
+  severity: null,
+  intensity: null,
+  category: null,
+  ...extra,
 })
 const mixed = {
-  id: 1, module: "labs", title: "Resultados antiguos", occurred_at: now, notes: null,
+  id: 1,
+  module: "labs",
+  title: "Resultados antiguos",
+  occurred_at: now,
+  notes: null,
   data: { results: [result(1, 95), result(2, 180), result(3, null, { systolic: 120, diastolic: 80, mean: 100 })] },
 }
 const markup = (component, props) => renderToStaticMarkup(createElement(component, props))
 const occurrences = (html, text) => html.split(text).length - 1
 
-for (const activityType of ["Caminata", "Correr", "Bicicleta"]) {
-  test(`${activityType} uses the shared GPS recorder with recovery and pocket support`, () => {
-    const html = markup(ActivityRecorder, {
-      activityType, intensity: "Moderada", weights: [], onActiveChange: () => {}, onFinish: () => {},
-    })
-    assert.match(html, /aria-label="Registro GPS"/)
-    assert.ok(html.includes(`Sesión GPS · ${activityType}`))
-    assert.ok(html.includes(`Iniciar ${activityType.toLowerCase()}`))
-    assert.match(html, /Cada ubicación fiable guarda un borrador local/)
-    assert.match(html, /teléfono bloqueado necesitas una app iOS/)
-  })
-
-  test(`${activityType} GPS history describes its own calorie estimation method`, () => {
-    const html = markup(ActivityEntryEditor, {
-      timezone, weights: [], onClose: () => {}, onSave: async () => {},
-      entry: { id: 100, module: "activity", title: activityType, occurred_at: now,
-        data: { entry_type: "single", activity_type: activityType, tracking_source: "gps", duration_min: 30, distance_km: 2 } },
-    })
-    if (activityType === "Bicicleta") assert.match(html, /eficiencia mecánica supuesta del 23%/)
-    else {
-      assert.match(html, /duración en movimiento, peso e intensidad/)
-      assert.doesNotMatch(html, /eficiencia mecánica supuesta del 23%/)
-    }
-
-  })
-}
-
-test("outdoor activity editor exposes local native GPX import", () => {
-  const html = markup(ActivityEntryEditor, { timezone, onClose: () => {}, onSave: async () => {} })
-  assert.match(html, /Importar actividad GPX/)
-  assert.match(html, /type="file"/)
-  assert.match(html, /sin enviarlo a terceros/)
-})
-
-test("settings expose Strava synchronization without embedding credentials", () => {
-  const html = markup(StravaSettings, { token: "synthetic-token", onRefresh: async () => {} })
-  assert.match(html, /Strava · sincronización de actividades/)
-  assert.match(html, /pantalla bloqueada/)
-  assert.match(html, /class="outline-button" href="https:\/\/www.strava.com\/settings\/api" target="_blank" rel="noreferrer"/)
-  assert.match(html, /Obtener credenciales en Strava/)
-  assert.match(html, /¿Cómo obtengo el Client ID y el Client Secret\?/)
-  assert.match(html, /class="strava-setup-actions"/)
-  assert.match(html, /<details class="strava-setup-help">/)
-  assert.match(html, /class="strava-setup-content"/)
-  assert.match(html, /class="strava-setup-note"/)
-  assert.match(html, /Authorization Callback Domain/)
-  assert.match(html, /No copies «Access Token» ni «Refresh Token»/)
-  assert.match(html, /crear una aplicación requiere una suscripción a Strava/)
-  assert.match(html, /https:\/\/developers.strava.com\/docs\/getting-started\//)
-  assert.doesNotMatch(html, /synthetic-token/)
-})
-
-test("Strava history provides attribution and prevents saving local edits", () => {
-  const data = { entry_type: "single", activity_type: "Bicicleta", tracking_source: "gps",
-    duration_min: 60, distance_km: 20, source: "strava", strava_activity_id: 12345 }
-  const entry = { id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data }
-  const html = markup(ModuleWorkspace, { ...workspaceProps, section: "Actividad", entries: [entry] })
-  assert.match(html, /href="https:\/\/www.strava.com\/activities\/12345"/)
-  assert.match(html, /Ver en Strava/)
-  const editor = markup(ActivityEntryEditor, { timezone, entry, onClose: () => {}, onSave: async () => {} })
-  assert.match(editor, /edítala en Strava/)
-  assert.match(editor, /class="primary-button" disabled="">Guardar cambios/)
-})
-
-test("GPS history shows compact estimates and keeps route details available", () => {
-  const data = {
-    entry_type: "single", tracking_source: "gps", activity_type: "Bicicleta",
-    duration_min: 60, distance_km: 21, estimated_distance_km: 1, gpx_imported: true,
-    route: [100, 125].map((altitude_m, index) => ({
-      latitude: 0, longitude: index * 0.001, altitude_m, segment: 0,
-    })),
-  }
-  const html = markup(ModuleWorkspace, {
-    ...workspaceProps, section: "Actividad", entries: [{ id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data }],
-  })
-  assert.match(html, /Uniones estimadas · incluidas/)
-  assert.match(html, /Ascenso estimado/)
-  assert.match(html, /GPX importado/)
-  assert.match(html, /25 m/)
-  const editor = markup(ActivityEntryEditor, {
-    timezone, entry: { id: 1, module: "activity", title: "Bicicleta", occurred_at: now, data },
-    onClose: () => {}, onSave: async () => {},
-  })
-  assert.match(editor, /Ascenso reconstruido conservadoramente/)
-  assert.match(editor, /Distancia de uniones rectas estimadas: 1 km/)
-})
-
-test("medication cards summarize doses and display route, concentration, and next dose", () => {
-  const medication = {
-    id: 8, name: "Medicamento de prueba", active: true, is_primary: false, route: "injectable",
-    concentration_mg: 20, concentration_volume_ml: 2, units_per_ml: 100, dosing_interval: "weekly",
-  }
-  const doses = [1, 2, 2].map((dose_amount, index) => ({
-    id: index + 1,
-    medication_id: medication.id,
-    administered_at: new Date(Date.now() - (3 - index) * 86400000).toISOString(),
-    dose_amount,
-    dose_unit: "mg",
-    dose_mg: dose_amount,
-    calculated_volume_ml: null,
-    calculated_u100_units: null,
-  }))
-  const html = markup(ModuleWorkspace, {
-    ...workspaceProps, section: "Medicación", medications: [medication], doses,
-  })
-
-  assert.match(html, /class="medication-record-symbol injectable"/)
-  assert.match(html, /3<\/strong>/)
-  assert.match(html, /2 con 2 mg/)
-  assert.match(html, /20 mg \/ 2 mL/)
-  assert.match(html, /100 U\/mL/)
-  assert.match(html, /Próxima dosis/)
-  assert.match(html, /Registrar dosis/)
-  assert.match(html, /class="medication-record-actions"/)
-  assert.match(html, /class="medication-action medication-action-primary"/)
-  assert.match(html, /medication-action-danger/)
-  assert.match(html, /Hacer principal/)
-})
-
 test("existing individual activities show estimated kcal, speed and pace in history and statistics", () => {
   const html = markup(ModuleWorkspace, {
-    ...workspaceProps, section: "Actividad",
+    ...workspaceProps,
+    section: "Actividad",
     weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
-    entries: [{ id: 20, module: "activity", title: "Caminata", occurred_at: now,
-      data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 } }],
+    entries: [
+      {
+        id: 20,
+        module: "activity",
+        title: "Caminata",
+        occurred_at: now,
+        data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 },
+      },
+    ],
   })
   assert.match(html, /Calorías est\./)
   assert.match(html, /159,6 kcal/)
@@ -184,15 +90,23 @@ test("existing individual activities show estimated kcal, speed and pace in hist
   assert.doesNotMatch(caloriesCard, /Individuales|Resúmenes/)
   assert.match(html, /Velocidad media/)
   assert.match(html, /4 km\/h/)
+  assert.match(html, /Ritmo medio/)
   assert.match(html, /15 min\/km/)
 })
 
 test("activity editor previews estimates for existing data without filling the entered-calories field", () => {
   const html = markup(ActivityEntryEditor, {
-    timezone, weights: [{ id: 1, measured_at: "2020-01-01T12:00:00Z", weight_kg: 80 }],
-    entry: { id: 20, module: "activity", title: "Caminata", occurred_at: now,
-      data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 } },
-    onClose: () => {}, onSave: async () => {},
+    timezone,
+    weights: [{ id: 1, measured_at: "2020-01-01T12:00:00Z", weight_kg: 80 }],
+    entry: {
+      id: 20,
+      module: "activity",
+      title: "Caminata",
+      occurred_at: now,
+      data: { activity_type: "Caminata", intensity: "Moderada", duration_min: 30, distance_km: 2 },
+    },
+    onClose: () => {},
+    onSave: async () => {},
   })
   assert.match(html, /Calorías estimadas: 159,6 kcal/)
   assert.match(html, /Velocidad media: 4 km\/h/)
@@ -202,7 +116,8 @@ test("activity editor previews estimates for existing data without filling the e
 
 test("measurement overview renders four cards, period controls and metric tabs with one chart", () => {
   const html = markup(MeasurementOverview, {
-    title: "Medidas", timezone,
+    title: "Medidas",
+    timezone,
     series: [
       { id: "waist", label: "Cintura", unit: "cm", points: [{ occurredAt: now, date: "Hoy", value: 90 }] },
       { id: "neck", label: "Cuello", unit: "cm", points: [{ occurredAt: now, date: "Hoy", value: 38 }] },
@@ -245,8 +160,11 @@ test("blood pressure overview combines three metrics in every card and one chart
 })
 
 const formProps = {
-  category: "lab", timezone, onClose: () => {},
-  onSave: async () => {}, onAddCatalogItem: async () => {},
+  category: "lab",
+  timezone,
+  onClose: () => {},
+  onSave: async () => {},
+  onAddCatalogItem: async () => {},
 }
 test("new blood pressure form has required pressure inputs without lab fields or checkboxes", () => {
   const html = markup(CatalogEntryEditor, { ...formProps, catalog: [bp], bloodPressure: true })
@@ -272,7 +190,11 @@ test("lab form never asks for blood pressure and retains numeric or text results
 
 test("legacy mixed blood pressure editor preloads both pressure values and explains shared metadata", () => {
   const html = markup(CatalogEntryEditor, {
-    ...formProps, catalog: [bp], entry: mixed, bloodPressure: true, mixedRecord: true,
+    ...formProps,
+    catalog: [bp],
+    entry: mixed,
+    bloodPressure: true,
+    mixedRecord: true,
   })
   assert.match(html, /value="120"/)
   assert.match(html, /value="80"/)
@@ -288,19 +210,42 @@ test("text-only lab results do not create a numeric chart or a zero measurement"
 })
 
 const workspaceProps = {
-  token: "fixture", timezone, entries: [], weights: [], measurements: [], medications: [], doses: [], photos: [],
-  profile: { id: 1, height_cm: 170, initial_weight_kg: 85, timezone, reminder_time: "09:00", medications_reviewed: true },
-  hasGoals: false, autoOpenEntry: false, onAutoOpenHandled: () => {}, onNavigate: () => {},
-  onRefresh: async () => {}, onError: () => {}, onNewWeight: () => {}, onNewDose: () => {},
-  onEditWeight: () => {}, onEditDose: () => {}, onEditMedication: () => {}, onDelete: async () => {},
+  token: "fixture",
+  timezone,
+  entries: [],
+  weights: [],
+  measurements: [],
+  medications: [],
+  doses: [],
+  photos: [],
+  profile: {
+    id: 1,
+    height_cm: 170,
+    initial_weight_kg: 85,
+    timezone,
+    reminder_time: "09:00",
+    medications_reviewed: true,
+  },
+  hasGoals: false,
+  autoOpenEntry: false,
+  onAutoOpenHandled: () => {},
+  onNavigate: () => {},
+  onRefresh: async () => {},
+  onError: () => {},
+  onNewWeight: () => {},
+  onNewDose: () => {},
+  onEditWeight: () => {},
+  onEditDose: () => {},
+  onEditMedication: () => {},
+  onDelete: async () => {},
 }
 for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laboratorios", "Presión arterial"]) {
   test(`${section} page wires one four-card measurement overview`, () => {
     const html = markup(ModuleWorkspace, { ...workspaceProps, section })
     assert.equal(occurrences(html, 'class="measurement-overview"'), 1)
     assert.equal(occurrences(html, 'class="panel activity-total-card"'), 4)
-    const defaultLabel = section === "Laboratorios" ? "1 año" :
-      ["Medidas", "Objetivos"].includes(section) ? "6 meses" : "90 días"
+    const defaultLabel =
+      section === "Laboratorios" ? "1 año" : ["Medidas", "Objetivos"].includes(section) ? "6 meses" : "90 días"
     assert.match(html, new RegExp(`aria-pressed="true">${defaultLabel}</button>`))
   })
 
@@ -315,7 +260,8 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
 
   test("weight page retains four cards and history without a chart or moving average", () => {
     const html = markup(ModuleWorkspace, {
-      ...workspaceProps, section: "Peso",
+      ...workspaceProps,
+      section: "Peso",
       weights: [{ id: 1, measured_at: now, weight_kg: 80 }],
     })
     assert.equal(occurrences(html, "<dt>Peso</dt>"), 0)
@@ -334,11 +280,15 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
 
   test("blood pressure handles absent systolic readings and historical catalog replacements", () => {
     const historicalBp = { ...bp, id: 4 }
-    const entry = { ...mixed, data: { results: [
-      { ...result(3, null, { diastolic: 75, mean: 95 }), catalog_item_id: 4 },
-    ] } }
+    const entry = {
+      ...mixed,
+      data: { results: [{ ...result(3, null, { diastolic: 75, mean: 95 }), catalog_item_id: 4 }] },
+    }
     const html = markup(LabEvolutionCharts, {
-      catalog: [bp, historicalBp], entries: [entry], timezone, bloodPressure: true,
+      catalog: [bp, historicalBp],
+      entries: [entry],
+      timezone,
+      bloodPressure: true,
     })
     assert.equal(occurrences(html, "<dt>Sistólica</dt>"), 4)
     assert.equal(occurrences(html, "<dt>Diastólica</dt>"), 4)
@@ -350,10 +300,23 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
 
   test("weekly editor opens saved totals without multiplying again", () => {
     const html = markup(ActivityEntryEditor, {
-      timezone, onClose: () => {}, onSave: async () => {},
-      entry: { id: 1, module: "activity", title: "Resumen semanal", occurred_at: now, notes: null,
-        data: { entry_type: "weekly", week_end: today,
-          weekly_steps: 7000, weekly_calories_kcal: 1400, weekly_distance_km: 7 } },
+      timezone,
+      onClose: () => {},
+      onSave: async () => {},
+      entry: {
+        id: 1,
+        module: "activity",
+        title: "Resumen semanal",
+        occurred_at: now,
+        notes: null,
+        data: {
+          entry_type: "weekly",
+          week_end: now.slice(0, 10),
+          weekly_steps: 7000,
+          weekly_calories_kcal: 1400,
+          weekly_distance_km: 7,
+        },
+      },
     })
     assert.match(html, /aria-pressed="true">Total semanal<\/button>/)
     assert.match(html, /value="7000"/)
@@ -363,9 +326,17 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
 
   test("activity has rolling periods and summary-date wording with a separate compact disclaimer", () => {
     const html = markup(ModuleWorkspace, {
-      ...workspaceProps, section: "Actividad",
-      entries: [{ id: 1, module: "activity", title: "Resumen semanal", occurred_at: now,
-        data: { entry_type: "weekly", week_end: today, weekly_calories_kcal: 1400 } }],
+      ...workspaceProps,
+      section: "Actividad",
+      entries: [
+        {
+          id: 1,
+          module: "activity",
+          title: "Resumen semanal",
+          occurred_at: now,
+          data: { entry_type: "weekly", week_end: now.slice(0, 10), weekly_calories_kcal: 1400 },
+        },
+      ],
     })
     assert.match(html, /aria-pressed="true">90 días<\/button>/)
     assert.match(html, /class="activity-disclaimer"/)
@@ -396,8 +367,12 @@ test("blood pressure page scopes both its chart and history away from labs", () 
 
 test("weight cards use the newest reading when timestamps match without rendering a chart", () => {
   const html = markup(ModuleWorkspace, {
-    ...workspaceProps, section: "Peso",
-    weights: [{ id: 2, measured_at: now, weight_kg: 80 }, { id: 1, measured_at: now, weight_kg: 82 }],
+    ...workspaceProps,
+    section: "Peso",
+    weights: [
+      { id: 2, measured_at: now, weight_kg: 80 },
+      { id: 1, measured_at: now, weight_kg: 82 },
+    ],
   })
   assert.match(html, /<strong>80 kg<\/strong>/)
   assert.match(html, /<strong>-2 kg<\/strong>/)
@@ -407,7 +382,8 @@ test("weight cards use the newest reading when timestamps match without renderin
 
 test("history labels independent blood pressure readings separately", () => {
   const html = markup(ModuleWorkspace, {
-    ...workspaceProps, section: "Historial",
+    ...workspaceProps,
+    section: "Historial",
     entries: [{ ...mixed, title: "Presión arterial", data: { results: [mixed.data.results[2]] } }],
   })
   assert.match(html, /Presión arterial/)

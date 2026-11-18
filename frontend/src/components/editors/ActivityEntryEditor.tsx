@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type FormEvent } from "react"
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react"
 import type { JournalEntry, WeightEntry } from "../../api"
 import { dateTimeInputValue, localDateTimeToIso } from "../../dateTime.js"
 import { activityTypes, type ActivityType } from "../../lib/types"
@@ -6,41 +6,64 @@ import { activityCalculations, activityEntryDate, weeklyActivityTotals } from ".
 import { formatDecimal } from "../../lib/format"
 import { Modal } from "../modals/Modal"
 import { ActivityRecorder, type RecordedActivity } from "./ActivityRecorder"
-import { normalizeActivityRoute, routeElevation, type ActivityRoutePoint } from "../../lib/activityTracking.js"
-import { readActivityDraft, recordedActivity } from "../../lib/activityDraft.js"
-import { maxGpxBytes, parseActivityGpx } from "../../lib/activityGpx.js"
+import type { ActivityRoutePoint } from "../../lib/activityTracking.js"
 
-const ActivityRouteMap = lazy(() => import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
+const ActivityRouteMap = lazy(() =>
+  import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })),
+)
+
+type ActivityDraft = {
+  entryType?: "single" | "weekly"
+  activityType?: ActivityType
+  otherActivity?: string
+  occurredAt?: string
+  weekEnd?: string
+  duration?: string
+  distance?: string
+  calories?: string
+  steps?: string
+  intensity?: string
+  weeklyCalories?: string
+  weeklySteps?: string
+  weeklyDistance?: string
+  weeklyInputMode?: "daily_average" | "weekly_total"
+  notes?: string
+  recorded?: RecordedActivity | null
+}
+
+function readActivityDraft(key: string | undefined): ActivityDraft | null {
+  if (!key) return null
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(key) ?? "null")
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as ActivityDraft) : null
+  } catch {
+    return null
+  }
+}
 
 export function ActivityEntryEditor({
   entry,
+  draftKey,
   timezone,
   weights = [],
-  draftKey,
   onClose,
   onSave,
 }: {
   entry?: JournalEntry
+  draftKey?: string
   timezone: string
   weights?: WeightEntry[]
-  draftKey?: string
   onClose: () => void
   onSave: (payload: Omit<JournalEntry, "id" | "created_at" | "updated_at">) => Promise<void>
 }) {
-  const [recovery, setRecovery] = useState(() => {
-    try {
-      return { draft: !entry && draftKey ? readActivityDraft(window.localStorage, draftKey) : null, error: "" }
-    } catch (reason) {
-      return { draft: null, error: reason instanceof Error ? reason.message : "No se pudo leer el borrador GPS." }
-    }
-  })
-  const recoveredActivity = recovery.draft?.finished ? recordedActivity(recovery.draft) : null
+  const [savedDraft] = useState(() => (entry ? null : readActivityDraft(draftKey)))
   const isLegacyEntry = Boolean(entry && !("entry_type" in entry.data))
   const [entryType, setEntryType] = useState<"single" | "weekly">(() =>
-    entry?.data.entry_type === "weekly" ? "weekly" : "single",
+    savedDraft?.entryType ?? (entry?.data.entry_type === "weekly" ? "weekly" : "single"),
   )
   const [activityType, setActivityType] = useState<ActivityType>(() => {
-    const savedType = recovery.draft?.activityType ?? entry?.data.activity_type
+    if (savedDraft?.activityType && activityTypes.includes(savedDraft.activityType)) return savedDraft.activityType
+    const savedType = entry?.data.activity_type
     return activityTypes.includes(savedType as ActivityType)
       ? (savedType as ActivityType)
       : isLegacyEntry
@@ -48,71 +71,90 @@ export function ActivityEntryEditor({
         : "Caminata"
   })
   const [otherActivity, setOtherActivity] = useState(() =>
-    String(entry?.data.other_activity ?? (isLegacyEntry ? entry?.title : "")),
+    String(savedDraft?.otherActivity ?? entry?.data.other_activity ?? (isLegacyEntry ? entry?.title : "")),
   )
   const [occurredAt, setOccurredAt] = useState(() =>
-    dateTimeInputValue(recoveredActivity?.startedAt ?? entry?.occurred_at ?? new Date().toISOString(), timezone),
+    savedDraft?.occurredAt ?? dateTimeInputValue(entry?.occurred_at ?? new Date().toISOString(), timezone),
   )
   const [weekEnd, setWeekEnd] = useState(() =>
-    entry?.data.entry_type === "weekly" ? activityEntryDate(entry, timezone) : occurredAt.split("T")[0],
+    savedDraft?.weekEnd ?? (entry?.data.entry_type === "weekly" ? activityEntryDate(entry, timezone) : occurredAt.split("T")[0]),
   )
-  const [duration, setDuration] = useState(() => String(recoveredActivity?.durationMin ?? entry?.data.duration_min ?? ""))
-  const [distance, setDistance] = useState(() => String(recoveredActivity?.distanceKm ?? entry?.data.distance_km ?? ""))
-  const [calories, setCalories] = useState(() => String(entry?.data.calories_kcal ?? ""))
-  const [steps, setSteps] = useState(() => String(entry?.data.steps ?? ""))
-  const [intensity, setIntensity] = useState(() => String(recovery.draft?.intensity ?? entry?.data.intensity ?? ""))
-  const [weeklyCalories, setWeeklyCalories] = useState(() => String(entry?.data.weekly_calories_kcal ?? ""))
-  const [weeklySteps, setWeeklySteps] = useState(() => String(entry?.data.weekly_steps ?? ""))
-  const [weeklyDistance, setWeeklyDistance] = useState(() => String(entry?.data.weekly_distance_km ?? ""))
+  const [duration, setDuration] = useState(() => savedDraft?.duration ?? String(entry?.data.duration_min ?? ""))
+  const [distance, setDistance] = useState(() => savedDraft?.distance ?? String(entry?.data.distance_km ?? ""))
+  const [calories, setCalories] = useState(() => savedDraft?.calories ?? String(entry?.data.calories_kcal ?? ""))
+  const [steps, setSteps] = useState(() => savedDraft?.steps ?? String(entry?.data.steps ?? ""))
+  const [intensity, setIntensity] = useState(() => savedDraft?.intensity ?? String(entry?.data.intensity ?? ""))
+  const [weeklyCalories, setWeeklyCalories] = useState(() => savedDraft?.weeklyCalories ?? String(entry?.data.weekly_calories_kcal ?? ""))
+  const [weeklySteps, setWeeklySteps] = useState(() => savedDraft?.weeklySteps ?? String(entry?.data.weekly_steps ?? ""))
+  const [weeklyDistance, setWeeklyDistance] = useState(() => savedDraft?.weeklyDistance ?? String(entry?.data.weekly_distance_km ?? ""))
   const [weeklyInputMode, setWeeklyInputMode] = useState<"daily_average" | "weekly_total">(() =>
-    entry?.data.entry_type === "weekly" ? "weekly_total" : "daily_average",
+    savedDraft?.weeklyInputMode ?? (entry?.data.entry_type === "weekly" ? "weekly_total" : "daily_average"),
   )
-  const [notes, setNotes] = useState(entry?.notes ?? "")
-  const [error, setError] = useState(recovery.error)
+  const [notes, setNotes] = useState(savedDraft?.notes ?? entry?.notes ?? "")
+  const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [tracking, setTracking] = useState(false)
-  const [recorded, setRecorded] = useState<RecordedActivity | null>(recoveredActivity)
-  const [gpxImported, setGpxImported] = useState(entry?.data.gpx_imported === true)
-  const [importMessage, setImportMessage] = useState("")
-  const [importing, setImporting] = useState(false)
+  const [recorded, setRecorded] = useState<RecordedActivity | null>(savedDraft?.recorded ?? null)
   const trackingSource = recorded ? "gps" : entry?.data.tracking_source
-  const route = recorded?.route ??
-    (Array.isArray(entry?.data.route) ? (entry.data.route as ActivityRoutePoint[]) : [])
-  const routeAscent = routeElevation(route)
-  const ascentM = recorded ? recorded.ascentM : entry?.data.elevation_gain_m ?? routeAscent.ascentM
-  const descentM = recorded ? recorded.descentM : entry?.data.elevation_loss_m ?? routeAscent.descentM
-  const estimatedDistanceKm = recorded?.estimatedDistanceKm ?? Number(entry?.data.estimated_distance_km ?? 0)
+
+  useEffect(() => {
+    if (!draftKey || entry || tracking) return
+    try {
+      window.localStorage.setItem(
+        draftKey,
+        JSON.stringify({
+          entryType,
+          activityType,
+          otherActivity,
+          occurredAt,
+          weekEnd,
+          duration,
+          distance,
+          calories,
+          steps,
+          intensity,
+          weeklyCalories,
+          weeklySteps,
+          weeklyDistance,
+          weeklyInputMode,
+          notes,
+          recorded,
+        } satisfies ActivityDraft),
+      )
+    } catch {
+      // Storage can be disabled or full; the in-memory form remains usable.
+    }
+  }, [
+    activityType,
+    calories,
+    distance,
+    draftKey,
+    duration,
+    entry,
+    entryType,
+    intensity,
+    notes,
+    occurredAt,
+    otherActivity,
+    recorded,
+    steps,
+    tracking,
+    weekEnd,
+    weeklyCalories,
+    weeklyDistance,
+    weeklyInputMode,
+    weeklySteps,
+  ])
+
   function close() {
-    if (tracking && !window.confirm("¿Cerrar la sesión GPS? Se pausará; si el borrador local pudo guardarse, podrás recuperarlo al abrir una actividad nueva.")) return
+    if (tracking && !window.confirm("¿Salir y descartar la sesión GPS sin guardar?")) return
     onClose()
   }
-  function finishRecording(activity: RecordedActivity, recoverySaved: boolean) {
+  function finishRecording(activity: RecordedActivity) {
     setRecorded(activity)
     setOccurredAt(dateTimeInputValue(activity.startedAt, timezone))
     setDuration(String(activity.durationMin))
     setDistance(String(activity.distanceKm))
-    if (!recoverySaved) setError("No se pudo conservar el recorrido finalizado en este dispositivo. Guarda ahora y no cierres esta pantalla.")
-  }
-  async function importGpx(file: File) {
-    setBusy(true)
-    setImporting(true)
-    setError("")
-    setImportMessage("")
-    try {
-      if (file.size > maxGpxBytes) throw new Error("El GPX supera el límite de 5 MB.")
-      const imported = parseActivityGpx(await file.text(), activityType)
-      setRecorded(imported.activity)
-      setOccurredAt(dateTimeInputValue(imported.activity.startedAt, timezone))
-      setDuration(String(imported.activity.durationMin))
-      setDistance(String(imported.activity.distanceKm))
-      setGpxImported(true)
-      setImportMessage(`GPX importado localmente. ${imported.filteredPoints} puntos omitidos por saltos o desplazamientos pequeños. Revisa los datos y guarda el registro; no hay copia local de recuperación del archivo importado.`)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "No se pudo importar el GPX.")
-    } finally {
-      setBusy(false)
-      setImporting(false)
-    }
   }
   let calculationError = ""
   let calculationTimestamp = ""
@@ -132,9 +174,7 @@ export function ActivityEntryEditor({
         intensity,
         tracking_source: trackingSource,
         moving_duration_min: recorded?.movingDurationMin ?? entry?.data.moving_duration_min,
-        elevation_gain_m: ascentM,
-        route,
-        estimated_distance_km: estimatedDistanceKm,
+        elevation_gain_m: recorded ? recorded.ascentM : entry?.data.elevation_gain_m,
         duration_min: duration.trim() === "" ? null : Number(duration),
         distance_km: distance.trim() === "" ? null : Number(distance),
         calories_kcal: calories.trim() === "" ? null : Number(calories),
@@ -226,15 +266,12 @@ export function ActivityEntryEditor({
             ...(trackingSource === "gps"
               ? {
                   tracking_source: "gps",
-                  gpx_imported: gpxImported,
-                  estimated_distance_km: estimatedDistanceKm,
                   moving_duration_min: recorded
                     ? recorded.movingDurationMin
-                    : entry?.data.moving_duration_min ?? null,
-                  elevation_gain_m: ascentM,
-                  elevation_loss_m: descentM,
-                  route: recorded ? normalizeActivityRoute(recorded.route)
-                    : Array.isArray(entry?.data.route) ? normalizeActivityRoute(entry.data.route as ActivityRoutePoint[]) : null,
+                    : (entry?.data.moving_duration_min ?? null),
+                  elevation_gain_m: recorded ? recorded.ascentM : (entry?.data.elevation_gain_m ?? null),
+                  elevation_loss_m: recorded ? recorded.descentM : (entry?.data.elevation_loss_m ?? null),
+                  route: recorded ? recorded.route : (entry?.data.route ?? null),
                 }
               : {}),
           }
@@ -254,11 +291,11 @@ export function ActivityEntryEditor({
         notes: notes || null,
         data,
       })
-      if (!entry && draftKey && recorded) {
+      if (draftKey) {
         try {
           window.localStorage.removeItem(draftKey)
-        } catch (reason) {
-          window.alert(`Actividad guardada en el servidor, pero no se pudo eliminar el borrador local. No vuelvas a guardarlo. ${reason instanceof Error ? reason.message : ""}`)
+        } catch {
+          // Ignore unavailable storage after the server has saved the entry.
         }
       }
       onClose()
@@ -276,38 +313,10 @@ export function ActivityEntryEditor({
       onClose={close}
     >
       <form className="entry-form" onSubmit={(event) => void submit(event)}>
-        {entry?.data.source === "strava" && <p className="module-hint">
-          Actividad sincronizada: edítala en Strava, no aquí. Forma sincronizará sus cambios.
-          {" "}<a href={`https://www.strava.com/activities/${Number(entry.data.strava_activity_id)}`} target="_blank" rel="noreferrer">Ver en Strava</a>
-        </p>}
-        {!entry && (recorded || recovery.error) && <div>
-          <p className="module-hint">
-            {recorded ? gpxImported
-              ? "GPX pendiente de guardar. Conserva el archivo original hasta guardar el registro."
-              : "Recorrido finalizado pendiente de guardar. El borrador GPS se conserva hasta que el servidor confirme el guardado." : recovery.error}
-          </p>
-          <button type="button" className="cancel-button" onClick={() => {
-            if (!window.confirm(gpxImported ? "¿Descartar el GPX importado sin guardar?" : "¿Eliminar el borrador GPS de este dispositivo?")) return
-            try {
-              if (draftKey && !gpxImported) window.localStorage.removeItem(draftKey)
-              if (gpxImported) {
-                setDuration("")
-                setDistance("")
-              }
-              setRecorded(null)
-              setGpxImported(false)
-              setImportMessage("")
-              setRecovery({ draft: null, error: "" })
-              setError("")
-            } catch (reason) {
-              setError(`No se pudo eliminar el borrador GPS. ${reason instanceof Error ? reason.message : ""}`)
-            }
-          }}>{gpxImported ? "Descartar GPX importado" : "Descartar borrador GPS"}</button>
-        </div>}
         <div className="range-select" role="group" aria-label="Tipo de registro">
           <button
             type="button"
-            disabled={busy || tracking || Boolean(recorded)}
+            disabled={tracking}
             className={entryType === "single" ? "selected" : ""}
             aria-pressed={entryType === "single"}
             onClick={() => setEntryType("single")}
@@ -316,7 +325,7 @@ export function ActivityEntryEditor({
           </button>
           <button
             type="button"
-            disabled={busy || tracking || Boolean(recorded)}
+            disabled={tracking}
             className={entryType === "weekly" ? "selected" : ""}
             aria-pressed={entryType === "weekly"}
             onClick={() => setEntryType("weekly")}
@@ -330,7 +339,7 @@ export function ActivityEntryEditor({
             <label>
               Actividad
               <select
-                disabled={busy || tracking || Boolean(recorded)}
+                disabled={tracking}
                 value={activityType}
                 onChange={(event) => setActivityType(event.target.value as ActivityType)}
               >
@@ -339,49 +348,42 @@ export function ActivityEntryEditor({
                 ))}
               </select>
             </label>
-            {!entry && !recorded && ["Caminata", "Correr", "Bicicleta"].includes(activityType) && (
-              <>
-                {!tracking && !recovery.draft && <label>
-                  Importar actividad GPX
-                  <input type="file" accept=".gpx,application/gpx+xml,application/xml" disabled={busy}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      event.target.value = ""
-                      if (file) void importGpx(file)
-                    }} />
-                  <small>Graba con una app iOS nativa y la pantalla bloqueada, exporta GPX con tiempos y altitudes y ábrelo aquí. Hasta 5 MB y 20000 puntos; el archivo se procesa en este dispositivo, sin enviarlo a terceros.</small>
-                </label>}
-                {!busy && <ActivityRecorder
-                  activityType={activityType}
-                  intensity={intensity}
-                  weights={weights}
-                  storageKey={draftKey}
-                  initialDraft={recovery.draft}
-                  onActiveChange={setTracking}
-                  onFinish={finishRecording}
-                />}
-              </>
+            {!entry && ["Caminata", "Correr", "Bicicleta"].includes(activityType) && (
+              <ActivityRecorder
+                activityType={activityType}
+                intensity={intensity}
+                weights={weights}
+                onActiveChange={setTracking}
+                onFinish={finishRecording}
+              />
             )}
-            {importMessage && <p className="module-hint" role="status">{importMessage}</p>}
             {trackingSource === "gps" && (
               <p className="module-hint">
-                Origen: {gpxImported ? "GPX importado (altitud del archivo, sin precisión vertical declarada)." : "GPS."} {activityType === "Bicicleta"
-                  ? "La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no contempla viento, terreno ni asistencia eléctrica."
-                  : "La estimación usa duración en movimiento, peso e intensidad; no es una medición directa del gasto energético."}
+                Origen: GPS. La estimación usa velocidad y ascenso con una eficiencia mecánica supuesta del 23%; no
+                contempla viento, terreno ni asistencia eléctrica.
                 {(recorded?.movingDurationMin ?? entry?.data.moving_duration_min) != null &&
                   ` Tiempo en movimiento: ${formatDecimal(Number(recorded?.movingDurationMin ?? entry?.data.moving_duration_min))} min; las pausas se estiman a 1 MET.`}
-                {ascentM != null && ` Ascenso estimado: ${formatDecimal(Number(ascentM))} m.`}
-                {descentM != null && ` Descenso estimado: ${formatDecimal(Number(descentM))} m.`}
-                {!recorded && entry?.data.elevation_gain_m == null && routeAscent.ascentM != null &&
-                  " Ascenso reconstruido conservadoramente desde altitudes guardadas; no recupera las altitudes ausentes."}
-                {` Distancia de uniones rectas estimadas: ${formatDecimal(estimatedDistanceKm)} km (incluida en el total, excluida de velocidad para MET y de ascenso).`}
+                {(recorded?.ascentM ?? entry?.data.elevation_gain_m) != null &&
+                  ` Ascenso: ${formatDecimal(Number(recorded?.ascentM ?? entry?.data.elevation_gain_m))} m.`}
+                {(recorded?.descentM ?? entry?.data.elevation_loss_m) != null &&
+                  ` Descenso: ${formatDecimal(Number(recorded?.descentM ?? entry?.data.elevation_loss_m))} m.`}
               </p>
             )}
-            {route.length > 1 && (
-              <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
-                <ActivityRouteMap points={route} />
-              </Suspense>
-            )}
+            {(() => {
+              const route =
+                recorded?.route ?? (Array.isArray(entry?.data.route) ? (entry.data.route as ActivityRoutePoint[]) : [])
+              return route.length > 1 ? (
+                <Suspense
+                  fallback={
+                    <div className="activity-route-loading" role="status">
+                      Cargando mapa…
+                    </div>
+                  }
+                >
+                  <ActivityRouteMap points={route} />
+                </Suspense>
+              ) : null
+            })()}
             {activityType === "Otro" && (
               <label>
                 ¿Qué actividad?
@@ -453,7 +455,7 @@ export function ActivityEntryEditor({
               {activityType !== "Bicicleta" && (
                 <label>
                   Intensidad
-                  <select disabled={tracking} value={intensity} onChange={(event) => setIntensity(event.target.value)}>
+                  <select value={intensity} onChange={(event) => setIntensity(event.target.value)}>
                     <option value="">Sin especificar</option>
                     <option>Suave</option>
                     <option>Moderada</option>
@@ -587,8 +589,8 @@ export function ActivityEntryEditor({
           <button type="button" className="cancel-button" onClick={close}>
             Cancelar
           </button>
-          <button className="primary-button" disabled={busy || tracking || entry?.data.source === "strava"}>
-            {importing ? "Importando GPX…" : busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
+          <button className="primary-button" disabled={busy || tracking}>
+            {busy ? "Guardando…" : entry ? "Guardar cambios" : "Guardar registro"}
           </button>
         </div>
       </form>

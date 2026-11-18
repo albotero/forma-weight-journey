@@ -1,19 +1,19 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
-import { LockKeyhole, MapPin, Pause, Play, Square, Trash2 } from "lucide-react"
+import { lazy, Suspense, useEffect, useRef, useState } from "react"
+import { MapPin, Pause, Play, Square, Trash2 } from "lucide-react"
 import type { WeightEntry } from "../../api"
 import { activityCalculations } from "../../lib/activity.js"
 import { addActivityPosition, emptyActivityTrack, type ActivityTrack } from "../../lib/activityTracking.js"
 import { formatDecimal } from "../../lib/format"
 import { keepScreenAwake, type ScreenWakeLockStatus } from "../../lib/screenWakeLock.js"
-import { recordedActivity, writeActivityDraft, type ActivityDraft } from "../../lib/activityDraft.js"
 
-const ActivityRouteMap = lazy(() => import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })))
+const ActivityRouteMap = lazy(() =>
+  import("./ActivityRouteMap").then((module) => ({ default: module.ActivityRouteMap })),
+)
 
 export type RecordedActivity = {
   startedAt: string
   durationMin: number
   distanceKm: number
-  estimatedDistanceKm: number
   ascentM: number | null
   descentM: number | null
   movingDurationMin: number
@@ -33,119 +33,56 @@ function newSession(): Session {
   return { startedAt: "", elapsedMs: 0, segmentStarted: null, lastFix: null, watch: null, track: emptyActivityTrack() }
 }
 
-function stopSession(session: Session, end = performance.now(), preserveGap = false) {
+function stopSession(session: Session, end = performance.now()) {
   if (session.watch !== null) navigator.geolocation.clearWatch(session.watch)
   if (session.segmentStarted !== null) session.elapsedMs += Math.max(0, end - session.segmentStarted)
   session.watch = null
   session.segmentStarted = null
   session.lastFix = null
-  session.track = { ...session.track, gap: preserveGap ? session.track.gap ?? session.track.last : null, last: null, sample: null, altitude: null }
+  session.track = { ...session.track, last: null, sample: null, altitude: null }
 }
 
 export function ActivityRecorder({
   activityType,
   intensity,
   weights,
-  storageKey,
-  initialDraft,
   onActiveChange,
   onFinish,
 }: {
   activityType: string
   intensity: string
   weights: WeightEntry[]
-  storageKey?: string
-  initialDraft?: ActivityDraft | null
   onActiveChange: (active: boolean) => void
-  onFinish: (activity: RecordedActivity, recoverySaved: boolean) => void
+  onFinish: (activity: RecordedActivity) => void
 }) {
-  const session = useRef<Session>(initialDraft && !initialDraft.finished
-    ? { ...newSession(), startedAt: initialDraft.startedAt, elapsedMs: initialDraft.elapsedMs, track: initialDraft.track }
-    : newSession())
+  const session = useRef<Session>(newSession())
   const [running, setRunning] = useState(false)
-  const [hasSession, setHasSession] = useState(Boolean(initialDraft && !initialDraft.finished))
-  const [elapsedMs, setElapsedMs] = useState(session.current.elapsedMs)
-  const [track, setTrack] = useState(session.current.track)
-  const [message, setMessage] = useState(initialDraft && !initialDraft.finished
-    ? "Sesión recuperada y pausada. Reanuda para continuar; el intervalo sin grabación no se cuenta." : "")
+  const [hasSession, setHasSession] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const [track, setTrack] = useState(emptyActivityTrack)
+  const [message, setMessage] = useState("")
   const [error, setError] = useState("")
-  const [storageError, setStorageError] = useState("")
-  const [pocketMode, setPocketMode] = useState(false)
-  const pocketModeRef = useRef(false)
-  const autoResume = useRef(false)
-  const [unlockProgress, setUnlockProgress] = useState(0)
-  const unlockTimer = useRef<number | null>(null)
-  const [showMap, setShowMap] = useState(true)
-  const [mapPoints, setMapPoints] = useState(track.route)
   const [wakeLockStatus, setWakeLockStatus] = useState<ScreenWakeLockStatus>("requesting")
-
-  const persist = useCallback((finished = false) => {
-    const current = session.current
-    if (!current.startedAt) return false
-    try {
-      writeActivityDraft(window.localStorage, storageKey, {
-        version: 1, activityType, intensity, startedAt: current.startedAt,
-        elapsedMs: current.elapsedMs + (current.segmentStarted === null ? 0 : Math.max(0, performance.now() - current.segmentStarted)),
-        track: current.track, finished,
-      })
-      setStorageError("")
-      return true
-    } catch (reason) {
-      setStorageError(`No se pudo guardar la recuperación GPS en este dispositivo. ${reason instanceof Error ? reason.message : "Comprueba el almacenamiento del navegador."}`)
-      return false
-    }
-  }, [storageKey, activityType, intensity])
-
-  useEffect(() => {
-    if (initialDraft && !initialDraft.finished) onActiveChange(true)
-  }, [initialDraft, onActiveChange])
-
-  useEffect(() => {
-    if (!showMap || pocketMode) return
-    setMapPoints(session.current.track.route)
-    if (!running) return
-    const timer = window.setInterval(() => setMapPoints(session.current.track.route), 5000)
-    return () => window.clearInterval(timer)
-  }, [showMap, running, pocketMode])
-
-  const cancelUnlock = useCallback(() => {
-    if (unlockTimer.current !== null) window.clearInterval(unlockTimer.current)
-    unlockTimer.current = null
-    setUnlockProgress(0)
-  }, [])
-
-  function beginUnlock() {
-    if (unlockTimer.current !== null) return
-    const started = performance.now()
-    unlockTimer.current = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
-        cancelUnlock()
-        return
-      }
-      const progress = Math.min(1, (performance.now() - started) / 2000)
-      setUnlockProgress(progress)
-      if (progress === 1) {
-        cancelUnlock()
-        pause()
-        setPocketMode(false)
-      }
-    }, 50)
-  }
-
-  useEffect(() => {
-    window.addEventListener("blur", cancelUnlock)
-    document.addEventListener("visibilitychange", cancelUnlock)
-    return () => {
-      window.removeEventListener("blur", cancelUnlock)
-      document.removeEventListener("visibilitychange", cancelUnlock)
-      cancelUnlock()
-    }
-  }, [cancelUnlock])
 
   useEffect(() => {
     if (!running) return
     return keepScreenAwake(setWakeLockStatus)
   }, [running])
+
+  useEffect(() => {
+    function hide() {
+      if (document.visibilityState !== "hidden" || session.current.watch === null) return
+      stopSession(session.current)
+      setElapsedMs(session.current.elapsedMs)
+      setRunning(false)
+      setMessage("Sesión pausada al salir de la app o bloquear la pantalla. Reanuda cuando puedas mantenerla abierta.")
+    }
+    document.addEventListener("visibilitychange", hide)
+    return () => {
+      document.removeEventListener("visibilitychange", hide)
+      stopSession(session.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (!hasSession) return
@@ -163,18 +100,17 @@ export function ActivityRecorder({
       const current = session.current
       const now = performance.now()
       if (current.lastFix !== null && now - current.lastFix > 30000) {
-        current.track = { ...current.track, gap: current.track.gap ?? current.track.last, last: null, sample: null, altitude: null }
-        current.lastFix = null
-        persist()
-        setMessage("Sin señal GPS precisa. Seguimos buscando; la próxima unión se marcará como estimada, sin inventar ascenso.")
+        stopSession(current, current.lastFix)
+        setRunning(false)
+        setMessage("")
+        setError("Sesión pausada: más de 30 segundos sin ubicación precisa. Reanuda cuando recuperes la señal.")
       }
       setElapsedMs(current.elapsedMs + (current.segmentStarted === null ? 0 : now - current.segmentStarted))
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [running, persist])
+  }, [running])
 
-  const start = useCallback(() => {
-    if (session.current.watch !== null) return
+  function start() {
     if (!window.isSecureContext || !navigator.geolocation) {
       setError("El GPS requiere HTTPS y un navegador con acceso a ubicación.")
       return
@@ -182,7 +118,6 @@ export function ActivityRecorder({
     setError("")
     setMessage("Esperando ubicación precisa; permite el acceso cuando el iPhone lo solicite.")
     setRunning(true)
-    autoResume.current = true
     setHasSession(true)
     onActiveChange(true)
     try {
@@ -192,7 +127,7 @@ export function ActivityRecorder({
           if (current.watch !== watch) return
           const { latitude, longitude, accuracy, altitude, altitudeAccuracy, speed } = position.coords
           if (Date.now() - position.timestamp > 15000 || accuracy > 35) {
-            current.track = { ...current.track, gap: current.track.gap ?? current.track.last, last: null, sample: null, altitude: null }
+            current.track = { ...current.track, last: null, altitude: null }
             setMessage("Señal GPS imprecisa; no se suma distancia hasta recuperar una ubicación fiable.")
             return
           }
@@ -213,77 +148,35 @@ export function ActivityRecorder({
             },
             activityType,
           )
-          persist()
           setTrack(current.track)
           setMessage(`GPS activo · precisión aproximada ${Math.round(accuracy)} m`)
           setError("")
         },
         (reason) => {
           if (session.current.watch !== watch) return
-          if (reason.code !== 1) {
-            session.current.track = { ...session.current.track, gap: session.current.track.gap ?? session.current.track.last, last: null, sample: null, altitude: null }
-            persist()
-            setMessage("")
-            setError("Señal GPS no disponible. Seguimos buscando; el tramo sin señal se identificará como estimado.")
-            return
-          }
-          autoResume.current = false
           stopSession(session.current, session.current.lastFix ?? performance.now())
-          persist()
           setElapsedMs(session.current.elapsedMs)
           setRunning(false)
           setMessage("")
-          setError("Ubicación denegada. Habilita el permiso de ubicación para este sitio en los ajustes de Safari.")
+          setError(
+            reason.code === 1
+              ? "Ubicación denegada. Habilita el permiso de ubicación para este sitio en los ajustes de Safari."
+              : "No se pudo obtener ubicación. La sesión está pausada; prueba al aire libre y reanuda.",
+          )
         },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       )
       session.current.watch = watch
-      pocketModeRef.current = true
-      setPocketMode(true)
-    } catch (reason) {
-      autoResume.current = false
+    } catch {
       stopSession(session.current)
-      persist()
       setRunning(false)
       setMessage("")
-      setError(`No se pudo iniciar el GPS. ${reason instanceof Error ? reason.message : "Comprueba los permisos de ubicación del navegador."}`)
+      setError("No se pudo iniciar el GPS. Comprueba los permisos de ubicación del navegador.")
     }
-  }, [activityType, onActiveChange, persist])
-
-  useEffect(() => {
-    function suspend() {
-      if (session.current.watch === null) return
-      stopSession(session.current, performance.now(), true)
-      persist()
-      setElapsedMs(session.current.elapsedMs)
-      setRunning(false)
-      setMessage("Sesión suspendida fuera de Forma. Si el modo bolsillo está activo, se reanudará al volver; no se graba en segundo plano.")
-    }
-    function resume() {
-      if (document.visibilityState === "visible" && pocketModeRef.current && autoResume.current) start()
-    }
-    function visibility() {
-      if (document.visibilityState === "hidden") suspend()
-      else resume()
-    }
-    document.addEventListener("visibilitychange", visibility)
-    window.addEventListener("pagehide", suspend)
-    window.addEventListener("pageshow", resume)
-    return () => {
-      document.removeEventListener("visibilitychange", visibility)
-      window.removeEventListener("pagehide", suspend)
-      window.removeEventListener("pageshow", resume)
-      stopSession(session.current)
-      persist()
-    }
-  }, [persist, start])
+  }
 
   function pause() {
-    pocketModeRef.current = false
-    autoResume.current = false
-    setPocketMode(false)
     stopSession(session.current)
-    persist()
     setElapsedMs(session.current.elapsedMs)
     setRunning(false)
     setMessage("Sesión pausada")
@@ -291,39 +184,30 @@ export function ActivityRecorder({
 
   function discard() {
     if (!window.confirm("¿Descartar esta sesión GPS sin guardar?")) return
-    try {
-      if (storageKey) window.localStorage.removeItem(storageKey)
-    } catch (reason) {
-      setStorageError(`No se pudo eliminar el borrador GPS. ${reason instanceof Error ? reason.message : ""}`)
-      return
-    }
     stopSession(session.current)
     session.current = newSession()
-    pocketModeRef.current = false
-    autoResume.current = false
-    setPocketMode(false)
     setTrack(session.current.track)
     setElapsedMs(0)
     setRunning(false)
     setHasSession(false)
     setMessage("")
     setError("")
-    setStorageError("")
     onActiveChange(false)
   }
 
   function finish() {
     stopSession(session.current)
     const current = session.current
-    const recoverySaved = persist(true)
-    onFinish(recordedActivity({
-      version: 1, activityType, intensity, startedAt: current.startedAt,
-      elapsedMs: current.elapsedMs, track: current.track, finished: true,
-    }), recoverySaved)
+    onFinish({
+      startedAt: current.startedAt,
+      durationMin: Number((current.elapsedMs / 60000).toFixed(2)),
+      distanceKm: Number((current.track.distanceM / 1000).toFixed(2)),
+      ascentM: current.track.ascentM === null ? null : Number(current.track.ascentM.toFixed(2)),
+      descentM: current.track.descentM === null ? null : Number(current.track.descentM.toFixed(2)),
+      movingDurationMin: Number((Math.min(current.track.movingMs, current.elapsedMs) / 60000).toFixed(2)),
+      route: current.track.route,
+    })
     session.current = newSession()
-    pocketModeRef.current = false
-    autoResume.current = false
-    setPocketMode(false)
     setRunning(false)
     setHasSession(false)
     setElapsedMs(0)
@@ -349,44 +233,15 @@ export function ActivityRecorder({
     },
     weights,
   )
-  const durationLabel = (milliseconds: number) =>
-    `${Math.floor(milliseconds / 60000)}:${String(Math.floor(milliseconds / 1000) % 60).padStart(2, "0")}`
-  const metrics = [
-    { label: "Tiempo", value: durationLabel(elapsedMs) },
-    { label: "En movimiento", value: durationLabel(Math.min(track.movingMs, elapsedMs)) },
-    { label: "Distancia total", value: `${formatDecimal((track.distanceM + track.estimatedDistanceM) / 1000)} km` },
-    { label: "Uniones estimadas", value: `${formatDecimal(track.estimatedDistanceM / 1000)} km` },
-    { label: "Velocidad media", value: calculated.speedKmh === null ? "—" : `${formatDecimal(calculated.speedKmh)} km/h` },
-    {
-      label: "Calorías estimadas",
-      value: calculated.estimatedCalories === null ? "Sin datos" : `${formatDecimal(calculated.estimatedCalories)} kcal`,
-    },
-    {
-      label: "Ascenso / descenso",
-      value: track.ascentM === null
-        ? "Sin datos fiables"
-        : `${formatDecimal(track.ascentM)} / ${formatDecimal(track.descentM ?? 0)} m`,
-    },
-  ]
-  const metricsPanel = (
-    <dl className="activity-recorder-metrics">
-      {metrics.map(({ label, value }) => (
-        <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
-      ))}
-    </dl>
-  )
 
   return (
     <section className="activity-recorder" aria-label="Registro GPS">
       <h3>
-        <MapPin size={18} aria-hidden="true" /> Sesión GPS · {activityType}
+        <MapPin size={18} aria-hidden="true" /> Sesión GPS
       </h3>
       <p className="module-hint">
-        Mantén esta pantalla abierta; al salir, la sesión se suspende y vuelve a grabar al regresar si el modo bolsillo sigue activo.
-        El GPS consume batería y puede perder precisión. Al desbloquear los controles se pausa; al reanudar se activa el modo bolsillo.
-        La ruta se guarda junto con esta actividad. Cada ubicación fiable guarda un borrador local para recuperar
-        tras recargar en esta cuenta y navegador; se elimina al guardar o descartar. No es una copia en el servidor.
-        Para grabar con el teléfono bloqueado necesitas una app iOS de GPS en segundo plano.
+        Mantén esta pantalla abierta; al salir, la sesión se pausa. El GPS consume batería y puede perder precisión. La
+        ruta se guarda junto con esta actividad.
       </p>
       {running && (
         <p className="module-hint" role="status">
@@ -397,26 +252,62 @@ export function ActivityRecorder({
               : "No se puede impedir el bloqueo automático. Desactívalo temporalmente en los ajustes del teléfono y mantén esta pantalla abierta."}
         </p>
       )}
-      {hasSession && !pocketMode && metricsPanel}
-      {track.route.length > 0 && <button type="button" className="cancel-button" onClick={() => {
-        setMapPoints(session.current.track.route)
-        setShowMap(!showMap)
-      }}>{showMap ? "Ocultar mapa en vivo" : "Mostrar mapa en vivo (más batería)"}</button>}
-      {showMap && !pocketMode && mapPoints.length > 0 && (
-        <Suspense fallback={<div className="activity-route-loading" role="status">Cargando mapa…</div>}>
-          <ActivityRouteMap points={mapPoints} />
+      {hasSession && (
+        <dl className="activity-recorder-metrics">
+          <div>
+            <dt>Tiempo</dt>
+            <dd>
+              {Math.floor(elapsedMs / 60000)}:{String(Math.floor(elapsedMs / 1000) % 60).padStart(2, "0")}
+            </dd>
+          </div>
+          <div>
+            <dt>En movimiento</dt>
+            <dd>
+              {Math.floor(track.movingMs / 60000)}:{String(Math.floor(track.movingMs / 1000) % 60).padStart(2, "0")}
+            </dd>
+          </div>
+          <div>
+            <dt>Distancia</dt>
+            <dd>{formatDecimal(track.distanceM / 1000)} km</dd>
+          </div>
+          <div>
+            <dt>Velocidad media</dt>
+            <dd>{calculated.speedKmh === null ? "—" : `${formatDecimal(calculated.speedKmh)} km/h`}</dd>
+          </div>
+          <div>
+            <dt>Calorías estimadas</dt>
+            <dd>
+              {calculated.estimatedCalories === null
+                ? "Sin datos"
+                : `${formatDecimal(calculated.estimatedCalories)} kcal`}
+            </dd>
+          </div>
+          <div>
+            <dt>Ascenso / descenso</dt>
+            <dd>
+              {track.ascentM === null
+                ? "Sin datos fiables"
+                : `${formatDecimal(track.ascentM)} / ${formatDecimal(track.descentM ?? 0)} m`}
+            </dd>
+          </div>
+        </dl>
+      )}
+      {track.route.length > 1 && (
+        <Suspense
+          fallback={
+            <div className="activity-route-loading" role="status">
+              Cargando mapa…
+            </div>
+          }
+        >
+          <ActivityRouteMap points={track.route} />
         </Suspense>
       )}
       <div className="activity-recorder-actions">
         {running ? (
-          <><button type="button" className="cancel-button" onClick={pause}>
+          <button type="button" className="cancel-button" onClick={pause}>
             <Pause size={16} /> Pausar
           </button>
-          <button type="button" className="cancel-button" onClick={() => {
-            pocketModeRef.current = true
-            setPocketMode(true)
-            start()
-          }}>Modo bolsillo</button></>
         ) : (
           <button type="button" className="cancel-button" onClick={start}>
             <Play size={16} /> {hasSession ? "Reanudar" : `Iniciar ${activityType.toLowerCase()}`}
@@ -449,57 +340,6 @@ export function ActivityRecorder({
           {error}
         </p>
       )}
-      {storageError && <p className="error-banner" role="alert">{storageError}</p>}
-      {pocketMode && <div className="activity-pocket-shield" role="dialog" aria-modal="true" aria-label="Modo bolsillo">
-        <h2>Modo bolsillo</h2>
-        <p role="status">{running ? message || "GPS activo" : "Grabación pausada: desbloquea para revisar el estado"}</p>
-        {metricsPanel}
-        {(error || storageError) && <p className="error-banner" role="alert">{error || storageError}</p>}
-        <p>Protege de toques en Forma, no del bloqueo ni de gestos del sistema. Mantén el teléfono desbloqueado.
-          No garantiza grabación en segundo plano. Detente antes de usar los controles.</p>
-        <button
-          type="button"
-          className="activity-pocket-unlock"
-          aria-label="Mantén pulsado 2 segundos para desbloquear"
-          onPointerDown={(event) => {
-            if (!event.isPrimary || event.button !== 0) return
-            event.preventDefault()
-            event.currentTarget.focus()
-            beginUnlock()
-          }}
-          onPointerUp={cancelUnlock}
-          onPointerCancel={cancelUnlock}
-          onLostPointerCapture={cancelUnlock}
-          onPointerLeave={cancelUnlock}
-          onPointerMove={(event) => {
-            const bounds = event.currentTarget.getBoundingClientRect()
-            if (event.clientX < bounds.left || event.clientX > bounds.right ||
-                event.clientY < bounds.top || event.clientY > bounds.bottom) cancelUnlock()
-          }}
-          onBlur={cancelUnlock}
-          onContextMenu={(event) => event.preventDefault()}
-          onKeyDown={(event) => {
-            if (event.key !== " " && event.key !== "Enter") return
-            event.preventDefault()
-            if (!event.repeat) beginUnlock()
-          }}
-          onKeyUp={(event) => {
-            if (event.key !== " " && event.key !== "Enter") return
-            event.preventDefault()
-            cancelUnlock()
-          }}
-          onClick={(event) => event.preventDefault()}
-        >
-          <span className="activity-pocket-unlock-progress" aria-hidden="true" style={{ width: `${unlockProgress * 100}%` }} />
-          <span className="activity-pocket-unlock-content">
-            <LockKeyhole size={24} aria-hidden="true" />
-            <span>
-              <strong>Desbloquear controles</strong>
-              <small>{unlockProgress > 0 ? "Sigue presionando…" : "Mantén pulsado durante 2 segundos"}</small>
-            </span>
-          </span>
-        </button>
-      </div>}
     </section>
   )
 }
