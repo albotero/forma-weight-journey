@@ -10,8 +10,14 @@ export function StravaActivityMetrics({ entry, weights }: { entry: JournalEntry;
     return isValidActivityMeasurement(value) ? Number(value) : null
   }
   const elevation = Array.isArray(data.route) ? routeElevation(data.route as ActivityRoutePoint[]) : null
-  const ascent = number("elevation_gain_m")
-  const descent = number("elevation_loss_m")
+  const reportedAscent = number("elevation_gain_m")
+  const reportedDescent = number("elevation_loss_m")
+  const routeAscent = elevation?.ascentM ?? null
+  const routeDescent = elevation?.descentM ?? null
+  const ascentEstimated = routeAscent !== null && (reportedAscent === null || reportedAscent === 0)
+  const descentEstimated = routeDescent !== null && (reportedDescent === null || reportedDescent === 0)
+  const ascent = ascentEstimated ? routeAscent : reportedAscent ?? routeAscent
+  const descent = descentEstimated ? routeDescent : reportedDescent ?? routeDescent
   const distance = number("distance_km")
   const duration = number("duration_min")
   const moving = number("moving_duration_min")
@@ -31,14 +37,16 @@ export function StravaActivityMetrics({ entry, weights }: { entry: JournalEntry;
         {metric("Distancia", distance, "km")}
         {metric("En movimiento", moving ?? duration, "min")}
         {metric(calories === null ? "Calorías est." : "Calorías", calories ?? estimated.estimatedCalories, "kcal")}
-        {metric(ascent === null ? "Ascenso est." : "Ascenso total", ascent ?? elevation?.ascentM ?? null, "m")}
-        {metric(descent === null ? "Descenso est." : "Descenso total", descent ?? elevation?.descentM ?? null, "m")}
+        {metric(ascentEstimated ? "Ascenso est." : "Ascenso total", ascent, "m")}
+        {metric(descentEstimated ? "Descenso est." : "Descenso total", descent, "m")}
         {metric("FC máxima", number("max_heart_rate_bpm"), "lpm")}
         {metric("MET medios est.", estimated.met, "")}
       </div>
       <details className="activity-route-details">
         <summary>Más detalles</summary>
         <div className="composition-results">
+          {metric(ascentEstimated ? "Ascenso total acumulado est." : "Ascenso total acumulado", ascent, "m")}
+          {metric(descentEstimated ? "Descenso total acumulado est." : "Descenso total acumulado", descent, "m")}
           {metric("Tiempo total", duration, "min")}
           {metric("Tiempo detenido", duration !== null && moving !== null ? Math.max(0, duration - moving) : null, "min")}
           {metric("Velocidad media en movimiento", speed, "km/h")}

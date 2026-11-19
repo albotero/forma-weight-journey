@@ -93,18 +93,22 @@ export function routeElevation(route) {
   let anchor = null
   let ascentM = null
   let descentM = null
+  let hasReliableChange = false
   for (const point of route) {
     if (point.estimated || (anchor && point.segment !== anchor.segment)) anchor = null
     if (!Number.isFinite(point.altitude_m) || point.altitude_m < -500 || point.altitude_m > 10000) continue
     if (anchor && getDistance(anchor, point, 0.1) <= 500) {
-      ascentM ??= 0
-      descentM ??= 0
       const change = point.altitude_m - anchor.altitude_m
       if (Math.abs(change) < 20) continue
+      hasReliableChange = true
+      ascentM ??= 0
+      descentM ??= 0
       ascentM = (ascentM ?? 0) + Math.max(0, change)
       descentM = (descentM ?? 0) + Math.max(0, -change)
     }
     anchor = point
   }
-  return { ascentM, descentM }
+  return hasReliableChange
+    ? { ascentM: ascentM ?? 0, descentM: descentM ?? 0 }
+    : { ascentM: null, descentM: null }
 }

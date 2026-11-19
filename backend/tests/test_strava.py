@@ -264,7 +264,7 @@ def test_worker_treats_unavailable_strava_calories_as_missing(integration, provi
 
 
 def test_worker_imports_once_preserves_ascent_and_remote_calories_and_updates(integration):
-    integration.provider.detail.update(average_heartrate=145.678, max_heartrate=178,
+    integration.provider.detail.update(total_elevation_loss=50, average_heartrate=145.678, max_heartrate=178,
                                        max_speed=12.5, average_watts=180, average_cadence=82,
                                        weighted_average_watts="unavailable")
     connect(integration, True)
@@ -275,6 +275,7 @@ def test_worker_imports_once_preserves_ascent_and_remote_calories_and_updates(in
         assert entry.data["duration_min"] == 60
         assert entry.data["moving_duration_min"] == 50
         assert entry.data["elevation_gain_m"] == 123.46
+        assert entry.data["elevation_loss_m"] == 50
         assert entry.data["calories_kcal"] == 456.79
         assert entry.data["average_heart_rate_bpm"] == 145.68
         assert entry.data["max_heart_rate_bpm"] == 178

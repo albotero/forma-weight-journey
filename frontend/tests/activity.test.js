@@ -8,7 +8,7 @@ import {
   summarizeActivity,
   weeklyActivityTotals,
 } from "../src/lib/activity.js"
-import { addActivityPosition, emptyActivityTrack } from "../src/lib/activityTracking.js"
+import { addActivityPosition, emptyActivityTrack, routeElevation } from "../src/lib/activityTracking.js"
 import { keepScreenAwake } from "../src/lib/screenWakeLock.js"
 
 const { Event, EventTarget, setImmediate } = globalThis
@@ -174,6 +174,18 @@ test("GPS elevation ignores unavailable and noisy altitude and accumulates relia
   const missing = addActivityPosition(track, position(0.005, 100000), "Bicicleta")
   assert.equal(missing.altitude, null)
   assert.equal(missing.ascentM, 10)
+})
+
+test("route elevation leaves flat or insufficient altitude profiles unavailable", () => {
+  assert.deepEqual(routeElevation([
+    { latitude: 0, longitude: 0, altitude_m: 100, segment: 0 },
+    { latitude: 0, longitude: 0.001, altitude_m: 110, segment: 0 },
+  ]), { ascentM: null, descentM: null })
+  assert.deepEqual(routeElevation([
+    { latitude: 0, longitude: 0, altitude_m: 100, segment: 0 },
+    { latitude: 0, longitude: 0.001, altitude_m: 125, segment: 0 },
+    { latitude: 0, longitude: 0.002, altitude_m: 100, segment: 0 },
+  ]), { ascentM: 25, descentM: 25 })
 })
 
 test("GPS route stores accepted points and starts a new segment after a signal gap", () => {

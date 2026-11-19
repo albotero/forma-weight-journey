@@ -3,6 +3,7 @@ import { after, before, test } from "node:test"
 import { createElement } from "react"
 import { renderToStaticMarkup } from "react-dom/server"
 import { createServer } from "vite"
+import { dateTimeInputValue } from "../src/dateTime.js"
 
 let server
 let MeasurementOverview
@@ -10,12 +11,14 @@ let LabEvolutionCharts
 let CatalogEntryEditor
 let ModuleWorkspace
 let ActivityEntryEditor
+let StravaActivityMetrics
 before(async () => {
   server = await createServer({ server: { middlewareMode: true }, appType: "custom" })
   ;({ MeasurementOverview } = await server.ssrLoadModule("/src/components/charts/MeasurementOverview.tsx"))
   ;({ LabEvolutionCharts } = await server.ssrLoadModule("/src/components/charts/LabEvolutionCharts.tsx"))
   ;({ CatalogEntryEditor } = await server.ssrLoadModule("/src/components/editors/CatalogEntryEditor.tsx"))
   ;({ ModuleWorkspace } = await server.ssrLoadModule("/src/components/modules/ModuleWorkspace.tsx"))
+  ;({ StravaActivityMetrics } = await server.ssrLoadModule("/src/components/modules/StravaActivityMetrics.tsx"))
   ;({ ActivityEntryEditor } = await server.ssrLoadModule("/src/components/editors/ActivityEntryEditor.tsx"))
 })
 after(async () => {
@@ -24,6 +27,7 @@ after(async () => {
 
 const timezone = "America/Bogota"
 const now = new Date().toISOString()
+const localToday = dateTimeInputValue(now, timezone).slice(0, 10)
 const catalogItem = (id, name, is_blood_pressure = false) => ({
   id,
   name,
@@ -112,6 +116,40 @@ test("activity editor previews estimates for existing data without filling the e
   assert.match(html, /Velocidad media: 4 km\/h/)
   assert.match(html, /Ritmo medio: 15 min\/km/)
   assert.match(html, /Calorías \(kcal\)<input[^>]*value=""/)
+})
+
+test("Strava activity details show accumulated elevation and keep the provider link collapsed", () => {
+  const html = markup(StravaActivityMetrics, {
+    entry: {
+      id: 21,
+      module: "activity",
+      title: "Bicicleta",
+      occurred_at: now,
+      notes: null,
+      data: {
+        entry_type: "single",
+        activity_type: "Bicicleta",
+        source: "strava",
+        strava_activity_id: 123,
+        duration_min: 60,
+        moving_duration_min: 50,
+        distance_km: 20,
+        route: [100, 125, 100].map((altitude, index) => ({
+          latitude: 0,
+          longitude: index * 0.001,
+          altitude_m: altitude,
+          segment: 0,
+        })),
+      },
+    },
+    weights: [],
+  })
+  const details = html.match(/<details class="activity-route-details">([\s\S]*?)<\/details>/)?.[1]
+  assert.ok(details)
+  assert.match(details, /Ascenso total acumulado est\.<\/span><strong>25 m/)
+  assert.match(details, /Descenso total acumulado est\.<\/span><strong>25 m/)
+  assert.match(details, /href="https:\/\/www\.strava\.com\/activities\/123"/)
+  assert.doesNotMatch(html.slice(0, html.indexOf("<details")), /Ver en Strava/)
 })
 
 test("measurement overview renders four cards, period controls and metric tabs with one chart", () => {
@@ -311,7 +349,7 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
         notes: null,
         data: {
           entry_type: "weekly",
-          week_end: now.slice(0, 10),
+          week_end: localToday,
           weekly_steps: 7000,
           weekly_calories_kcal: 1400,
           weekly_distance_km: 7,
@@ -334,7 +372,7 @@ for (const section of ["Peso", "Composición", "Medidas", "Objetivos", "Laborato
           module: "activity",
           title: "Resumen semanal",
           occurred_at: now,
-          data: { entry_type: "weekly", week_end: now.slice(0, 10), weekly_calories_kcal: 1400 },
+          data: { entry_type: "weekly", week_end: localToday, weekly_calories_kcal: 1400 },
         },
       ],
     })
