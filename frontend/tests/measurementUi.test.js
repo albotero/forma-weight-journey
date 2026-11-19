@@ -146,8 +146,9 @@ test("Strava activity details show accumulated elevation and keep the provider l
   })
   const details = html.match(/<details class="activity-route-details">([\s\S]*?)<\/details>/)?.[1]
   assert.ok(details)
-  assert.match(details, /Ascenso total acumulado est\.<\/span><strong>25 m/)
-  assert.match(details, /Descenso total acumulado est\.<\/span><strong>25 m/)
+  assert.match(html.slice(0, html.indexOf("<details")), /Ascenso est\.<\/span><strong>25 m/)
+  assert.match(html.slice(0, html.indexOf("<details")), /Descenso est\.<\/span><strong>25 m/)
+  assert.doesNotMatch(details, /Ascenso total acumulado|Descenso total acumulado/)
   assert.match(details, /href="https:\/\/www\.strava\.com\/activities\/123"/)
   assert.doesNotMatch(html.slice(0, html.indexOf("<details")), /Ver en Strava/)
 })

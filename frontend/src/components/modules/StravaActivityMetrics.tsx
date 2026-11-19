@@ -45,8 +45,6 @@ export function StravaActivityMetrics({ entry, weights }: { entry: JournalEntry;
       <details className="activity-route-details">
         <summary>Más detalles</summary>
         <div className="composition-results">
-          {metric(ascentEstimated ? "Ascenso total acumulado est." : "Ascenso total acumulado", ascent, "m")}
-          {metric(descentEstimated ? "Descenso total acumulado est." : "Descenso total acumulado", descent, "m")}
           {metric("Tiempo total", duration, "min")}
           {metric("Tiempo detenido", duration !== null && moving !== null ? Math.max(0, duration - moving) : null, "min")}
           {metric("Velocidad media en movimiento", speed, "km/h")}
